@@ -570,7 +570,16 @@
 //                        triggers a stray attack when advancing dialogue with Space. And a 0.3s interact
 //                        grace (interactCd) after any talk/shop/smith closes means mashing [E] can't
 //                        instantly reopen it either — a deliberate later press still does.
-const GAME_VERSION = 'v2.36.1';
+//   v2.36.2 2026-07-02 — THE WYRM STAYS HOME + FAIR QUEST TARGETS (user reports: "the dragon found me in
+//                        town lol"). (1) The Emberwyrm is BOUND to its volcanic lair: it cannot see players
+//                        more than 10 tiles from the lair, and with no prey in its domain it always wings
+//                        straight home (direct flight, cancels mid-special) — no more cross-realm chases
+//                        ending in Eldermyr's plaza. (2) War-camps now place in an ASCENDING ladder (2 entry
+//                        camps at df .34–.48, 2 mid, 2 deep; keeps 2 near-frontier + 2 deep), and the
+//                        wayfinder targets the EASIEST uncleared camp/keep first (df-dominant scoring,
+//                        distance tiebreak) instead of the nearest — the arrow now walks beginners up the
+//                        difficulty curve instead of pointing them at the map's edge.
+const GAME_VERSION = 'v2.36.2';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -874,8 +883,13 @@ function placePOI(kind,lo,hi){ const c=findWildTileInBand(lo,hi); if(!c) return 
   else { const n=(kind==='camp')?(4+Math.floor(Math.random()*2)):(3+Math.floor(Math.random()*2)); for(let i=0;i<n;i++){ const ang=i/n*6.28; spawnPoiEnemy(c.tx+Math.round(Math.cos(ang)*2),c.ty+Math.round(Math.sin(ang)*2),key,{elite:(kind==='camp'&&i===0)}); } }
   return poi; }
 function setupPOIs(){ state.pois=[]; poiSeq=0;
-  for(let i=0;i<6;i++) placePOI('camp',0.34,0.92);              // war-camps — the Marches out to the Frontier
-  for(let i=0;i<4;i++) placePOI('keep',RING_MID,1.01);          // ruined keeps — Frontier only (rich vaults)
+  // war-camps ladder OUTWARD (v2.36.2): two entry camps in the near Marches, two mid, two deep — so the
+  // questline's first targets are beginner-fair and the arrow can walk players up the difficulty curve
+  placePOI('camp',0.34,0.48); placePOI('camp',0.34,0.48);
+  placePOI('camp',0.48,0.65); placePOI('camp',0.48,0.65);
+  placePOI('camp',0.65,0.92); placePOI('camp',0.65,0.92);
+  placePOI('keep',0.58,0.72); placePOI('keep',0.58,0.72);      // ruined keeps — near-frontier pair…
+  placePOI('keep',0.72,1.01); placePOI('keep',0.72,1.01);      // …and the deep-frontier pair
   // (razed villages are now the fixed reclaimable HOLD_SITES — see setupHoldings)
 }
 function clearPOI(poi){ if(poi.cleared) return; poi.cleared=true; const p=state.player; const cx=poi.x+poi.w/2, cy=poi.y+poi.h/2; const k=POI_KINDS[poi.kind]; addShake(4); if(Sound.jingle) Sound.jingle();
@@ -1037,7 +1051,7 @@ function currentObjective(){ if(state.map!=='overworld') return null; const q=st
   if(!q.key.hidden&&!q.key.done){ const k=state.pickups.find(p=>p.kind==='key'&&!p.collected); if(k) return {tx:Math.floor(k.x/TILE),ty:Math.floor(k.y/TILE),label:'🗝 The Dungeon Key',color:'#ffe28a'}; }
   if(q.key.done&&!state.flags.enteredDungeon&&state.dungeonEntrance) return {tx:state.dungeonEntrance.tx,ty:state.dungeonEntrance.ty,label:'☠ The Sunken Dungeon',color:'#c080ff'};
   const lq=q.legion; if(lq&&lq.started){
-    if(lq.stage==='camps'||lq.stage==='keeps'){ const kind=lq.stage==='camps'?'camp':'keep'; let bp=null,bpd=1e18; for(const poi of (state.pois||[])){ if(poi.kind!==kind||poi.cleared) continue; const d=dist2ToPlayerTile(poi.tx,poi.ty); if(d<bpd){ bpd=d; bp=poi; } } if(bp) return {tx:bp.tx,ty:bp.ty,label:(kind==='camp'?'⚔ War-camp':'⚔ Ruined Keep'),color:POI_KINDS[kind].mark}; }
+    if(lq.stage==='camps'||lq.stage==='keeps'){ const kind=lq.stage==='camps'?'camp':'keep'; let bp=null,bpd=1e18; for(const poi of (state.pois||[])){ if(poi.kind!==kind||poi.cleared) continue; const d=distFactor(poi.tx,poi.ty)*1e6+Math.sqrt(dist2ToPlayerTile(poi.tx,poi.ty)); if(d<bpd){ bpd=d; bp=poi; } } if(bp) return {tx:bp.tx,ty:bp.ty,label:(kind==='camp'?'⚔ War-camp':'⚔ Ruined Keep'),color:POI_KINDS[kind].mark}; } // aim at the EASIEST uncleared target first (df dominates, distance breaks ties)
     if(lq.stage==='overlord'&&lq.seatRegion>=0){ const rcx=Math.round(((lq.seatRegion%3)+0.5)*OW_W/3), rcy=Math.round((Math.floor(lq.seatRegion/3)+0.5)*OW_H/3); return {tx:rcx,ty:rcy,label:"☠ The Overlord's seat",color:'#ff2838'}; }
   }
   return null; }
@@ -1613,6 +1627,9 @@ function updateEnemies(){ const p=state.player; const pcx=p.x+p.w/2,pcy=p.y+p.h/
   for(const e of [...state.enemies]){ if(e.hitFlash>0) e.hitFlash--; if(e.attackCd>0) e.attackCd--; if(e.castCd>0) e.castCd--; e.wobble+=0.1;
     if(tickEnemyStatus(e)) continue; if(e.stunT>0){ e.stunT--; continue; }
     if(e.isWildDragon&&e.hp<=e.maxHp*0.15){ if(state.player.level>=20){ if(!e.subdued){ e.subdued=true; log('The Emberwyrm collapses, subdued! Approach and press [E] to tame it.','quest'); Sound.tone(160,0.5,'sawtooth',0.16,{slideTo:90}); } continue; } else { e.hp=Math.round(e.maxHp*0.6); log('The Emberwyrm roars and recovers — you are not yet mighty enough (Level 20).','combat'); } }
+    // The Emberwyrm is BOUND to its volcanic lair (v2.36.2): it cannot see prey more than 10 tiles from the
+    // lair, and with no one in its domain it always wings straight home (flies over anything — no pathing).
+    if(e.isWildDragon&&state.dragonLair){ const lx=state.dragonLair.tx*TILE+16, ly=state.dragonLair.ty*TILE+16; if(Math.hypot(pcx-lx,pcy-ly)>10*TILE){ e.tele=null; e.dash=null; const ecx2=e.x+e.w/2,ecy2=e.y+e.h/2; const dh=Math.hypot(ecx2-lx,ecy2-ly); if(dh>20){ const ang=Math.atan2(ly-ecy2,lx-ecx2); e.x+=Math.cos(ang)*e.speed*2.6; e.y+=Math.sin(ang)*e.speed*2.6; } continue; } }
     if(state.map==='overworld'&&e.homeDf!==undefined&&!e.isBoss&&!e.isNemesis&&!e.dread&&!e.isGreatBeast&&e.poiKey===undefined&&e.holdKey===undefined&&!e.aquatic){ const ex=e.x+e.w/2,ey=e.y+e.h/2; const edf=distFactor(Math.floor(ex/TILE),Math.floor(ey/TILE)); if(e.homeDf-edf>LEASH_MARGIN){ const ang=Math.atan2(ey-OW_H*TILE/2,ex-OW_W*TILE/2); stepToward(e,ex+Math.cos(ang)*40,ey+Math.sin(ang)*40,e.speed*0.9); if(rectDist(p,e)>700){ const ix=state.enemies.indexOf(e); if(ix>=0) state.enemies.splice(ix,1); } continue; } }
     const dist=rectDist(p,e); const active=e.isBoss||e.isNemesis||(e.charger&&e.chargeState>0)||e.tele||e.dash; let aggro=e.isBoss?640:(e.isNemesis?900:(e.flee?420:((e.caster||e.archer||e.healer)?360:(e.charger?240:190)))); if(state.map==='overworld'&&!e.isBoss&&!e.isNemesis&&!e.dread&&!e.night) aggro*=beastAggroMul(); if(dist>=aggro&&!active) continue;
     const ecx=e.x+e.w/2,ecy=e.y+e.h/2;
