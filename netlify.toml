@@ -1,0 +1,4 @@
+# Realms of Eldermyr — static single-file game, no build step.
+[build]
+  publish = "."
+  command = ""
