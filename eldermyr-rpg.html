@@ -593,7 +593,14 @@
 //                        taming still ends it for good. (2) The [H] controls panel and the minimap were
 //                        parked on the same bottom-right corner (both ~bottom:34px) — the controls panel
 //                        now sits above the minimap (bottom:172px), no overlap.
-const GAME_VERSION = 'v2.36.4';
+//   v2.36.5 2026-07-02 — THE OVERLORD ANSWERS (user: "I go to the seat and nothing is there"). The finale
+//                        relied on the ordinary ambush system — a 6–13s timer tick and a roll — so arriving
+//                        at the seat showed nothing, and worse, legionDaily could refill a captain INTO the
+//                        Overlord's region, hijacking target selection down to lowly day-ambush odds. Now:
+//                        entering the seat region during the finale summons the Overlord IMMEDIATELY ("the
+//                        ground trembles…"), squatters can't steal the duel, and the captain-refill can
+//                        never take the Overlord's region while it lives.
+const GAME_VERSION = 'v2.36.5';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -1560,7 +1567,7 @@ function genLegion(){ state.legion={ warlords:[], overlord:null, nextId:1, kills
 function legionRoster(){ const L=state.legion; return L?[L.overlord,...L.warlords].filter(Boolean):[]; }
 function weakMul(e,kind){ const w=e&&e.warlordRef; return (w&&w.weakness===kind)?1.6:1; }
 function maybeRaiseNemesis(){ legionDaily(); }
-function legionDaily(){ const L=state.legion; if(!L) return; L.warlords=L.warlords.filter(w=>w.alive); while(L.warlords.length<5){ const taken=new Set([4,...L.warlords.map(w=>w.region)]); let r=0; for(let i=0;i<9;i++) if(!taken.has(i)){ r=i; break; } const w=mkWarlord(1,r,state.player.level+Math.floor(Math.random()*3)); L.warlords.push(w); log(`A new captain rises in the Dread Legion: ${w.name} seizes ${REGION_NAMES[w.region]}.`,'lore'); }
+function legionDaily(){ const L=state.legion; if(!L) return; L.warlords=L.warlords.filter(w=>w.alive); while(L.warlords.length<5){ const taken=new Set([4,(L.overlord&&L.overlord.alive)?L.overlord.region:-1,...L.warlords.map(w=>w.region)]); let r=0; for(let i=0;i<9;i++) if(!taken.has(i)){ r=i; break; } const w=mkWarlord(1,r,state.player.level+Math.floor(Math.random()*3)); L.warlords.push(w); log(`A new captain rises in the Dread Legion: ${w.name} seizes ${REGION_NAMES[w.region]}.`,'lore'); }
   if(Math.random()<0.5){ const w=NEM_PICK(L.warlords); if(w){ w.level++; if(w.rank<2&&Math.random()<0.3){ w.rank++; log(`${w.name} climbs the Legion's ranks to ${RANK_NAMES[w.rank]}.`,'combat'); } } }
   // thrall loyalty drifts with your Infamy; the resentful defect
   for(const w of legionRoster()){ if(w&&w.dominated&&w.alive){ w.loyalty=Math.max(0,Math.min(100,(w.loyalty||50)+(facTierIdx('dread')>=2?3:-5))); if(w.loyalty<=15&&Math.random()<0.45){ w.dominated=false; w.posted=false; w.grudge=(w.grudge||0)+1; const i=state.allies.findIndex(a=>a.bodyguardOf===w.id); if(i>=0) state.allies.splice(i,1); log(`☠ ${w.name}'s loyalty shatters — the ${RANK_NAMES[w.rank]} breaks free and turns on you once more!`,'combat'); } } } }
@@ -1575,6 +1582,9 @@ function updateNemesisPresence(){ const L=state.legion; if(state.map!=='overworl
   { const lq=state.quests.legion; if(lq&&lq.stage==='overlord'&&(!L.overlord||!L.overlord.alive)) completeLegionQuest(); }
   const present=state.enemies.find(e=>e.isNemesis);
   if(present){ const w=present.warlordRef; if(w){ if(w.scouted<1&&present.hp<=present.maxHp*0.7){ w.scouted=1; log(`You take ${w.name}'s measure: ${WL_STRENGTHS[w.strength]}.`,'quest'); } if(w.scouted<2&&present.hp<=present.maxHp*0.4){ w.scouted=2; log(`${w.name}'s weakness is laid bare: ${WL_WEAKNESS[w.weakness]}!`,'quest'); } if(present.regen&&present.hp>0&&present.hp<present.maxHp&&state.time%30===0) present.hp=Math.min(present.maxHp,present.hp+present.regen); } const pp=state.player; const ptx=Math.floor((pp.x+pp.w/2)/TILE),pty=Math.floor((pp.y+pp.h/2)/TILE); if(rectDist(pp,present)>840||isInTown(ptx,pty)){ const i=state.enemies.indexOf(present); if(i>=0){ state.enemies.splice(i,1); log(`${present.name} loses your trail — but the hunt is far from over.`,'lore'); } } return; }
+  // FINALE (v2.36.5): entering the seat region with the war at its end summons the Overlord IMMEDIATELY —
+  // no ambush timer, no roll, and no captain squatting the region can hijack the duel.
+  { const lq=state.quests.legion; if(lq&&lq.stage==='overlord'&&L.overlord&&L.overlord.alive){ const p0=state.player; const reg0=regionOf(Math.floor((p0.x+p0.w/2)/TILE),Math.floor((p0.y+p0.h/2)/TILE)); if(reg0===L.overlord.region){ if(spawnWarlord(L.overlord)) log('The ground trembles — the DREAD OVERLORD rises to defend its seat!','combat'); return; } } }
   state.legionTimer=(state.legionTimer||300)-1; if(state.legionTimer>0||state.player.level<5) return; state.legionTimer=isNight()?360:780; const p=state.player; const ptx=Math.floor((p.x+p.w/2)/TILE),pty=Math.floor((p.y+p.h/2)/TILE); const pdf=distFactor(ptx,pty); if(pdf<WL_MIN_DF) return; /* the Vale & Heartland are sanctuary — warlords stalk only the mid-outer lands, never near home */ const reg=regionOf(ptx,pty); let target=L.warlords.find(w=>w.alive&&w.region===reg); const finale=state.quests.legion&&state.quests.legion.stage==='overlord'; if(!target&&(facTierIdx('dread')>=3||finale)&&L.overlord&&L.overlord.alive&&reg===L.overlord.region) target=L.overlord; if(!target) return; let chance=(isNight()?0.5:0.12)+(pdf-WL_MIN_DF)*0.5+(state.factions.dread||0)*0.004+target.grudge*0.07; if(finale&&target===L.overlord) chance=0.95; if(state.flags.legionBroken) chance*=0.4; if(Math.random()<chance) spawnWarlord(target); }
 function defeatNemesis(e){ const w=e.warlordRef; const L=state.legion; if(!w||!L) return; const reward=Math.round((160+w.rank*120)*(1+w.level*0.15)); state.player.gold+=reward; L.kills=(L.kills||0)+1;
   if(w.rank<3&&Math.random()<0.2){ w.grudge++; w.scouted=Math.max(w.scouted,1); log(`★ You cut down ${w.name} — but it drags itself away, scarred. It WILL return for vengeance. +${reward} gold.`,'quest'); }
