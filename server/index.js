@@ -21,10 +21,13 @@ const { setInterval } = require('node:timers');
 const { World } = require('./world');
 
 const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
-// 60Hz: Eldermyr's sim is frame-based, tuned for 60fps. Ticking slower runs the
-// WHOLE game (movement, cooldowns, enemy AI, day/night) in slow motion. The sim
-// is ~0.05ms/tick so 60Hz is cheap; this makes the server match single-player speed.
-const HZ = Number(process.env.HZ) || 60;
+// Eldermyr's sim is FRAME-BASED (no delta-time), so single-player runs at the
+// display's refresh rate — a 120Hz monitor plays at 2x the 60fps the game was
+// tuned for. The server ticks at one fixed rate for everyone; 120 matches that
+// high-refresh single-player feel (60 = the design speed, which felt half as fast
+// as 120Hz single-player). The accumulator keeps it real-time-accurate. The client
+// syncs its prediction to this via the `hz` field in the welcome message.
+const HZ = Number(process.env.HZ) || 120;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one
@@ -57,7 +60,7 @@ wss.on('connection', (ws) => {
   ws.pid = id;
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });   // client answered our ping → still alive
-  ws.send(JSON.stringify({ type: 'welcome', id, name: p.name, map: world.mapPayload() }));
+  ws.send(JSON.stringify({ type: 'welcome', id, name: p.name, hz: HZ, map: world.mapPayload() }));
   console.log(`+ ${id} joined  (${world.list.length} online)`);
   ws.on('message', (data) => {
     try { const m = JSON.parse(data); if (m.type === 'input') world.setInput(id, m); } catch (_e) {}
@@ -72,7 +75,8 @@ wss.on('connection', (ws) => {
 // accumulator steps the sim as many times as real time demands (capped), so speed
 // stays correct even when the timer fires late.
 const STEP_MS = 1000 / HZ;
-let acc = 0, lastT = Date.now();
+const BCAST_MS = 15;                             // ~60Hz broadcast, decoupled from the 120Hz sim
+let acc = 0, lastT = Date.now(), lastBcast = 0;
 function broadcast() {
   for (const ws of wss.clients) {
     if (ws.readyState !== 1 || !ws.pid) continue;
@@ -86,13 +90,13 @@ setInterval(() => {
   if (dt > 250) dt = STEP_MS;                    // stalled — don't fast-forward a huge gap
   acc += dt;
   let steps = 0;
-  while (acc >= STEP_MS && steps < 8) {          // catch up to real time (cap avoids spiral)
+  while (acc >= STEP_MS && steps < 16) {         // catch up to real time (cap avoids spiral)
     try { world.tick(); } catch (e) { console.error('tick error:', e && e.message); }
     acc -= STEP_MS; steps++;
   }
-  if (acc > STEP_MS * 8) acc = 0;
-  if (steps > 0) broadcast();                     // send latest state after stepping (~HZ)
-}, 6);
+  if (acc > STEP_MS * 16) acc = 0;
+  if (now - lastBcast >= BCAST_MS) { lastBcast = now; broadcast(); }
+}, 4);
 
 // Heartbeat: reap connections that died WITHOUT a clean close (network drop,
 // laptop sleep, backgrounded tab). No TCP close = no removePlayer, so without

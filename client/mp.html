@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Realms of Eldermyr — Multiplayer</title>
 <style>
-  #mp-status{position:fixed;right:10px;bottom:8px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#8a90a0;text-shadow:1px 1px 0 #000;pointer-events:none}
+  #mp-status{position:fixed;left:50%;transform:translateX(-50%);bottom:5px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#8a90a0;text-shadow:1px 1px 0 #000;pointer-events:none}
   #mp-hurt{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 42%, rgba(175,0,0,0.55) 100%)}
 </style>
 </head>
@@ -68,7 +68,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   realWinAdd('resize', () => { if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {} });
 
   // 6. connect to the authoritative server
-  let snap = null, myId = null, mapReady = false, ws = null, mpLive = false;
+  let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
   function connect() {
     ws = new WebSocket(WS_URL);
     ws.onopen = () => { mpLive = true; st('● connected'); };
@@ -78,6 +78,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       const m = JSON.parse(ev.data);
       if (m.type === 'welcome') {
         myId = m.id;
+        serverHz = m.hz || 60;                           // sync prediction to the server's tick rate
         G.maps.overworld = m.map.tiles;                  // adopt the server's world
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
@@ -235,7 +236,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
     if ((dx || dy) && predInit && G.state.scene === 'play') {
-      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (dt / 16.667);
+      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (dt / (1000 / serverHz));
       const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
       if (!G.canMoveTo || G.canMoveTo(nx, pred.y, w, h)) pred.x = nx;
       if (!G.canMoveTo || G.canMoveTo(pred.x, ny, w, h)) pred.y = ny;
