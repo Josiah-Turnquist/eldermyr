@@ -19,6 +19,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { setInterval } = require('node:timers');
 const { World } = require('./world');
+const db = require('./db');   // persistent heroes (no-ops to ephemeral if no DATABASE_URL)
 
 const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
 // The sim runs at a fixed HZ (the accumulator keeps it real-time-accurate regardless
@@ -53,20 +54,77 @@ const world = new World();
 const wss = new WebSocketServer({ server: httpServer });   // share the HTTP server's port
 let seq = 0;
 
+// Turn an auth message into an account (or null → ephemeral hero), then the caller spawns it.
+//   { token }         → auto-login this browser's saved hero
+//   { recoveryCode }  → reclaim a hero on a new device (returns its token)
+//   { name }          → create a brand-new hero (only if a DB is configured)
+async function resolveAccount(m) {
+  try {
+    if (m.token) { const a = await db.loadByToken(m.token); if (a) return { acct: a, isNew: false }; }
+    if (m.recoveryCode) { const a = await db.loadByRecovery(m.recoveryCode); if (a) return { acct: a, isNew: false, viaCode: true }; }
+    if (db.enabled) { const a = await db.createAccount(m.name); if (a) return { acct: a, isNew: true }; }
+  } catch (e) { console.error('[auth] error:', e && e.message); }
+  return { acct: null, isNew: false };   // no DB (or DB error) → play ephemerally
+}
+
 wss.on('connection', (ws) => {
-  const id = 'p' + (++seq);
-  const p = world.addPlayer(id, 'Hero ' + seq);
-  ws.pid = id;
   ws.isAlive = true;
+  ws.authed = false;
   ws.on('pong', () => { ws.isAlive = true; });   // client answered our ping → still alive
-  ws.send(JSON.stringify({ type: 'welcome', id, name: p.name, hz: HZ, map: world.mapPayload() }));
-  console.log(`+ ${id} joined  (${world.list.length} online)`);
-  ws.on('message', (data) => {
-    try { const m = JSON.parse(data); if (m.type === 'input') world.setInput(id, m); } catch (_e) {}
+  ws.on('message', async (data) => {
+    let m; try { m = JSON.parse(data); } catch (_e) { return; }
+    // ---- handshake: the FIRST message must be `auth`; the world spawns the hero only after ----
+    if (!ws.authed) {
+      if (m.type !== 'auth' || ws.authing) return;
+      ws.authing = true;
+      const { acct, isNew, viaCode } = await resolveAccount(m);
+      if (ws.readyState !== 1) return;               // client vanished during the DB round-trip
+      const id = 'p' + (++seq);
+      const name = ((acct ? acct.name : m.name) || 'Hero').toString().slice(0, 18) || 'Hero';
+      world.addPlayer(id, name, acct && acct.character);
+      ws.pid = id;
+      ws.token = acct ? acct.token : null;           // null = ephemeral; set = we persist this hero
+      ws.authed = true;
+      ws.send(JSON.stringify({
+        type: 'welcome', id, name, hz: HZ, map: world.mapPayload(),
+        token: ws.token || undefined,                          // browser stores this to auto-login next time
+        recoveryCode: (isNew && acct) ? acct.recovery : undefined,   // shown ONCE, on new-hero creation
+        reclaimed: viaCode || undefined,                       // logged in via a recovery code
+        persistent: db.enabled,                                // false → tell the player saves are off
+      }));
+      console.log(`+ ${id} (${name}) ${acct ? (isNew ? '[new]' : '[loaded]') : '[ephemeral]'}  (${world.list.length} online)`);
+      return;
+    }
+    // ---- authed traffic ----
+    if (m.type === 'input') world.setInput(ws.pid, m);
+    else if (m.type === 'rename' && ws.token && m.name) {
+      try {
+        const nm = await db.renameAccount(ws.token, m.name);
+        const p = world.players.get(ws.pid);
+        if (nm && p) { p.name = nm; ws.send(JSON.stringify({ type: 'renamed', name: nm })); }
+      } catch (e) { console.error('[rename]', e && e.message); }
+    }
   });
-  ws.on('close', () => { world.removePlayer(id); console.log(`- ${id} left  (${world.list.length} online)`); });
+  ws.on('close', async () => {
+    if (!ws.pid) return;
+    const ch = ws.token ? world.characterOf(ws.pid) : null;   // capture BEFORE removing
+    world.removePlayer(ws.pid);
+    console.log(`- ${ws.pid} left  (${world.list.length} online)`);
+    if (ws.token && ch) { try { await db.saveCharacter(ws.token, ch); } catch (e) { console.error('[save] on close:', e && e.message); } }
+  });
   ws.on('error', () => {});
 });
+
+// Periodic autosave: a clean close saves a hero, but a server crash / hard kill wouldn't.
+// Snapshot every persistent hero every 30s so progress survives the unexpected.
+setInterval(async () => {
+  if (!db.enabled) return;
+  for (const ws of wss.clients) {
+    if (ws.readyState !== 1 || !ws.token || !ws.pid) continue;
+    const ch = world.characterOf(ws.pid);
+    if (ch) { try { await db.saveCharacter(ws.token, ch); } catch (_e) {} }
+  }
+}, 30000);
 
 // Fixed-timestep loop: advance the sim to match REAL elapsed time, so game speed is
 // independent of timer precision / CPU load. A plain setInterval(16ms) drifts under
@@ -111,7 +169,9 @@ setInterval(() => {
   }
 }, 15000);
 
+db.init().catch((e) => console.error('[db] init failed (heroes ephemeral this run):', e && e.message));
+
 httpServer.listen(PORT, () => {
-  console.log(`Eldermyr MP server — http+ws on :${PORT}  @ ${HZ}Hz`);
+  console.log(`Eldermyr MP server — http+ws on :${PORT}  @ ${HZ}Hz  (heroes: ${db.enabled ? 'persistent' : 'ephemeral'})`);
   console.log(`Play locally: http://localhost:${PORT}/   (in prod: the service URL)`);
 });

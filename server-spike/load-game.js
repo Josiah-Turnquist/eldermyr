@@ -102,7 +102,7 @@ const CAPTURE = [
   'updateEvents', 'updateFactionWar', 'updateWarband', 'updateFatigue', 'updateNemesisPresence',
   'updateWorldLine', 'updateMusicMood', 'updateAmbience', 'updateTime',
   'tryAttack', 'tryInteract', 'killEnemy', 'addProjectile', 'makeWildEnemy', 'spawnPackAround',
-  'gainXP', 'recalcStats', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
+  'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
   'distFactor', 'regionOf', 'rectDist', 'stepToward',
   'doDodge', 'drinkPotion', 'toggleMount',   // discrete actions the server routes per-player
   // menu action RPCs (run per-player on the server; client overrides these to route here)

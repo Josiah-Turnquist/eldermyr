@@ -112,18 +112,65 @@ class World {
 
   get list() { return S.players; }
 
-  addPlayer(id, name) {
+  addPlayer(id, name, character) {
     const p = clone(PLAYER_TEMPLATE);
     p.id = id;
     p.name = name || ('Hero-' + (++this._seq));
     p.x = SPAWN.x + (Math.floor((this._seq) / 4) * TILE);   // fan out a little so they don't stack
     p.y = SPAWN.y + ((this._seq % 4) * TILE);
+    this._seq++;
     p.hp = p.maxHp;
     p.inventory = clone(INV_TEMPLATE);
     p.held = {}; p.actions = [];
     S.players.push(p);
     this.players.set(id, p);
+    if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
     return p;
+  }
+
+  // Produce the SAVEABLE per-player character: the game's own snapshot(), but ONLY the
+  // player-stat + inventory slices (the shared world — map, legion, holdings, factions —
+  // is never per-player). Swap this player into the singleton slots so snapshot() reads it.
+  characterOf(id) {
+    const p = this.players.get(id);
+    if (!p) return null;
+    const pp = S.player, pi = S.inventory;
+    S.player = p; S.inventory = p.inventory;
+    let snap = null;
+    try { snap = G.snapshot(); } catch (_e) {}
+    S.player = pp; S.inventory = pi;
+    if (!snap) return null;
+    return { v: 1, name: p.name, level: p.level | 0, player: snap.player, inventory: snap.inventory };
+  }
+
+  // Restore a saved character onto a fresh player WITHOUT disturbing shared world state.
+  // snapshot().player has no x/y (verified), so restoring stats can't teleport anyone;
+  // we still re-pin id/name/io and recompute derived stats for this player only.
+  _loadCharacter(p, c) {
+    try {
+      if (c && c.player) {
+        const io = { id: p.id, name: p.name, x: p.x, y: p.y, w: p.w, h: p.h, held: p.held, actions: p.actions };
+        Object.assign(p, c.player);
+        Object.assign(p, io);                                   // re-pin position + identity + input
+        p.prof = c.player.prof ? clone(c.player.prof) : p.prof;
+        p.abilities = { whirlwind: false, focus: false, ultimate: false, dominate: false, summon: false, ...(c.player.abilities || {}) };
+        p.abilityCd = { whirlwind: 0, focus: 0, ultimate: 0, summon: 0 };
+        p.invuln = 0; p.attacking = 0; p.whirl = 0; p.ultT = 0; p.attackCooldown = 0; p.dir = 'down';
+      }
+      if (c && c.inventory) {
+        p.inventory = clone(c.inventory);
+        if (G.normItem) {
+          (p.inventory.weapons || []).forEach((w) => { try { G.normItem(w, true); } catch (_e) {} });
+          (p.inventory.armor || []).forEach((a) => { try { G.normItem(a, false); } catch (_e) {} });
+        }
+      }
+      const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
+      S.player = p; S.inventory = p.inventory;
+      if (G.recalcStats) try { G.recalcStats(); } catch (_e) {}
+      S.player = pp; S.inventory = pi;
+      if (!(p.maxHp > 0)) p.maxHp = PLAYER_TEMPLATE.maxHp;
+      if (!(p.hp > 0) || p.hp > p.maxHp) p.hp = p.maxHp;        // never load in dead / over-cap
+    } catch (_e) { /* corrupt save → keep the fresh character */ }
   }
 
   removePlayer(id) {

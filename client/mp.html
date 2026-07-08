@@ -7,10 +7,32 @@
   #newgame-btn{display:none !important;}  /* no "new game" in a shared world; the status readout takes its spot */
   #mp-status{position:fixed;left:50%;transform:translateX(-50%);top:10px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#9098a8;background:rgba(20,20,30,0.85);border:1px solid #5a5040;padding:4px 10px;border-radius:4px;text-shadow:1px 1px 0 #000;pointer-events:none}
   #mp-hurt{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 42%, rgba(175,0,0,0.55) 100%)}
+  /* --- account / identity UI --- */
+  #mp-account{position:fixed;left:10px;top:10px;z-index:99999;font:12px ui-monospace,Menlo,monospace;color:#e8d9a8;background:rgba(20,20,30,0.85);border:1px solid #5a5040;padding:5px 10px;border-radius:4px;cursor:pointer;text-shadow:1px 1px 0 #000;display:none;user-select:none}
+  #mp-account:hover{border-color:#c9a54e;color:#fff}
+  .mp-modal{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;background:rgba(6,6,10,0.72)}
+  .mp-modal.on{display:flex}
+  .mp-card{width:min(92vw,384px);max-height:88vh;overflow:auto;background:linear-gradient(#20202c,#171720);border:1px solid #5a5040;border-radius:8px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,0.6);font-family:ui-monospace,Menlo,monospace;color:#cdd2dc}
+  .mp-card h2{margin:0 0 6px;font-size:17px;color:#e8d9a8;letter-spacing:0.5px}
+  .mp-card p{margin:0 0 13px;font-size:12px;line-height:1.5;color:#9098a8}
+  .mp-card input{width:100%;box-sizing:border-box;background:#0e0e16;border:1px solid #4a4438;color:#fff;font:14px ui-monospace,Menlo,monospace;padding:9px 10px;border-radius:4px;margin-bottom:10px;outline:none}
+  .mp-card input:focus{border-color:#c9a54e}
+  .mp-card input:disabled{color:#8a8f9a}
+  .mp-btn{display:block;width:100%;box-sizing:border-box;background:#2b2b38;border:1px solid #5a5040;color:#e8d9a8;font:13px ui-monospace,Menlo,monospace;padding:9px 12px;border-radius:4px;cursor:pointer;text-align:center;margin-top:7px}
+  .mp-btn:hover{border-color:#c9a54e;background:#34343f;color:#fff}
+  .mp-btn.primary{background:#3a5a3a;border-color:#5c8c5c;color:#eaffea}
+  .mp-btn.primary:hover{background:#456945}
+  .mp-btn.danger:hover{border-color:#b05050;color:#ffb0b0}
+  .mp-code{font-size:19px;letter-spacing:2px;color:#ffe08a;background:#0e0e16;border:1px dashed #6a5f3a;border-radius:5px;padding:12px;text-align:center;margin-bottom:6px;word-break:break-all}
+  .mp-row{display:flex;gap:8px}
+  .mp-row .mp-btn{margin-top:0}
+  .mp-warn{font-size:11px;color:#e0a860;background:rgba(120,80,20,0.18);border:1px solid #6a5228;border-radius:4px;padding:7px 9px;margin-bottom:12px;line-height:1.45}
+  .mp-mut{font-size:11px;color:#6b7080;margin-top:12px;text-align:center}
 </style>
 </head>
 <body>
 <div id="mp-hurt"></div>
+<div id="mp-account"></div>
 <div id="mp-status">loading Eldermyr…</div>
 <script>
 /* =============================================================================
@@ -70,9 +92,101 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
 
   // 6. connect to the authoritative server
   let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
+
+  // ---- identity: "hero name + recovery code" (no passwords), persisted per browser ----
+  // token   → the browser's saved secret; presenting it auto-restores the hero.
+  // recovery→ a human code (shown once) to reclaim the hero on another device.
+  const LS_TOKEN = 'eldermyr_token', LS_REC = 'eldermyr_recovery', LS_NAME = 'eldermyr_name', LS_PEND = 'eldermyr_pending_code';
+  const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+  const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
+  let myToken = lsGet(LS_TOKEN), myRecovery = lsGet(LS_REC), myName = lsGet(LS_NAME) || 'Hero', persistent = false;
+  const pendingCode = lsGet(LS_PEND); if (pendingCode) lsSet(LS_PEND, '');   // a reclaim-by-code survives the reload here
+  // what we present on (re)connect: a reclaim code if pending, else our token, else nothing (→ name entry)
+  let authPayload = pendingCode ? { recoveryCode: pendingCode } : (myToken ? { token: myToken } : null);
+  if (pendingCode) myRecovery = pendingCode;
+  function sendAuth() { if (ws && ws.readyState === 1 && authPayload) { try { ws.send(JSON.stringify(Object.assign({ type: 'auth' }, authPayload))); } catch (e) {} } }
+
+  // modal plumbing
+  const modal = document.createElement('div'); modal.className = 'mp-modal'; document.body.appendChild(modal);
+  const acctBtn = document.getElementById('mp-account');
+  const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  function closeModal() { modal.classList.remove('on'); modal.innerHTML = ''; }
+  function openModal(html) { modal.innerHTML = '<div class="mp-card">' + html + '</div>'; modal.classList.add('on'); const c = modal.querySelector('.mp-card'); c.querySelectorAll('input').forEach((i) => i.addEventListener('keydown', (e) => e.stopPropagation())); return c; }
+  function updateAcctBtn() { if (!acctBtn) return; acctBtn.textContent = '◆ ' + myName + (persistent ? '' : ' ·'); acctBtn.style.display = 'block'; }
+  function copyText(t, btn) {
+    const done = () => { const o = btn.getAttribute('data-l') || btn.textContent; btn.setAttribute('data-l', o); btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = o; }, 1200); };
+    try { navigator.clipboard.writeText(t).then(done, done); } catch (e) { try { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (_e) {} }
+  }
+  acctBtn && acctBtn.addEventListener('click', showAccount);
+
+  function showNameEntry() {
+    const c = openModal(
+      '<h2>Welcome to Eldermyr</h2>' +
+      '<p>Name your hero to begin. Progress saves automatically to this browser.</p>' +
+      '<input id="mp-name-in" maxlength="18" placeholder="Hero name" autocomplete="off" spellcheck="false">' +
+      '<button class="mp-btn primary" id="mp-name-go">Enter Eldermyr</button>' +
+      '<div class="mp-mut" id="mp-have-code" style="cursor:pointer">▸ I already have a recovery code</div>');
+    const inp = c.querySelector('#mp-name-in'); setTimeout(() => inp.focus(), 30);
+    const go = () => { const nm = (inp.value || '').trim().slice(0, 18); if (!nm) { inp.focus(); return; } authPayload = { name: nm }; myName = nm; lsSet(LS_NAME, nm); closeModal(); sendAuth(); };
+    c.querySelector('#mp-name-go').addEventListener('click', go);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    c.querySelector('#mp-have-code').addEventListener('click', () => showReclaim(true));
+  }
+
+  function showRecovery(code) {
+    const c = openModal(
+      '<h2>Save your recovery code</h2>' +
+      '<p>This is the only way to play this hero on another device or browser. Keep it somewhere safe — it won\'t be shown again.</p>' +
+      '<div class="mp-code">' + esc(code) + '</div>' +
+      '<div class="mp-row"><button class="mp-btn" id="mp-rec-copy">Copy</button><button class="mp-btn primary" id="mp-rec-ok">Got it</button></div>');
+    c.querySelector('#mp-rec-copy').addEventListener('click', (e) => copyText(code, e.currentTarget));
+    c.querySelector('#mp-rec-ok').addEventListener('click', closeModal);
+  }
+
+  function showReclaim(fromNameEntry) {
+    const c = openModal(
+      '<h2>Log in with a recovery code</h2>' +
+      '<p>Enter a hero\'s recovery code to bring it to this device.</p>' +
+      '<input id="mp-code-in" placeholder="WORD-XXXX-WORD-XXXX" autocomplete="off" spellcheck="false">' +
+      '<button class="mp-btn primary" id="mp-code-go">Reclaim hero</button>' +
+      '<button class="mp-btn" id="mp-code-cancel">Cancel</button>');
+    const inp = c.querySelector('#mp-code-in'); setTimeout(() => inp.focus(), 30);
+    const go = () => { const code = (inp.value || '').trim(); if (!code) { inp.focus(); return; } lsSet(LS_PEND, code); lsSet(LS_TOKEN, ''); location.reload(); };
+    c.querySelector('#mp-code-go').addEventListener('click', go);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    c.querySelector('#mp-code-cancel').addEventListener('click', () => (fromNameEntry ? showNameEntry() : showAccount()));
+  }
+
+  function showAccount() {
+    if (!myId) return;   // not spawned yet
+    const recHtml = myRecovery
+      ? '<p style="margin-bottom:6px">Recovery code — use it to play this hero on another device:</p><div class="mp-code">' + esc(myRecovery) + '</div><button class="mp-btn" id="mp-acct-copy">Copy code</button>'
+      : '<p>No recovery code is saved on this device.</p>';
+    const warn = persistent ? '' : '<div class="mp-warn">⚠ Saves are OFF — no database is linked yet, so this hero won\'t persist. Progress and recovery codes activate once a database is connected.</div>';
+    const c = openModal(
+      '<h2>Your Hero</h2>' + warn +
+      '<p style="margin-bottom:6px">Name:</p>' +
+      '<input id="mp-acct-name" maxlength="18" value="' + esc(myName) + '"' + (persistent ? '' : ' disabled') + '>' +
+      (persistent ? '<button class="mp-btn" id="mp-acct-rename">Save name</button>' : '') +
+      '<div style="height:12px"></div>' + recHtml +
+      '<div style="height:12px"></div>' +
+      '<button class="mp-btn" id="mp-acct-login">Log in with a different code</button>' +
+      '<button class="mp-btn danger" id="mp-acct-new">Start a new hero</button>' +
+      '<button class="mp-btn primary" id="mp-acct-close">Close</button>');
+    c.querySelector('#mp-acct-close').addEventListener('click', closeModal);
+    const cp = c.querySelector('#mp-acct-copy'); cp && cp.addEventListener('click', (e) => copyText(myRecovery, e.currentTarget));
+    const rn = c.querySelector('#mp-acct-rename'); rn && rn.addEventListener('click', () => { const nm = (c.querySelector('#mp-acct-name').value || '').trim().slice(0, 18); if (nm && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'rename', name: nm })); } catch (e) {} } });
+    c.querySelector('#mp-acct-login').addEventListener('click', () => showReclaim(false));
+    c.querySelector('#mp-acct-new').addEventListener('click', () => {
+      const c2 = openModal('<h2>Start a new hero?</h2><p>Your current hero stays saved — return to it any time with its recovery code. Make sure you\'ve copied that code first.</p><button class="mp-btn danger" id="mp-new-yes">Yes, start fresh</button><button class="mp-btn primary" id="mp-new-no">Cancel</button>');
+      c2.querySelector('#mp-new-yes').addEventListener('click', () => { lsSet(LS_TOKEN, ''); lsSet(LS_REC, ''); lsSet(LS_NAME, ''); location.reload(); });
+      c2.querySelector('#mp-new-no').addEventListener('click', showAccount);
+    });
+  }
+
   function connect() {
     ws = new WebSocket(WS_URL);
-    ws.onopen = () => { mpLive = true; st('● connected'); };
+    ws.onopen = () => { mpLive = true; st('● connected'); if (authPayload) sendAuth(); else showNameEntry(); };
     ws.onclose = () => { mpLive = false; st('○ reconnecting…'); setTimeout(connect, 1000); };
     ws.onerror = () => {};
     ws.onmessage = (ev) => {
@@ -80,12 +194,19 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (m.type === 'welcome') {
         myId = m.id;
         serverHz = m.hz || 60;                           // sync prediction to the server's tick rate
+        persistent = !!m.persistent;
+        if (m.name) { myName = m.name; lsSet(LS_NAME, myName); }
+        if (m.token) { myToken = m.token; lsSet(LS_TOKEN, myToken); authPayload = { token: myToken }; }   // auto-login on future (re)connects
+        if (m.recoveryCode) { myRecovery = m.recoveryCode; lsSet(LS_REC, myRecovery); showRecovery(m.recoveryCode); }   // brand-new hero → show once
+        else if (pendingCode) { lsSet(LS_REC, pendingCode); }   // reclaimed via a code the player typed → remember it here
+        updateAcctBtn();
         G.maps.overworld = m.map.tiles;                  // adopt the server's world
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
         try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
         mapReady = true;
       } else if (m.type === 'state') { snap = m.snap; }
+      else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
     };
   }
   connect();
@@ -113,6 +234,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
+    if (modal.classList.contains('on')) return;    // an account/identity modal is up — keys belong to it, not the game
     // meta + menu keys (any scene)
     if (k === 'm') { if (G.Sound && G.Sound.toggleMute) try { G.Sound.toggleMute(); } catch (_e) {} return; }
     if (k === 'h') { const c = document.getElementById('controls'); if (c) c.style.display = (c.style.display === 'block' ? 'none' : 'block'); return; }
