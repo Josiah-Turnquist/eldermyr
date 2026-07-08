@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <title>Realms of Eldermyr — Multiplayer</title>
 <style>
-  #mp-status{position:fixed;left:50%;transform:translateX(-50%);bottom:5px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#8a90a0;text-shadow:1px 1px 0 #000;pointer-events:none}
+  #newgame-btn{display:none !important;}  /* no "new game" in a shared world; the status readout takes its spot */
+  #mp-status{position:fixed;left:50%;transform:translateX(-50%);top:10px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#9098a8;background:rgba(20,20,30,0.85);border:1px solid #5a5040;padding:4px 10px;border-radius:4px;text-shadow:1px 1px 0 #000;pointer-events:none}
   #mp-hurt{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 42%, rgba(175,0,0,0.55) 100%)}
 </style>
 </head>
