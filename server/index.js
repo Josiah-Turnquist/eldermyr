@@ -66,14 +66,33 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
-setInterval(() => {
-  try { world.tick(); } catch (e) { console.error('tick error:', e && e.message); }
+// Fixed-timestep loop: advance the sim to match REAL elapsed time, so game speed is
+// independent of timer precision / CPU load. A plain setInterval(16ms) drifts under
+// load on a shared container, and "one tick per fire" then runs in slow-motion. The
+// accumulator steps the sim as many times as real time demands (capped), so speed
+// stays correct even when the timer fires late.
+const STEP_MS = 1000 / HZ;
+let acc = 0, lastT = Date.now();
+function broadcast() {
   for (const ws of wss.clients) {
     if (ws.readyState !== 1 || !ws.pid) continue;
     const snap = world.snapshotFor(ws.pid);
     if (snap) { try { ws.send(JSON.stringify({ type: 'state', snap })); } catch (_e) {} }
   }
-}, Math.round(1000 / HZ));
+}
+setInterval(() => {
+  const now = Date.now();
+  let dt = now - lastT; lastT = now;
+  if (dt > 250) dt = STEP_MS;                    // stalled — don't fast-forward a huge gap
+  acc += dt;
+  let steps = 0;
+  while (acc >= STEP_MS && steps < 8) {          // catch up to real time (cap avoids spiral)
+    try { world.tick(); } catch (e) { console.error('tick error:', e && e.message); }
+    acc -= STEP_MS; steps++;
+  }
+  if (acc > STEP_MS * 8) acc = 0;
+  if (steps > 0) broadcast();                     // send latest state after stepping (~HZ)
+}, 6);
 
 // Heartbeat: reap connections that died WITHOUT a clean close (network drop,
 // laptop sleep, backgrounded tab). No TCP close = no removePlayer, so without

@@ -68,11 +68,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   realWinAdd('resize', () => { if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {} });
 
   // 6. connect to the authoritative server
-  let snap = null, myId = null, mapReady = false, ws = null;
+  let snap = null, myId = null, mapReady = false, ws = null, mpLive = false;
   function connect() {
     ws = new WebSocket(WS_URL);
-    ws.onopen = () => st('● connected');
-    ws.onclose = () => { st('○ reconnecting…'); setTimeout(connect, 1000); };
+    ws.onopen = () => { mpLive = true; st('● connected'); };
+    ws.onclose = () => { mpLive = false; st('○ reconnecting…'); setTimeout(connect, 1000); };
     ws.onerror = () => {};
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
@@ -175,7 +175,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   let _fpsN = 0, _fpsT = 0;
   function frame() {
     realRAF(frame);
-    _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; }
+    _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; st((mpLive ? '● live · ' : '○ ') + window.__mpFps + ' fps' + (snap ? ' · ' + snap.enemies.length + ' foes' : '')); }
     // self-heal the canvas size: in some browsers innerWidth is 0 at boot (layout
     // not settled), which zeroes fitCanvas. Re-fit once the viewport is real.
     if (G.canvas && !G.canvas.width && window.innerWidth > 0 && G.fitCanvas) { try { G.fitCanvas(); } catch (e) {} }
@@ -231,7 +231,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       }
     }
     // --- dead-reckon my movement each frame (input feels instant) ---
-    const now = performance.now(), dt = Math.min(50, now - (lastMoveT || now)); lastMoveT = now;
+    const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
     if ((dx || dy) && predInit && G.state.scene === 'play') {
