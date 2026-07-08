@@ -1,0 +1,275 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Realms of Eldermyr — Multiplayer</title>
+<style>
+  #mp-status{position:fixed;right:10px;bottom:8px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#8a90a0;text-shadow:1px 1px 0 #000;pointer-events:none}
+  #mp-hurt{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 42%, rgba(175,0,0,0.55) 100%)}
+</style>
+</head>
+<body>
+<div id="mp-hurt"></div>
+<div id="mp-status">loading Eldermyr…</div>
+<script>
+/* =============================================================================
+ * Multiplayer client — the "load-and-render" fork.
+ * Fetches the UNTOUCHED single-player game (eldermyr-rpg.html), boots it so all
+ * its sprite/HUD/audio machinery initializes, stubs its simulation loop, then
+ * drives its REAL renderer with authoritative snapshots from the server.
+ * Nothing about eldermyr-rpg.html is copied or modified.
+ * ========================================================================== */
+const MP_PORT = 8138;
+// Local dev: this page is on the 8137 dev server but the WS server is on 8138 → target it.
+// Production: the server serves this page, so connect same-origin (wss on the service URL).
+const WS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '')
+  ? 'ws://localhost:' + MP_PORT
+  : (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
+const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.textContent = t; };
+
+(async function boot() {
+  // 1. fetch the untouched game
+  let html;
+  try { html = await (await fetch('/eldermyr-rpg.html')).text(); }
+  catch (e) { st('failed to fetch game: ' + e); return; }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // 2. adopt its <style>s and its <body> DOM (canvas + all HUD/overlay elements)
+  for (const styleEl of doc.querySelectorAll('style')) document.head.appendChild(styleEl.cloneNode(true));
+  const body = doc.body.cloneNode(true);
+  const gameScriptEl = body.querySelector('script');
+  const gameCode = gameScriptEl ? gameScriptEl.textContent : '';
+  if (gameScriptEl) gameScriptEl.remove();               // don't let innerHTML carry an inert copy
+  const frag = document.createDocumentFragment();
+  while (body.firstChild) frag.appendChild(body.firstChild);
+  document.body.insertBefore(frag, document.body.firstChild);
+
+  // 3. keep the game from grabbing the keyboard (we route input to the server)
+  //    and from ever running its own sim loop (stub rAF so its loop() can't recur).
+  const realWinAdd = window.addEventListener.bind(window);
+  window.addEventListener = (type, fn, opts) => { if (type === 'keydown' || type === 'keyup') return; return realWinAdd(type, fn, opts); };
+  const realRAF = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = () => 0;                // stays stubbed for the game forever
+
+  // 4. run the game code + capture the symbols we need to render
+  const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
+    'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
+    'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo',
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles'];
+  const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
+  const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
+  const G = window.__G;
+  if (!G || !G.startGame) { st('game failed to load (no startGame)'); return; }
+
+  // 5. boot the render machinery (builds a valid state, sprites, camera, HUD)
+  window.addEventListener = realWinAdd;                  // restore for our own listeners
+  try { G.startGame(); } catch (e) { console.error('startGame', e); }
+  if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {}
+  realWinAdd('resize', () => { if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {} });
+
+  // 6. connect to the authoritative server
+  let snap = null, myId = null, mapReady = false, ws = null;
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => st('● connected');
+    ws.onclose = () => { st('○ reconnecting…'); setTimeout(connect, 1000); };
+    ws.onerror = () => {};
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.type === 'welcome') {
+        myId = m.id;
+        G.maps.overworld = m.map.tiles;                  // adopt the server's world
+        G.state.map = 'overworld';
+        G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
+        try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
+        mapReady = true;
+      } else if (m.type === 'state') { snap = m.snap; }
+    };
+  }
+  connect();
+
+  // 7. input → server (held keys @20Hz + discrete actions)
+  const held = {}; let actions = [];
+  const KMAP = { w: 'w', a: 'a', s: 's', d: 'd', arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
+  // browsers block audio until a gesture — resume on first key/click so sound
+  // (and therefore mute) actually does something.
+  const wake = () => { if (G.Sound && G.Sound.resume) try { G.Sound.resume(); } catch (_e) {} };
+  realWinAdd('pointerdown', wake);
+  function closePanel() {
+    const sc = G.state.scene;
+    try {
+      if (sc === 'inventory') window.toggleInventory && window.toggleInventory();
+      else if (sc === 'skills') window.toggleSkills && window.toggleSkills();
+      else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
+    } catch (_e) {}
+  }
+  // Menu action buttons call these globals; override them to round-trip through the
+  // server (local mutation would just be overwritten by the next snapshot).
+  for (const fn of ['equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint']) {
+    if (typeof window[fn] === 'function') window[fn] = function () { actions.push({ rpc: fn, args: [].slice.call(arguments) }); };
+  }
+  realWinAdd('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    wake();
+    // meta + menu keys (any scene)
+    if (k === 'm') { if (G.Sound && G.Sound.toggleMute) try { G.Sound.toggleMute(); } catch (_e) {} return; }
+    if (k === 'h') { const c = document.getElementById('controls'); if (c) c.style.display = (c.style.display === 'block' ? 'none' : 'block'); return; }
+    if (k === 'i') { try { window.toggleInventory && window.toggleInventory(); } catch (_e) {} e.preventDefault(); return; }
+    if (k === 'k') { try { window.toggleSkills && window.toggleSkills(); } catch (_e) {} e.preventDefault(); return; }
+    if (k === 'escape') { closePanel(); return; }
+    // gameplay keys only while actually playing (menu open = no walking/fighting)
+    if (G.state.scene !== 'play') return;
+    if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
+    if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
+    if (k === 'e') actions.push('interact');
+    if (k === 'shift' || k === 'l') actions.push('dodge');
+    // abilities / potion / mount → server RPCs (applied to this player)
+    if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
+    if (k === 'r') actions.push({ rpc: 'useFocus', args: [] });
+    if (k === 'f') actions.push({ rpc: 'castSpell', args: [] });
+    if (k === 'z') actions.push({ rpc: 'useUltimate', args: [] });
+    if (k === 'x') actions.push({ rpc: 'useSummon', args: [] });
+    if (k === '1') actions.push({ rpc: 'drinkPotion', args: [] });
+    if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
+    if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
+    if (k === 'c') actions.push({ rpc: 'doCamp', args: [] });
+  });
+  realWinAdd('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (KMAP[k]) held[KMAP[k]] = false;
+    if (k === ' ' || k === 'j') held._atk = false;
+  });
+  setInterval(() => {
+    if (!ws || ws.readyState !== 1) return;
+    const inMenu = G.state && G.state.scene !== 'play';   // don't walk/fight while a panel is open
+    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
+    const act = actions; actions = [];                    // always flush queued RPCs (even from menus)
+    if (!inMenu && held._atk) act.push('attack');
+    ws.send(JSON.stringify({ type: 'input', held: h, actions: act }));
+  }, 16);   // ~60Hz input to match the server tick (snappy start/stop/turns)
+
+  // 8. render loop — feed the game's renderer server state, then draw other players
+  const S = G.state;
+  // client-side prediction for MY player: move locally on input so it feels
+  // instant, and reconcile toward the server's authoritative position.
+  const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
+  // combat feedback regenerated from snapshot deltas (server has no client juice)
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = ''; const enemyMem = new Map();
+  function drawOthers(others) {
+    const ctx = G.ctx; if (!ctx) return;
+    const meRef = S.player;
+    for (const op of others) {
+      S.player = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, op);
+      try { G.drawPlayer(); } catch (e) {}
+      const sx = op.x - S.camera.x + op.w / 2, sy = op.y - S.camera.y - 16;
+      ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      const label = (op.name || '?') + ' L' + op.level, nw = label.length * 5.6 + 8;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(sx - nw / 2, sy - 9, nw, 11);
+      ctx.fillStyle = '#9fe0ff'; ctx.fillText(label, sx, sy);
+      ctx.fillStyle = '#000'; ctx.fillRect(sx - 13, sy + 2, 26, 3);
+      ctx.fillStyle = '#66cc66'; ctx.fillRect(sx - 13, sy + 2, 26 * Math.max(0, op.hp / op.maxHp), 3);
+      ctx.textAlign = 'left';
+    }
+    S.player = meRef;
+  }
+  let _fpsN = 0, _fpsT = 0;
+  function frame() {
+    realRAF(frame);
+    _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; }
+    // self-heal the canvas size: in some browsers innerWidth is 0 at boot (layout
+    // not settled), which zeroes fitCanvas. Re-fit once the viewport is real.
+    if (G.canvas && !G.canvas.width && window.innerWidth > 0 && G.fitCanvas) { try { G.fitCanvas(); } catch (e) {} }
+    if (!snap || !mapReady || !snap.me) return;
+    // --- reconcile prediction against the newest authoritative snapshot ---
+    if (snap !== lastSnap) {
+      lastSnap = snap;
+      if (!predInit) { pred.x = snap.me.x; pred.y = snap.me.y; predInit = true; }
+      else {
+        const err = Math.hypot(snap.me.x - pred.x, snap.me.y - pred.y);
+        if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
+        else { pred.x += (snap.me.x - pred.x) * 0.25; pred.y += (snap.me.y - pred.y) * 0.25; }  // smooth drift correction
+      }
+      // ---- combat feedback (replay the game's own juice from deltas) ----
+      const me2 = snap.me;
+      if (feelHp !== null) {
+        if (me2.hp < feelHp - 0.5) {                                    // took damage
+          hurtFx = 1;
+          try { G.addShake && G.addShake(5); } catch (_e) {}
+          try { G.Sound && G.Sound.hurt && G.Sound.hurt(); } catch (_e) {}
+          try { G.floatDamage && G.floatDamage(pred.x + me2.w / 2, pred.y, Math.round(feelHp - me2.hp), '#ff6060'); } catch (_e) {}
+        } else if (me2.hp > feelHp + 0.5) {                             // healed
+          try { G.floatDamage && G.floatDamage(pred.x + me2.w / 2, pred.y, '+' + Math.round(me2.hp - feelHp), '#60e060'); } catch (_e) {}
+        }
+      }
+      feelHp = me2.hp;
+      if (feelLvl !== null && me2.level > feelLvl) {
+        try { G.Sound && G.Sound.levelup && G.Sound.levelup(); } catch (_e) {}
+        try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 }); } catch (_e) {}
+      }
+      feelLvl = me2.level;
+      if (feelGold !== null && me2.gold > feelGold) { try { G.Sound && G.Sound.gold && G.Sound.gold(); } catch (_e) {} }
+      feelGold = me2.gold;
+      // enemy hits + deaths via stable _nid
+      const seen = new Set();
+      for (const en of (snap.enemies || [])) {
+        if (en._nid == null) continue;
+        seen.add(en._nid);
+        const prev = enemyMem.get(en._nid);
+        if (prev && en.hp < prev.hp - 0.5) {
+          try { G.floatDamage && G.floatDamage(en.x + en.w / 2, en.y, Math.round(prev.hp - en.hp), '#fff060'); } catch (_e) {}
+          try { G.Sound && G.Sound.hit && G.Sound.hit(); } catch (_e) {}
+        }
+        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h });
+      }
+      for (const [nid, prev] of enemyMem) {
+        if (seen.has(nid)) continue;
+        if (prev.hp <= (prev.mhp || 999) * 0.34) {                      // was dying → vanish = kill
+          try { G.spawnBurst && G.spawnBurst(prev.x + prev.w / 2, prev.y + prev.h / 2, 12, { color: '#c04040', speed: 2.4, decay: 0.04 }); } catch (_e) {}
+          try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {}
+        }
+        enemyMem.delete(nid);
+      }
+    }
+    // --- dead-reckon my movement each frame (input feels instant) ---
+    const now = performance.now(), dt = Math.min(50, now - (lastMoveT || now)); lastMoveT = now;
+    let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+    if ((dx || dy) && predInit && G.state.scene === 'play') {
+      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (dt / 16.667);
+      const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
+      if (!G.canMoveTo || G.canMoveTo(nx, pred.y, w, h)) pred.x = nx;
+      if (!G.canMoveTo || G.canMoveTo(pred.x, ny, w, h)) pred.y = ny;
+    }
+    // adopt authoritative state, but render MY player at the predicted position
+    S.player = snap.me;
+    S.player.x = pred.x; S.player.y = pred.y;
+    if (snap.me.inventory) S.inventory = snap.me.inventory;
+    S.enemies = snap.enemies || [];
+    S.pickups = snap.pickups || [];
+    S.projectiles = snap.proj || [];
+    S.npcs = snap.npcs || [];
+    S.time = snap.t; S.weather = snap.wx;
+    const others = (snap.players || []).filter((p) => p.id !== myId);
+    // keep an open inventory/skills panel fresh after server-applied changes
+    if (G.state.scene === 'inventory' || G.state.scene === 'skills') {
+      const sig = (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;
+      if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
+    } else if (panelSig) panelSig = '';
+    try {
+      if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
+      G.updateCamera(); G.applyShake(); G.renderWorld();
+      drawOthers(others);
+      G.drawWayfinder && G.drawWayfinder();
+      G.updateMinimap && G.updateMinimap();
+      G.updateHubTabs && G.updateHubTabs();
+      G.updateCombatHud && G.updateCombatHud();
+      G.updateHUD && G.updateHUD();
+    } catch (e) { st('render error: ' + e.message); console.error(e); }
+    if (hurtFx > 0.001) { hurtFx = Math.max(0, hurtFx - 0.06); const hv = document.getElementById('mp-hurt'); if (hv) hv.style.opacity = hurtFx.toFixed(2); }
+  }
+  realRAF(frame);
+  st('● booted — waiting for world…');
+})();
+</script>
+</body>
+</html>
