@@ -27,6 +27,8 @@ G.startGame();
 const S = G.state;
 S.players = [];
 const SPAWN = { x: S.player.x, y: S.player.y };
+const OW_W = G.OW_W || 248, OW_H = G.OW_H || 208;
+const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
 const PLAYER_TEMPLATE = structuredClone(S.player);
 const INV_TEMPLATE = structuredClone(S.inventory);
 
@@ -38,6 +40,27 @@ function nearestPlayer(e, players) {
   for (const P of players) { const d = (P.x + P.w / 2 - ex) ** 2 + (P.y + P.h / 2 - ey) ** 2; if (d < bd) { bd = d; best = P; } }
   return best;
 }
+// Is this player inside the main-town vicinity? (bosses treat them as invisible.)
+function inTown(p) { const cx = p.x + p.w / 2, cy = p.y + p.h / 2; return (cx - SPAWN.x) ** 2 + (cy - SPAWN.y) ** 2 < TOWN_R2; }
+// A boss with no valid target ambles toward home (dragon → its lair; others → nearest map edge),
+// dropping any wind-up so it can't attack while leaving.
+function wanderHome(e) {
+  e.tele = null; e.dash = null; e.windup = 0; e.chargeState = 0;
+  const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
+  let hx, hy;
+  if (e.isWildDragon && S.dragonLair) { hx = S.dragonLair.tx * TILE + 16; hy = S.dragonLair.ty * TILE + 16; }
+  else {
+    const W = OW_W * TILE, H = OW_H * TILE, dl = ecx, dr = W - ecx, dt = ecy, db = H - ecy, m = Math.min(dl, dr, dt, db);
+    hx = m === dl ? 0 : (m === dr ? W : ecx);
+    hy = m === dt ? 0 : (m === db ? H : ecy);
+  }
+  const d = Math.hypot(hx - ecx, hy - ecy);
+  if (d > 8) {
+    const sp = (e.speed || 1.2) * 1.4;
+    e.x += (hx - ecx) / d * sp; e.y += (hy - ecy) / d * sp;   // move freely so terrain can't trap a leaving boss
+  }
+}
+function isBoss(e) { return !!(e.isBoss || e.isNemesis || e.isGreatBeast || e.isWildDragon); }
 
 // ---- serialization helpers (feed the real game renderer) ----
 // scalar-only copy: safe against circular refs (e.g. enemy.warlordRef), keeps
@@ -150,8 +173,20 @@ class World {
     // SHARED WORLD — enemies via nearest-player PARTITION (reuses real updateEnemies)
     const players = S.players;
     if (S.enemies.length) {
+      // Main-town safety: on the overworld, BOSSES can't see players in the town vicinity —
+      // they target only players who are OUT of town, and wander home if nobody is.
+      const overworld = S.map === 'overworld';
+      const outers = overworld ? players.filter((p) => !inTown(p)) : players;
       const buckets = new Map(players.map((p) => [p, []]));
-      for (const e of S.enemies) buckets.get(nearestPlayer(e, players)).push(e);
+      const wanderers = [];
+      for (const e of S.enemies) {
+        if (overworld && isBoss(e)) {
+          if (outers.length) buckets.get(nearestPlayer(e, outers)).push(e);
+          else wanderers.push(e);           // everyone's in town → amble home
+        } else {
+          buckets.get(nearestPlayer(e, players)).push(e);
+        }
+      }
       const survivors = [];
       for (const p of players) {
         S.player = p;
@@ -159,6 +194,7 @@ class World {
         try { G.updateEnemies(); } catch (_e) {}
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
       }
+      for (const e of wanderers) { wanderHome(e); survivors.push(e); }
       S.enemies = survivors;
     }
 
