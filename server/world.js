@@ -47,12 +47,16 @@ function packScalar(o) {
   for (const k in o) { const v = o[k], t = typeof v; if (v === null || t === 'number' || t === 'string' || t === 'boolean') r[k] = v; }
   return r;
 }
-let _nidSeq = 0;
+let _nidSeq = 0, _pidSeq = 0;
 function packEnemy(e) {
-  if (e._nid == null) e._nid = ++_nidSeq;   // stable id so the client can diff hits/deaths across snapshots
+  if (e._nid == null) e._nid = ++_nidSeq;   // stable id so the client can diff hits/deaths + smooth across snapshots
   const r = packScalar(e);
   if (e.tele) r.tele = { t: e.tele.t, max: e.tele.max, name: e.tele.name, radius: e.tele.radius, aimX: e.tele.aimX, aimY: e.tele.aimY };
   return r;
+}
+function packProj(pr) {
+  if (pr._pid == null) pr._pid = ++_pidSeq;   // stable id so the client can smooth fast projectiles
+  return packScalar(pr);
 }
 // depth-bounded deep clone for the requesting player + pickups (need nested prof/
 // inventory/value); the depth cap also defuses any accidental cycle.
@@ -221,7 +225,7 @@ class World {
       me: safeClone(me),
       players: S.players.map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(p.hp), maxHp: Math.round(p.maxHp), level: p.level })),
       enemies: S.enemies.filter(near).map(packEnemy),
-      proj: S.projectiles.filter(near).map(packScalar),
+      proj: S.projectiles.filter(near).map(packProj),
       pickups: S.pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
       npcs: (S.npcs || []).filter(near).map(packScalar),
     };

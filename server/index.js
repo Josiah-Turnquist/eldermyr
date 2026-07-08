@@ -21,13 +21,12 @@ const { setInterval } = require('node:timers');
 const { World } = require('./world');
 
 const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
-// Eldermyr's sim is FRAME-BASED (no delta-time), so single-player runs at the
-// display's refresh rate — a 120Hz monitor plays at 2x the 60fps the game was
-// tuned for. The server ticks at one fixed rate for everyone; 120 matches that
-// high-refresh single-player feel (60 = the design speed, which felt half as fast
-// as 120Hz single-player). The accumulator keeps it real-time-accurate. The client
-// syncs its prediction to this via the `hz` field in the welcome message.
-const HZ = Number(process.env.HZ) || 120;
+// The sim runs at a fixed HZ (the accumulator keeps it real-time-accurate regardless
+// of timer jitter). 60 = the game's design speed; single-player (frame-based) runs at
+// the display refresh, so a 120Hz monitor plays at 2x. 80 is a chosen middle ground —
+// a touch faster than design without the frantic 2x. Client-side smoothing (below)
+// handles the choppiness from snapshots arriving unevenly on a high-fps display.
+const HZ = Number(process.env.HZ) || 80;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one
