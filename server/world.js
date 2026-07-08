@@ -163,6 +163,38 @@ class World {
     for (const fn of ['updateProjectiles', 'maybeSpawnWild', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
       if (G[fn]) try { G[fn](); } catch (_e) {}
     }
+
+    // The shared systems above only damage players[0]. Melee is already per-partition,
+    // but enemy PROJECTILES and FIRE check only state.player — so make them hurt the
+    // OTHER players too (players[1..N]; index 0 was handled by updateProjectiles/Fires).
+    if (players.length > 1) {
+      if (G.projHitsRect && G.playerTakeDamage && S.projectiles.length) {
+        for (let i = S.projectiles.length - 1; i >= 0; i--) {
+          const pr = S.projectiles[i];
+          if (pr.friendly) continue;
+          for (let j = 1; j < players.length; j++) {
+            const pl = players[j];
+            if (G.projHitsRect(pr, pl)) {
+              S.player = pl; S.inventory = pl.inventory;
+              try { G.playerTakeDamage(pr.dmg); } catch (_e) {}
+              if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
+              S.projectiles.splice(i, 1);
+              break;
+            }
+          }
+        }
+      }
+      if (G.playerTakeDamage && S.fires && S.fires.length && S.map === 'overworld' && S.time % 18 === 0) {
+        for (const f of S.fires) for (let j = 1; j < players.length; j++) {
+          const pl = players[j];
+          if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
+            S.player = pl; S.inventory = pl.inventory;
+            try { G.playerTakeDamage(3); } catch (_e) {}
+          }
+        }
+      }
+    }
+
     // respawn dead players at town — one death must not end everyone's shared game
     for (const p of players) {
       if (p.hp <= 0) {

@@ -108,6 +108,7 @@ const CAPTURE = [
   // menu action RPCs (run per-player on the server; client overrides these to route here)
   'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'spendPoint',
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
+  'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
 ];
 
 function loadGame() {
