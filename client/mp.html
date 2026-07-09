@@ -193,10 +193,34 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     });
   }
 
+  // ---- idle / away handling (cost control): disconnect a tab that's hidden or untouched
+  // for a while so the server can idle its sim, and DON'T silently reconnect — show a
+  // Resume button instead. Your hero is saved on disconnect. ----
+  let noReconnect = false, lastUserActive = Date.now(), hiddenSince = 0;
+  const HIDDEN_LIMIT = 2 * 60 * 1000, IDLE_LIMIT = 10 * 60 * 1000;
+  const markActive = () => { lastUserActive = Date.now(); };
+  ['keydown', 'pointerdown', 'mousemove', 'wheel', 'touchstart'].forEach((ev) => realWinAdd(ev, markActive, { passive: true }));
+  realWinAdd('visibilitychange', () => { if (document.hidden) { hiddenSince = Date.now(); } else { hiddenSince = 0; markActive(); } });
+  function pauseForIdle(why) {
+    if (noReconnect) return;
+    noReconnect = true;
+    try { ws && ws.close(); } catch (_e) {}
+    mpLive = false; st('○ paused');
+    const c = openModal('<h2>Paused</h2><p>You were disconnected to save server cost while ' + (why === 'hidden' ? 'this tab was in the background' : 'you were away') + '. Your hero is saved — pick up right where you left off.</p><button class="mp-btn primary" id="mp-resume">Resume playing</button>');
+    c.querySelector('#mp-resume').addEventListener('click', () => { closeModal(); resumeSession(); });
+  }
+  function resumeSession() { noReconnect = false; lastUserActive = Date.now(); hiddenSince = 0; connect(); }
+  setInterval(() => {
+    if (noReconnect || !ws || ws.readyState !== 1) return;
+    const now = Date.now();
+    if (document.hidden && hiddenSince && now - hiddenSince > HIDDEN_LIMIT) pauseForIdle('hidden');
+    else if (now - lastUserActive > IDLE_LIMIT) pauseForIdle('idle');
+  }, 20000);
+
   function connect() {
     ws = new WebSocket(WS_URL);
     ws.onopen = () => { mpLive = true; st('● connected'); if (authPayload) sendAuth(); else showNameEntry(); };
-    ws.onclose = () => { mpLive = false; st('○ reconnecting…'); setTimeout(connect, 1000); };
+    ws.onclose = () => { mpLive = false; if (noReconnect) { st('○ paused'); return; } st('○ reconnecting…'); setTimeout(connect, 1000); };
     ws.onerror = () => {};
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
@@ -225,6 +249,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         try { window.renderShop && window.renderShop(); } catch (_e) {}
         try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
       }
+      else if (m.type === 'idle-disconnect') { pauseForIdle('idle'); }   // server freed the sim; wait for a Resume click
     };
   }
   connect();

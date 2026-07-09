@@ -28,6 +28,10 @@ const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
 // a touch faster than design without the frantic 2x. Client-side smoothing (below)
 // handles the choppiness from snapshots arriving unevenly on a high-fps display.
 const HZ = Number(process.env.HZ) || 80;
+// Disconnect a player who hasn't done anything meaningful for this long — a backstop so
+// an AFK/backgrounded tab can't keep the sim (and the bill) running all night. The client
+// pauses itself sooner; this catches anything it misses. Their hero is saved on disconnect.
+const IDLE_MS = Number(process.env.IDLE_MS) || 10 * 60 * 1000;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one
@@ -70,6 +74,7 @@ async function resolveAccount(m) {
 wss.on('connection', (ws) => {
   ws.isAlive = true;
   ws.authed = false;
+  ws.lastActive = Date.now();   // for idle-kick
   ws.on('pong', () => { ws.isAlive = true; });   // client answered our ping → still alive
   ws.on('message', async (data) => {
     let m; try { m = JSON.parse(data); } catch (_e) { return; }
@@ -93,9 +98,13 @@ wss.on('connection', (ws) => {
         persistent: db.enabled,                                // false → tell the player saves are off
       }));
       console.log(`+ ${id} (${name}) ${acct ? (isNew ? '[new]' : '[loaded]') : '[ephemeral]'}  (${world.list.length} online)`);
+      startSim();                                            // wake the sim on the first join
       return;
     }
     // ---- authed traffic ----
+    // Idle-kick clock: a bare "not moving, no actions" input doesn't count as active,
+    // so an AFK/backgrounded tab (which still streams empty input) eventually times out.
+    if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) ws.lastActive = Date.now();
     if (m.type === 'input') world.setInput(ws.pid, m);
     else if (m.type === 'shop') { const data = world.shopPayloadFor(ws.pid); if (data) { try { ws.send(JSON.stringify({ type: 'shopData', data })); } catch (_e) {} } }
     else if (m.type === 'rename' && ws.token && m.name) {
@@ -111,6 +120,7 @@ wss.on('connection', (ws) => {
     const ch = ws.token ? world.characterOf(ws.pid) : null;   // capture BEFORE removing
     world.removePlayer(ws.pid);
     console.log(`- ${ws.pid} left  (${world.list.length} online)`);
+    if (!world.list.length) stopSim();                        // last one out → sim idles, world costs nothing
     if (ws.token && ch) { try { await db.saveCharacter(ws.token, ch); } catch (e) { console.error('[save] on close:', e && e.message); } }
   });
   ws.on('error', () => {});
@@ -133,8 +143,8 @@ setInterval(async () => {
 // accumulator steps the sim as many times as real time demands (capped), so speed
 // stays correct even when the timer fires late.
 const STEP_MS = 1000 / HZ;
-const BCAST_MS = 15;                             // ~60Hz broadcast, decoupled from the 120Hz sim
-let acc = 0, lastT = Date.now(), lastBcast = 0;
+const BCAST_MS = 15;                             // ~60Hz broadcast, decoupled from the sim rate
+let acc = 0, lastT = Date.now(), lastBcast = 0, simTimer = null;
 function broadcast() {
   for (const ws of wss.clients) {
     if (ws.readyState !== 1 || !ws.pid) continue;
@@ -142,7 +152,7 @@ function broadcast() {
     if (snap) { try { ws.send(JSON.stringify({ type: 'state', snap })); } catch (_e) {} }
   }
 }
-setInterval(() => {
+function simStep() {
   const now = Date.now();
   let dt = now - lastT; lastT = now;
   if (dt > 250) dt = STEP_MS;                    // stalled — don't fast-forward a huge gap
@@ -154,7 +164,12 @@ setInterval(() => {
   }
   if (acc > STEP_MS * 16) acc = 0;
   if (now - lastBcast >= BCAST_MS) { lastBcast = now; broadcast(); }
-}, 4);
+}
+// The sim runs ONLY while someone is connected. An empty world burns nothing — which
+// (with idle-kick below draining AFK tabs) is what stops "left it open overnight" from
+// billing a full simulation for hours. startSim on the first join, stopSim when empty.
+function startSim() { if (simTimer) return; acc = 0; lastT = Date.now(); lastBcast = 0; simTimer = setInterval(simStep, 4); console.log('▶ sim running'); }
+function stopSim() { if (!simTimer) return; clearInterval(simTimer); simTimer = null; console.log('⏸ sim idle — no players'); }
 
 // Heartbeat: reap connections that died WITHOUT a clean close (network drop,
 // laptop sleep, backgrounded tab). No TCP close = no removePlayer, so without
@@ -163,8 +178,15 @@ setInterval(() => {
 // 'close' → removePlayer). Also what lets a scaled-to-zero host know the last
 // real player has actually left.
 setInterval(() => {
+  const now = Date.now();
   for (const ws of wss.clients) {
     if (ws.isAlive === false) { ws.terminate(); continue; }   // no pong since last cycle → dead
+    if (ws.authed && now - (ws.lastActive || now) > IDLE_MS) { // AFK too long → free the server
+      console.log(`⏱ ${ws.pid} idle-kicked after ${Math.round((now - ws.lastActive) / 60000)}m`);
+      try { ws.send(JSON.stringify({ type: 'idle-disconnect' })); } catch (_e) {}
+      ws.close();                                             // graceful → flushes the notice → 'close' saves + drops
+      continue;
+    }
     ws.isAlive = false;
     try { ws.ping(); } catch (_e) {}
   }
