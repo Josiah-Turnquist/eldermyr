@@ -17,7 +17,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { setInterval } = require('node:timers');
+// load-game.js stubs the GLOBAL setInterval AND clearInterval to no-ops (to muzzle the
+// game's own timers). We need the REAL ones for our loop — importing setInterval alone
+// wasn't enough: stopSim()'s clearInterval was hitting the stubbed global no-op, so the
+// sim never actually paused and every "resume" leaked another broadcast loop. Import both.
+const { setInterval, clearInterval } = require('node:timers');
 const { World } = require('./world');
 const db = require('./db');   // persistent heroes (no-ops to ephemeral if no DATABASE_URL)
 
