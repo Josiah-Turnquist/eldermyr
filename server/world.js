@@ -101,7 +101,14 @@ function safeClone(v, d) {
 const RPC_OK = new Set([
   'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint',
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleMount', 'toggleBoat', 'doCamp',
+  // shop (Merchant) transactions — run on the acting player's own gold/inventory
+  'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
 ]);
+// The per-player town-economy globals the game reads/writes: swap the acting player's in
+// before running its logic, write the primitives back after (arrays/objects are by-ref).
+const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients'];
+function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; if (p._shopTown != null) S.activeShopTown = p._shopTown; }
+function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; }
 
 class World {
   constructor() {
@@ -122,6 +129,10 @@ class World {
     p.hp = p.maxHp;
     p.inventory = clone(INV_TEMPLATE);
     p.held = {}; p.actions = [];
+    // per-player town-economy state — each hero shops, empowers and trades independently
+    p.shopPurchased = []; p.tonics = 0; p.sharpenLevel = 0;
+    p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
+    p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -140,7 +151,10 @@ class World {
     try { snap = G.snapshot(); } catch (_e) {}
     S.player = pp; S.inventory = pi;
     if (!snap) return null;
-    return { v: 1, name: p.name, level: p.level | 0, player: snap.player, inventory: snap.inventory };
+    return {
+      v: 1, name: p.name, level: p.level | 0, player: snap.player, inventory: snap.inventory,
+      shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
+    };
   }
 
   // Restore a saved character onto a fresh player WITHOUT disturbing shared world state.
@@ -163,6 +177,12 @@ class World {
           (p.inventory.weapons || []).forEach((w) => { try { G.normItem(w, true); } catch (_e) {} });
           (p.inventory.armor || []).forEach((a) => { try { G.normItem(a, false); } catch (_e) {} });
         }
+      }
+      if (c && c.shop) {                                         // restore this hero's town-economy state
+        p.shopPurchased = Array.isArray(c.shop.shopPurchased) ? c.shop.shopPurchased.slice() : [];
+        p.tonics = c.shop.tonics | 0; p.sharpenLevel = c.shop.sharpenLevel | 0;
+        p.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, c.shop.cargo || {});
+        p.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, c.shop.ingredients || {});
       }
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
       S.player = p; S.inventory = p.inventory;
@@ -190,6 +210,44 @@ class World {
     if (msg.dir) p.dir = msg.dir;
   }
 
+  // Run one menu/shop RPC for player p (already swapped into the singleton slots).
+  // Item-taking calls carry an identifier the client can't turn into a server object,
+  // so we resolve those here: shop buys against the player's open stock, sells against
+  // the player's own inventory (verified by name to guard against a stale index).
+  _runRpc(a, p) {
+    const rpc = a.rpc, args = Array.isArray(a.args) ? a.args : [];
+    if (rpc === 'buyWeapon' || rpc === 'buyArmor') {
+      const stock = p._shopStock; if (!stock) return;
+      const list = rpc === 'buyWeapon' ? stock.weapons : stock.armor;
+      const it = (list || []).find((x) => x && x.id === args[0]);
+      if (it && typeof G[rpc] === 'function') G[rpc](it);
+      return;
+    }
+    if (rpc === 'sellItem') {
+      const idx = args[0], kind = args[1], nm = args[2];
+      const arr = kind === 'weapon' ? p.inventory.weapons : (kind === 'armor' ? p.inventory.armor : null);
+      const it = arr && arr[idx];
+      if (it && it.name === nm && typeof G.sellItem === 'function') G.sellItem(it, kind);
+      return;
+    }
+    if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
+  }
+
+  // Nearest shop the player is standing at → its stock + this hero's purchase history.
+  // Also stashes the stock on the player so buy RPCs can resolve item ids against it.
+  shopPayloadFor(id) {
+    const p = this.players.get(id); if (!p) return null;
+    const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+    let npc = null, bd = Infinity;
+    for (const n of (S.npcs || [])) { if (n.id !== 'shop') continue; const d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; npc = n; } }
+    if (!npc || bd > (110 * 110)) return null;                 // must actually be at a shop
+    const key = npc.shopTown && npc.shopTown.key;
+    const ti = (key && /^t\d+$/.test(key)) ? parseInt(key.slice(1)) : -1;
+    p._shopStock = npc.stock || { weapons: [], armor: [] };
+    p._shopTown = ti;
+    return { name: (npc.shopTown && npc.shopTown.name) || 'Shop', town: ti, stock: p._shopStock, purchased: (p.shopPurchased || []).slice() };
+  }
+
   // ---- the authoritative tick ----
   tick() {
     if (!S.players.length) return;
@@ -200,6 +258,7 @@ class World {
     // its inventory into the singleton slots the game logic reads.
     for (const p of S.players) {
       S.player = p; S.inventory = p.inventory;
+      swapInPP(p);                       // this hero's shop/economy state into the singleton slots
       setKeys(p.held);
       try { G.updatePlayer(); } catch (_e) {}
       // discrete actions (edge-triggered in single-player via keydown)
@@ -209,12 +268,13 @@ class World {
             if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
             else if (a === 'interact' && G.tryInteract) G.tryInteract();
             else if (a === 'dodge' && G.doDodge) G.doDodge();
-            else if (a && a.rpc && RPC_OK.has(a.rpc) && typeof G[a.rpc] === 'function') G[a.rpc].apply(null, Array.isArray(a.args) ? a.args : []);
+            else if (a && a.rpc) this._runRpc(a, p);
           } catch (_e) {}
         }
         p.actions.length = 0;
       }
       if (G.updateFatigue) try { G.updateFatigue(); } catch (_e) {}
+      writeBackPP(p);
     }
 
     // SHARED WORLD — enemies via nearest-player PARTITION (reuses real updateEnemies)
@@ -246,7 +306,7 @@ class World {
     }
 
     // remaining shared systems run once (acting player = first, cosmetic-only bias)
-    S.player = players[0]; S.inventory = players[0].inventory;
+    S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]);
     for (const fn of ['updateProjectiles', 'maybeSpawnWild', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
       if (G[fn]) try { G[fn](); } catch (_e) {}
     }

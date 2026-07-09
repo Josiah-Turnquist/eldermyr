@@ -107,6 +107,7 @@ const CAPTURE = [
   'doDodge', 'drinkPotion', 'toggleMount',   // discrete actions the server routes per-player
   // menu action RPCs (run per-player on the server; client overrides these to route here)
   'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'spendPoint',
+  'buyPotion', 'buyTonic', 'buySharpen', 'buyWeapon', 'buyArmor', 'buyGood', 'sellGood', 'sellIngredient',   // Merchant shop
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
   'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
 ];

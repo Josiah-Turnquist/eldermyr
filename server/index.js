@@ -97,6 +97,7 @@ wss.on('connection', (ws) => {
     }
     // ---- authed traffic ----
     if (m.type === 'input') world.setInput(ws.pid, m);
+    else if (m.type === 'shop') { const data = world.shopPayloadFor(ws.pid); if (data) { try { ws.send(JSON.stringify({ type: 'shopData', data })); } catch (_e) {} } }
     else if (m.type === 'rename' && ws.token && m.name) {
       try {
         const nm = await db.renameAccount(ws.token, m.name);

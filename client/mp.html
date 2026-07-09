@@ -216,6 +216,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         mapReady = true;
       } else if (m.type === 'state') { snap = m.snap; }
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
+      else if (m.type === 'shopData') {                  // server sent this hero's shop stock → open the panel
+        const d = m.data; if (!d) return;
+        G.state.activeStock = d.stock; G.state.activeShopName = d.name; G.state.activeShopTown = d.town;
+        G.state.shopPurchased = d.purchased || [];
+        G.state.scene = 'shop';
+        const el = document.getElementById('shop'); if (el) el.style.display = 'block';
+        try { window.renderShop && window.renderShop(); } catch (_e) {}
+        try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+      }
     };
   }
   connect();
@@ -232,14 +241,37 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     try {
       if (sc === 'inventory') window.toggleInventory && window.toggleInventory();
       else if (sc === 'skills') window.toggleSkills && window.toggleSkills();
+      else if (sc === 'shop') closeShopMP();
       else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
     } catch (_e) {}
   }
   // Menu action buttons call these globals; override them to round-trip through the
   // server (local mutation would just be overwritten by the next snapshot).
-  for (const fn of ['equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint']) {
+  for (const fn of ['equipWeapon', 'equipArmor', 'sellAllJunk', 'drinkPotion', 'spendPoint']) {
     if (typeof window[fn] === 'function') window[fn] = function () { actions.push({ rpc: fn, args: [].slice.call(arguments) }); };
   }
+  // ---- Merchant shop (server-authoritative): open at a shop NPC, buy/sell via RPC ----
+  function nearestShopNpc() {
+    if (!snap || !snap.npcs || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
+    let best = null, bd = 66 * 66;
+    for (const n of snap.npcs) { if (n.id !== 'shop') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+  function openShopMP() { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'shop' })); } catch (_e) {} } }
+  function closeShopMP() { const el = document.getElementById('shop'); if (el) el.style.display = 'none'; if (G.state.scene === 'shop') G.state.scene = 'play'; }
+  // buys/sells act on our OWN hero. Item-taking calls carry an identifier the server
+  // resolves (stock id for buys; inventory index+name for a sell) since it can't take a ref.
+  window.buyPotion = () => actions.push({ rpc: 'buyPotion', args: [] });
+  window.buyTonic = () => actions.push({ rpc: 'buyTonic', args: [] });
+  window.buySharpen = () => actions.push({ rpc: 'buySharpen', args: [] });
+  window.buyGood = (k) => actions.push({ rpc: 'buyGood', args: [k] });
+  window.sellGood = (k) => actions.push({ rpc: 'sellGood', args: [k] });
+  window.sellIngredient = (k) => actions.push({ rpc: 'sellIngredient', args: [k] });
+  window.buyWeapon = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyWeapon', args: [it.id] }); };
+  window.buyArmor = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
+  window.sellItem = (it, kind) => { const arr = kind === 'weapon' ? G.state.inventory.weapons : (kind === 'armor' ? G.state.inventory.armor : null); if (!arr) return; const idx = arr.indexOf(it); if (idx < 0) return; actions.push({ rpc: 'sellItem', args: [idx, kind, it.name] }); };
+  window.closeShop = closeShopMP;
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
@@ -250,11 +282,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'i') { try { window.toggleInventory && window.toggleInventory(); } catch (_e) {} e.preventDefault(); return; }
     if (k === 'k') { try { window.toggleSkills && window.toggleSkills(); } catch (_e) {} e.preventDefault(); return; }
     if (k === 'escape') { closePanel(); return; }
+    if (G.state.scene === 'shop') { if (k === 'e') { closeShopMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the shop
     // gameplay keys only while actually playing (menu open = no walking/fighting)
     if (G.state.scene !== 'play') return;
     if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
     if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
-    if (k === 'e') actions.push('interact');
+    if (k === 'e') { if (nearestShopNpc()) { openShopMP(); e.preventDefault(); } else actions.push('interact'); }
     if (k === 'shift' || k === 'l') actions.push('dodge');
     // abilities / potion / mount → server RPCs (applied to this player)
     if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
@@ -387,6 +420,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
     if (snap.me.inventory) S.inventory = snap.me.inventory;
+    if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
+    if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];
@@ -404,6 +439,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene === 'inventory' || G.state.scene === 'skills') {
       const sig = (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;
       if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
+    } else if (G.state.scene === 'shop') {
+      const sig = 'shop|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + ((G.state.shopPurchased || []).length);
+      if (sig !== panelSig) { panelSig = sig; try { window.renderShop && window.renderShop(); } catch (_e) {} }
     } else if (panelSig) panelSig = '';
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
