@@ -131,7 +131,7 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients'];
+const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay'];
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; if (p._shopTown != null) S.activeShopTown = p._shopTown; }
 function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; }
 
@@ -158,6 +158,7 @@ class World {
     p.shopPurchased = []; p.tonics = 0; p.sharpenLevel = 0;
     p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+    p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -262,6 +263,14 @@ class World {
       if (it && it.name === nm && typeof G.repairItem === 'function') G.repairItem(it);
       return;
     }
+    if (rpc === 'doCamp') {                                       // MP camp: personal rest, NO shared-clock skip
+      const t0 = S.time;
+      if (typeof G.doCamp === 'function') try { G.doCamp(); } catch (_e) {}
+      const camped = S.time !== t0;                              // doCamp fast-forwards time only on success
+      S.time = t0;                                               // undo it — the world's clock never jumps
+      if (camped) { p.lastRestDay = G.curDay ? G.curDay() : p.lastRestDay; p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
+      return;
+    }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
   }
 
@@ -305,7 +314,10 @@ class World {
         }
         p.actions.length = 0;
       }
-      if (G.updateFatigue) try { G.updateFatigue(); } catch (_e) {}
+      // per-player exhaustion: recalcStats reads isExhausted(), which now reads THIS hero's
+      // lastRestDay (swapped in above). Re-apply only on a state flip so it's consistent per
+      // player (the game's shared updateFatigue would thrash with per-player rest days).
+      if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       writeBackPP(p);
     }
 

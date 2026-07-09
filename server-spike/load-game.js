@@ -103,6 +103,7 @@ const CAPTURE = [
   'updateWorldLine', 'updateMusicMood', 'updateAmbience', 'updateTime',
   'tryAttack', 'tryInteract', 'killEnemy', 'addProjectile', 'makeWildEnemy', 'spawnPackAround',
   'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
+  'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)
   'distFactor', 'regionOf', 'rectDist', 'stepToward',
   'doDodge', 'drinkPotion', 'toggleMount',   // discrete actions the server routes per-player
   // menu action RPCs (run per-player on the server; client overrides these to route here)

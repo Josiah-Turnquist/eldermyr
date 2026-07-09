@@ -363,7 +363,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === '1') actions.push({ rpc: 'drinkPotion', args: [] });
     if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
     if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
-    if (k === 'c') actions.push({ rpc: 'doCamp', args: [] });
+    if (k === 'c') {
+      actions.push({ rpc: 'doCamp', args: [] });
+      const me = snap.me, safe = !(snap.enemies || []).some((e) => Math.hypot((e.x + e.w / 2) - (pred.x + me.w / 2), (e.y + e.h / 2) - (pred.y + me.h / 2)) < 210);
+      try { if (safe) { G.spawnBurst && G.spawnBurst(pred.x + me.w / 2, pred.y + me.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 }); G.log && G.log('You make camp and rest.', 'good'); } else G.log && G.log('Too dangerous to make camp — foes are near.', 'combat'); } catch (_e) {}
+    }
   });
   realWinAdd('keyup', (e) => {
     const k = e.key.toLowerCase();
@@ -487,6 +491,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (snap.me.inventory) S.inventory = snap.me.inventory;
     if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
+    if (snap.me.lastRestDay != null) S.lastRestDay = snap.me.lastRestDay;   // per-player fatigue → correct Exhausted state/penalty
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];
