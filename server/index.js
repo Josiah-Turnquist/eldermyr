@@ -36,11 +36,10 @@ const HZ = Number(process.env.HZ) || 80;
 // an AFK/backgrounded tab can't keep the sim (and the bill) running, and so an away player
 // isn't left standing in danger for long. The client pauses itself at the same mark; this
 // catches anything it misses. Their hero is saved on disconnect. Heartbeat granularity 15s.
-const IDLE_MS = Number(process.env.IDLE_MS) || 2 * 60 * 1000;
-// Two-stage away handling: once EVERY connected player has been idle this long, pause the
-// sim (they may still be connected — the client shows a "sleeping" screen and resumes
-// instantly on activity). Full disconnect follows at IDLE_MS.
-const SLEEP_MS = Number(process.env.SLEEP_MS) || 60 * 1000;
+// The world NEVER pauses while anyone is connected (it's multiplayer). The only cost
+// guards are: the sim stops when the server is EMPTY (nobody online — invisible), and an
+// ABANDONED tab is disconnected after IDLE_MS so it can't stream to itself all night.
+const IDLE_MS = Number(process.env.IDLE_MS) || 5 * 60 * 1000;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one
@@ -111,12 +110,21 @@ wss.on('connection', (ws) => {
       return;
     }
     // ---- authed traffic ----
-    // Activity clock: a bare "not moving, no actions" input doesn't count as active, so an
-    // AFK/backgrounded tab (which still streams empty input) goes idle. Any meaningful input
-    // (or a wake ping) marks active AND wakes the sim instantly.
-    if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) { ws.lastActive = Date.now(); startSim(); }
+    // Activity clock (for the abandoned-tab disconnect only): a bare "not moving, no
+    // actions" input doesn't count as active, so a truly abandoned tab eventually times out.
+    if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) ws.lastActive = Date.now();
     if (m.type === 'input') world.setInput(ws.pid, m);
     else if (m.type === 'shop') { const data = world.shopPayloadFor(ws.pid); if (data) { try { ws.send(JSON.stringify({ type: 'shopData', data })); } catch (_e) {} } }
+    else if (m.type === 'chat' && typeof m.text === 'string') {
+      const text = m.text.replace(/\s+/g, ' ').trim().slice(0, 200);
+      const now = Date.now();
+      if (text && !(ws.lastChat && now - ws.lastChat < 400)) {       // non-empty + not spammy
+        ws.lastChat = now;
+        const p = world.players.get(ws.pid);
+        const payload = JSON.stringify({ type: 'chat', name: (p && p.name) || 'Hero', text });
+        for (const c of wss.clients) { if (c.readyState === 1 && c.pid) { try { c.send(payload); } catch (_e) {} } }
+      }
+    }
     else if (m.type === 'rename' && ws.token && m.name) {
       try {
         const nm = await db.renameAccount(ws.token, m.name);
@@ -201,16 +209,6 @@ setInterval(() => {
     try { ws.ping(); } catch (_e) {}
   }
 }, 15000);
-
-// The big saver: pause the sim once EVERY connected player has gone idle > SLEEP_MS,
-// even though they're still connected (they'll get the 2-min kick separately). Waking is
-// instant — any meaningful input calls startSim() above.
-setInterval(() => {
-  const now = Date.now();
-  let active = false;
-  for (const ws of wss.clients) { if (ws.authed && ws.pid && now - (ws.lastActive || 0) < SLEEP_MS) { active = true; break; } }
-  if (active) startSim(); else stopSim();
-}, 10000);
 
 db.init().catch((e) => console.error('[db] init failed (heroes ephemeral this run):', e && e.message));
 
