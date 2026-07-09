@@ -29,6 +29,29 @@ S.players = [];
 const SPAWN = { x: S.player.x, y: S.player.y };
 const OW_W = G.OW_W || 248, OW_H = G.OW_H || 208;
 const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
+// Enemy density (server-owned). The game seeds ~127 foes across the whole 248x208 map and
+// caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
+// you; you just roam a thin, static seed. Instead we drive spawning by LOCAL density: keep
+// ~LOCAL_TARGET foes within LOCAL_R of EACH player, refilling every SPAWN_EVERY ticks if the
+// vicinity is sparse. A generous global ceiling is just a runaway safety. maybeSpawnWild's
+// own ring logic still applies, so the frontier fills with packs (dense) and the Vale with
+// singles (calm) — difficulty geography for free.
+const SPAWN_EVERY = 55, LOCAL_R2 = (34 * TILE) ** 2;   // 34t ≈ maybeSpawnWild's spawn ring, so the count is accurate
+// Target vicinity population scales with the danger ring (distFactor 0→1): the safe inner
+// Vale stays calm, the frontier crawls — spatial density variation, not a flat number.
+const LOCAL_TARGET_MIN = 13, LOCAL_TARGET_MAX = 30;
+function localTarget(p) {
+  let df = 0.5;
+  try { df = G.distFactor((p.x + p.w / 2) / TILE, (p.y + p.h / 2) / TILE); } catch (_e) {}
+  df = Math.max(0, Math.min(1, df));
+  return LOCAL_TARGET_MIN + Math.round((LOCAL_TARGET_MAX - LOCAL_TARGET_MIN) * df);
+}
+const SPAWN_CAP_BASE = 150, SPAWN_CAP_PER = 80;
+function nearEnemyCount(p) {
+  const cx = p.x + p.w / 2, cy = p.y + p.h / 2; let n = 0;
+  for (const e of S.enemies) { if ((e.x + e.w / 2 - cx) ** 2 + (e.y + e.h / 2 - cy) ** 2 < LOCAL_R2) n++; }
+  return n;
+}
 const PLAYER_TEMPLATE = structuredClone(S.player);
 const INV_TEMPLATE = structuredClone(S.inventory);
 
@@ -307,8 +330,25 @@ class World {
 
     // remaining shared systems run once (acting player = first, cosmetic-only bias)
     S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]);
-    for (const fn of ['updateProjectiles', 'maybeSpawnWild', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
+    for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
       if (G[fn]) try { G[fn](); } catch (_e) {}
+    }
+
+    // MP SPAWNING (replaces the single player-1 maybeSpawnWild call): feed EVERY player's
+    // vicinity on its own cadence, and scale the density cap with the party + the huge map.
+    // Reuses the game's ring/biome/pack logic, so difficulty still reads distFactor — the
+    // safe Vale stays sparse, the frontier crawls (hotspots "for free" via the rings).
+    if (S.map === 'overworld' && G.maybeSpawnWild) {
+      S.maxWildEnemies = SPAWN_CAP_BASE + SPAWN_CAP_PER * players.length;   // global safety ceiling only
+      for (const p of players) {
+        p._spawnT = (p._spawnT == null) ? (Math.abs((p.x * 3 + p.y * 7) | 0) % SPAWN_EVERY) : p._spawnT - 1;   // staggered
+        if (p._spawnT > 0) continue;
+        p._spawnT = SPAWN_EVERY;
+        if (nearEnemyCount(p) >= localTarget(p)) continue;   // area already at its ring's target density
+        S.player = p; S.inventory = p.inventory; swapInPP(p);
+        S.spawnTimer = 0;                                  // force a spawn around THIS player now
+        try { G.maybeSpawnWild(); } catch (_e) {}
+      }
     }
 
     // The shared systems above only damage players[0]. Melee is already per-partition,
