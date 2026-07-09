@@ -125,6 +125,18 @@ wss.on('connection', (ws) => {
         for (const c of wss.clients) { if (c.readyState === 1 && c.pid) { try { c.send(payload); } catch (_e) {} } }
       }
     }
+    else if (m.type === 'ping') {                                    // co-op rally marker → relay to everyone
+      const now = Date.now();
+      if (!(ws.lastPing && now - ws.lastPing < 600)) {               // ~1.6/s anti-spam
+        ws.lastPing = now;
+        const p = world.players.get(ws.pid);
+        if (p) {
+          const kind = (m.kind === 'downed' || m.kind === 'danger') ? m.kind : 'alert';
+          const payload = JSON.stringify({ type: 'ping', name: p.name || 'Hero', x: Math.round(p.x + p.w / 2), y: Math.round(p.y + p.h / 2), kind });
+          for (const c of wss.clients) { if (c.readyState === 1 && c.pid) { try { c.send(payload); } catch (_e) {} } }
+        }
+      }
+    }
     else if (m.type === 'rename' && ws.token && m.name) {
       try {
         const nm = await db.renameAccount(ws.token, m.name);

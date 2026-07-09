@@ -85,6 +85,42 @@ function wanderHome(e) {
 }
 function isBoss(e) { return !!(e.isBoss || e.isNemesis || e.isGreatBeast || e.isWildDragon); }
 
+// ---- Downed & revive (co-op) -------------------------------------------------
+// A hero at 0 HP isn't dead — they're DOWNED (incapacitated, bleeding out). A
+// teammate revives them by standing close; or they self-recover if no foe is near
+// (which also keeps SOLO play fair — crawl somewhere safe and you stabilize).
+// Times are in TICKS (the sim runs at ~HZ/s). Foes ignore the downed and go for
+// the living, so a party actually gets a window to reach a fallen ally.
+const HZ_EST = Number(process.env.HZ) || 80;
+const BLEED_FRAMES = Math.round(12 * HZ_EST);       // ~12s bleeding out — but ONLY while a foe is near
+const REVIVE_FRAMES = Math.round(2.5 * HZ_EST);     // ~2.5s of a teammate standing close to revive you
+const SELF_SAFE_FRAMES = Math.round(5 * HZ_EST);    // ~5s with no foe near → you self-recover (solo-friendly)
+const REVIVE_R2 = (2.6 * TILE) ** 2;                // how close a reviver must stand
+const SELF_ENEMY_R2 = (7 * TILE) ** 2;              // "a foe is near" radius (pauses bleed AND blocks self-rescue)
+const REVIVE_HP_FRAC = 0.5, SELF_HP_FRAC = 0.25;    // revived-by-ally is stronger than crawled-to-safety
+function enemyWithin(p, r2) {
+  const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+  for (const e of S.enemies) { if ((e.x + e.w / 2 - cx) ** 2 + (e.y + e.h / 2 - cy) ** 2 < r2) return true; }
+  return false;
+}
+function goDown(p) {
+  p.downed = true; p.hp = 0; p.bleedT = BLEED_FRAMES; p.reviveProg = 0; p.safeT = 0;
+  p.invuln = 0; p.attacking = 0; p.whirl = 0; p.ultT = 0; p.dodge = 0;
+  p.burnT = 0; p.poisonT = 0; p.chillT = 0; p.stunT = 0; p.dead = false;
+  p.bleedFrac = 1; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false; p.bleedSecs = Math.ceil(BLEED_FRAMES / HZ_EST);
+}
+function reviveAt(p, frac) {
+  p.downed = false; p.hp = Math.max(1, Math.round(p.maxHp * frac)); p.invuln = 120;
+  p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;
+  p.bleedFrac = 0; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false;
+}
+function respawnAt(p) {
+  p.downed = false; p.hp = p.maxHp; p.x = SPAWN.x; p.y = SPAWN.y; p.invuln = 90;
+  p.chillT = 0; p.burnT = 0; p.poisonT = 0; p.dead = false;
+  p.bleedT = 0; p.reviveProg = 0; p.safeT = 0; p.bleedFrac = 0; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false;
+  p._respawned = (p._respawned || 0) + 1;
+}
+
 // ---- serialization helpers (feed the real game renderer) ----
 // scalar-only copy: safe against circular refs (e.g. enemy.warlordRef), keeps
 // every primitive field the draw functions read (type, color, wobble, status…).
@@ -159,6 +195,7 @@ class World {
     p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
+    p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -298,6 +335,7 @@ class World {
     // PER-PLAYER: movement, discrete actions, fatigue. Swap the acting player +
     // its inventory into the singleton slots the game logic reads.
     for (const p of S.players) {
+      if (p.downed) continue;            // incapacitated — no move/attack/regen; the downed pass (below) runs their timers
       S.player = p; S.inventory = p.inventory;
       swapInPP(p);                       // this hero's shop/economy state into the singleton slots
       setKeys(p.held);
@@ -327,15 +365,20 @@ class World {
       // Main-town safety: on the overworld, BOSSES can't see players in the town vicinity —
       // they target only players who are OUT of town, and wander home if nobody is.
       const overworld = S.map === 'overworld';
-      const outers = overworld ? players.filter((p) => !inTown(p)) : players;
+      // Foes ignore DOWNED heroes and go for the living — that's what gives a party the
+      // window to reach a fallen ally. (Everyone downed → foes still mill on them so the
+      // team wipe resolves via bleed-out instead of freezing the sim.)
+      const standing = players.filter((p) => !p.downed);
+      const normalPool = standing.length ? standing : players;
+      const bossPool = overworld ? standing.filter((p) => !inTown(p)) : standing;
       const buckets = new Map(players.map((p) => [p, []]));
       const wanderers = [];
       for (const e of S.enemies) {
         if (overworld && isBoss(e)) {
-          if (outers.length) buckets.get(nearestPlayer(e, outers)).push(e);
-          else wanderers.push(e);           // everyone's in town → amble home
+          if (bossPool.length) buckets.get(nearestPlayer(e, bossPool)).push(e);
+          else wanderers.push(e);           // no valid target (all in town / all downed) → amble home
         } else {
-          buckets.get(nearestPlayer(e, players)).push(e);
+          buckets.get(nearestPlayer(e, normalPool)).push(e);
         }
       }
       const survivors = [];
@@ -362,6 +405,7 @@ class World {
     if (S.map === 'overworld' && G.maybeSpawnWild) {
       S.maxWildEnemies = SPAWN_CAP_BASE + SPAWN_CAP_PER * players.length;   // global safety ceiling only
       for (const p of players) {
+        if (p.downed) continue;          // don't spawn foes onto a fallen hero (it would block self-recovery)
         p._spawnT = (p._spawnT == null) ? (Math.abs((p.x * 3 + p.y * 7) | 0) % SPAWN_EVERY) : p._spawnT - 1;   // staggered
         if (p._spawnT > 0) continue;
         p._spawnT = SPAWN_EVERY;
@@ -382,6 +426,7 @@ class World {
           if (pr.friendly) continue;
           for (let j = 1; j < players.length; j++) {
             const pl = players[j];
+            if (pl.downed) continue;      // already down — bleed-out governs, don't pile on
             if (G.projHitsRect(pr, pl)) {
               S.player = pl; S.inventory = pl.inventory;
               try { G.playerTakeDamage(pr.dmg); } catch (_e) {}
@@ -395,6 +440,7 @@ class World {
       if (G.playerTakeDamage && S.fires && S.fires.length && S.map === 'overworld' && S.time % 18 === 0) {
         for (const f of S.fires) for (let j = 1; j < players.length; j++) {
           const pl = players[j];
+          if (pl.downed) continue;
           if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
             S.player = pl; S.inventory = pl.inventory;
             try { G.playerTakeDamage(3); } catch (_e) {}
@@ -403,13 +449,31 @@ class World {
       }
     }
 
-    // respawn dead players at town — one death must not end everyone's shared game
+    // ---- DOWNED & REVIVE ----------------------------------------------------
+    // 0 HP = incapacitated, not dead (co-op). A teammate revives you by standing
+    // close; or you self-recover if no foe is near (keeps solo fair). Bleed-out
+    // only ticks while a foe is near — so crawling to safety stabilizes you. Only
+    // when the bleed timer runs out do you truly die and respawn at town.
     for (const p of players) {
-      if (p.hp <= 0) {
-        p.hp = p.maxHp; p.x = SPAWN.x; p.y = SPAWN.y; p.invuln = 90;
-        p.chillT = 0; p.burnT = 0; p.poisonT = 0; p.dead = false;
-        p._respawned = (p._respawned || 0) + 1;
+      if (!p.downed) { if (p.hp <= 0) goDown(p); continue; }   // just fell → go down
+      if (p.hp < 0) p.hp = 0;
+      const danger = enemyWithin(p, SELF_ENEMY_R2);
+      if (danger) { p.bleedT -= 1; p.safeT = 0; }
+      else if (++p.safeT >= SELF_SAFE_FRAMES) { reviveAt(p, SELF_HP_FRAC); continue; }   // safe long enough → self-recover
+      // teammates standing close revive you (faster with more helpers)
+      let revivers = 0; const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      for (const q of players) {
+        if (q === p || q.downed) continue;
+        if ((q.x + q.w / 2 - cx) ** 2 + (q.y + q.h / 2 - cy) ** 2 < REVIVE_R2) revivers++;
       }
+      if (revivers > 0) { p.reviveProg = Math.min(REVIVE_FRAMES, p.reviveProg + revivers); if (p.reviveProg >= REVIVE_FRAMES) { reviveAt(p, REVIVE_HP_FRAC); continue; } }
+      else p.reviveProg = Math.max(0, p.reviveProg - 2);       // no one near → progress slips back
+      // display fields for the client (it has no server constants)
+      p.beingRevived = revivers > 0; p.stabilizing = !danger;
+      p.reviveFrac = p.reviveProg / REVIVE_FRAMES;
+      p.bleedFrac = Math.max(0, p.bleedT / BLEED_FRAMES);
+      p.bleedSecs = Math.max(0, Math.ceil(p.bleedT / HZ_EST));
+      if (p.bleedT <= 0) respawnAt(p);                          // bled out → real death, respawn at town
     }
   }
 
@@ -427,7 +491,7 @@ class World {
     return {
       t: S.time, wx: S.weather, you: id,
       me: safeClone(me),
-      players: S.players.map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(p.hp), maxHp: Math.round(p.maxHp), level: p.level })),
+      players: S.players.map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived })),
       enemies: S.enemies.filter(near).map(packEnemy),
       proj: S.projectiles.filter(near).map(packProj),
       pickups: S.pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),

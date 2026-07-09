@@ -238,6 +238,65 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     else if (e.key === 'Escape') closeChat();
   });
 
+  // ---- co-op: rally pings [T] + downed/revive UI ----
+  // Pings drop a shared world marker everyone sees (auto-fired when you go down, so
+  // teammates get a "⚑ down!" beacon). Screen-space math mirrors the game's own
+  // transform: entities draw at (worldX - camera.x) in a ZOOM-scaled space, and the
+  // visible world size is innerWidth/ZOOM (ZOOM = clamp(innerHeight/480,1,3)).
+  const pings = [];   // {x,y,name,kind,t}
+  function sendPing(kind) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'ping', kind: kind || 'alert' })); } catch (_e) {} } }
+  function viewSize() { const z = Math.max(1, Math.min(3, (window.innerHeight || 480) / 480)); return { sw: (window.innerWidth || 800) / z, sh: (window.innerHeight || 480) / z }; }
+  // full-screen "you are downed" overlay (created once, toggled by snapshot state)
+  const downedEl = document.createElement('div'); downedEl.id = 'mp-downed';
+  downedEl.style.cssText = 'position:fixed;inset:0;z-index:38;display:none;pointer-events:none;background:radial-gradient(ellipse at center,rgba(140,0,0,0) 38%,rgba(120,0,0,0.55) 100%);font-family:monospace';
+  downedEl.innerHTML = '<div style="position:absolute;left:0;right:0;top:32%;text-align:center;text-shadow:0 2px 8px #000">' +
+    '<div style="font-size:32px;font-weight:bold;letter-spacing:4px;color:#ff6a6a">DOWNED</div>' +
+    '<div id="mp-downed-sub" style="margin-top:8px;font-size:13px;color:#ffd0d0"></div>' +
+    '<div style="margin:14px auto 0;width:240px;height:9px;background:rgba(0,0,0,0.6);border:1px solid #944;border-radius:5px;overflow:hidden"><i id="mp-downed-bar" style="display:block;height:100%;width:100%;background:#e14b4b;transition:width .12s linear"></i></div>' +
+    '<div id="mp-downed-secs" style="margin-top:7px;font-size:12px;color:#ffb0b0"></div></div>';
+  try { document.body.appendChild(downedEl); } catch (_e) {}
+  function updateDownedOverlay(me) {
+    if (!downedEl) return;
+    if (!(me && me.downed)) { if (downedEl.style.display !== 'none') downedEl.style.display = 'none'; return; }
+    downedEl.style.display = 'block';
+    const bar = document.getElementById('mp-downed-bar'), sub = document.getElementById('mp-downed-sub'), secs = document.getElementById('mp-downed-secs');
+    if (me.beingRevived) { if (sub) { sub.textContent = 'A teammate is reviving you — hold on!'; sub.style.color = '#a6ffa6'; } if (bar) { bar.style.width = Math.round((me.reviveFrac || 0) * 100) + '%'; bar.style.background = '#4be07a'; } if (secs) secs.textContent = 'Reviving ' + Math.round((me.reviveFrac || 0) * 100) + '%'; }
+    else if (me.stabilizing) { if (sub) { sub.textContent = 'No foes near — recovering on your own…'; sub.style.color = '#ffe0a0'; } if (bar) { bar.style.width = '100%'; bar.style.background = '#e0b24b'; } if (secs) secs.textContent = 'Stabilizing…'; }
+    else { if (sub) { sub.textContent = 'Bleeding out — a teammate can revive you, or reach safety'; sub.style.color = '#ffd0d0'; } if (bar) { bar.style.width = Math.round((me.bleedFrac || 0) * 100) + '%'; bar.style.background = '#e14b4b'; } if (secs) secs.textContent = (me.bleedSecs != null ? me.bleedSecs : 0) + 's'; }
+  }
+  function drawPings() {
+    const ctx = G.ctx; if (!ctx || !pings.length) return;
+    const now = performance.now(), LIFE = 6000;
+    for (let i = pings.length - 1; i >= 0; i--) if (now - pings[i].t > LIFE) pings.splice(i, 1);
+    if (!pings.length) return;
+    const { sw, sh } = viewSize(), cam = S.camera, me = S.player;
+    for (const pg of pings) {
+      const alpha = Math.max(0, 1 - (now - pg.t) / LIFE);
+      const col = pg.kind === 'downed' ? '#ff5a5a' : (pg.kind === 'danger' ? '#ffcc40' : '#5ad1ff');
+      const sx = pg.x - cam.x, sy = pg.y - cam.y;
+      const onScreen = sx >= 6 && sx <= sw - 6 && sy >= 6 && sy <= sh - 6;
+      ctx.save(); ctx.globalAlpha = alpha;
+      if (onScreen) {
+        const pulse = 8 + (Math.sin(now / 140) + 1) * 7;
+        ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(sx, sy, pulse, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(sx, sy - 20); ctx.lineTo(sx - 5, sy - 30); ctx.lineTo(sx + 5, sy - 30); ctx.closePath(); ctx.fill();
+        const txt = (pg.kind === 'downed' ? '⚑ ' : '') + (pg.name || 'ping') + (pg.kind === 'downed' ? ' down!' : '');
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        const tw = txt.length * 6 + 8; ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(sx - tw / 2, sy - 46, tw, 13);
+        ctx.fillStyle = col; ctx.fillText(txt, sx, sy - 36); ctx.textAlign = 'left';
+      } else {
+        const m = 26, ex = Math.max(m, Math.min(sw - m, sx)), ey = Math.max(m, Math.min(sh - m, sy));
+        const ang = Math.atan2(sy - sh / 2, sx - sw / 2);
+        ctx.translate(ex, ey); ctx.rotate(ang);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-6, -6); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill();
+        ctx.rotate(-ang);
+        const dist = Math.round(Math.hypot(pg.x - (me.x + me.w / 2), pg.y - (me.y + me.h / 2)) / (G.TILE || 32));
+        ctx.fillStyle = col; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillText((pg.name || 'ping') + ' ' + dist + 'm', 0, -11); ctx.textAlign = 'left';
+      }
+      ctx.restore();
+    }
+  }
+
   function connect() {
     ws = new WebSocket(WS_URL);
     ws.onopen = () => { mpLive = true; st('● connected'); if (authPayload) sendAuth(); else showNameEntry(); };
@@ -272,6 +331,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       }
       else if (m.type === 'idle-disconnect') { showAwayScreen(); }   // server dropped an idle tab; wait for a Resume click
       else if (m.type === 'chat') { addChatLine(m.name, m.text); try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+      else if (m.type === 'ping') { pings.push({ x: m.x, y: m.y, name: m.name, kind: m.kind, t: performance.now() }); if (pings.length > 16) pings.shift(); try { (m.kind === 'downed' ? (G.Sound && G.Sound.boss) : (G.Sound && G.Sound.blip)) && (m.kind === 'downed' ? G.Sound.boss() : G.Sound.blip()); } catch (_e) {} }
     };
   }
   connect();
@@ -340,6 +400,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     wake();
     if (modal.classList.contains('on')) return;    // an account/identity modal is up — keys belong to it, not the game
     if (k === 'enter') { if (G.state.scene === 'play' && !chatting) openChat(); return; }   // [Enter] → chat
+    if (k === 't') { if (G.state.scene === 'play' && !chatting) { sendPing('alert'); e.preventDefault(); } return; }   // [T] → rally ping
     // meta + menu keys (any scene)
     if (k === 'm') { if (G.Sound && G.Sound.toggleMute) try { G.Sound.toggleMute(); } catch (_e) {} return; }
     if (k === 'h') { const c = document.getElementById('controls'); if (c) c.style.display = (c.style.display === 'block' ? 'none' : 'block'); return; }
@@ -350,6 +411,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene === 'smith') { if (k === 'e') { closeSmithMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the smith
     // gameplay keys only while actually playing (menu open = no walking/fighting)
     if (G.state.scene !== 'play') return;
+    if (snap && snap.me && snap.me.downed) return;   // downed: no walking/fighting ([T] ping & [Enter] chat handled above)
     if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
     if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
     if (k === 'e') { if (nearestShopNpc()) { openShopMP(); e.preventDefault(); } else if (nearestSmithNpc()) { openSmithMP(); e.preventDefault(); } else actions.push('interact'); }
@@ -376,7 +438,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   });
   setInterval(() => {
     if (!ws || ws.readyState !== 1) return;
-    const inMenu = chatting || (G.state && G.state.scene !== 'play');   // don't walk/fight while a panel's open or typing chat
+    const iAmDowned = snap && snap.me && snap.me.downed;
+    const inMenu = chatting || iAmDowned || (G.state && G.state.scene !== 'play');   // no walk/fight while paneled, chatting, or downed
     const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
     const act = actions; actions = [];                    // always flush queued RPCs (even from menus)
     if (!inMenu && held._atk) act.push('attack');
@@ -389,7 +452,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // instant, and reconcile toward the server's authoritative position.
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
-  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = ''; const enemyMem = new Map();
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false; const enemyMem = new Map();
   // client-side smoothing: remote entities only get new positions at the snapshot rate
   // (and unevenly over the wire); glide each toward its latest server position so a
   // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
@@ -398,9 +461,24 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const ctx = G.ctx; if (!ctx) return;
     const meRef = S.player;
     for (const op of others) {
+      const sy = op.y - S.camera.y - 16;
+      if (op.downed) {                                   // fallen teammate — collapsed marker + revive ring
+        const bx = op.x - S.camera.x + op.w / 2, by = op.y - S.camera.y + op.h / 2;
+        ctx.save();
+        ctx.fillStyle = 'rgba(90,16,16,0.9)'; ctx.beginPath(); ctx.ellipse(bx, by + 5, 13, 5, 0, 0, Math.PI * 2); ctx.fill();   // shadow on the ground
+        ctx.fillStyle = '#c94a4a'; ctx.beginPath(); ctx.ellipse(bx, by, 9, 6, 0, 0, Math.PI * 2); ctx.fill();                    // slumped body
+        if (op.reviveFrac > 0) { ctx.strokeStyle = '#7CFC7C'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bx, by, 15, -Math.PI / 2, -Math.PI / 2 + op.reviveFrac * Math.PI * 2); ctx.stroke(); }
+        ctx.restore();
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        const lab = '▼ ' + (op.name || '?') + (op.beingRevived ? ' — reviving…' : ' — DOWNED'), nw = lab.length * 5.6 + 8;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx - nw / 2, sy - 9, nw, 11);
+        ctx.fillStyle = op.beingRevived ? '#9dff9d' : '#ff8a8a'; ctx.fillText(lab, bx, sy);
+        ctx.textAlign = 'left';
+        continue;
+      }
       S.player = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, op);
       try { G.drawPlayer(); } catch (e) {}
-      const sx = op.x - S.camera.x + op.w / 2, sy = op.y - S.camera.y - 16;
+      const sx = op.x - S.camera.x + op.w / 2;
       ctx.font = '9px monospace'; ctx.textAlign = 'center';
       const label = (op.name || '?') + ' L' + op.level, nw = label.length * 5.6 + 8;
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(sx - nw / 2, sy - 9, nw, 11);
@@ -441,6 +519,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
       }
       feelHp = me2.hp;
+      if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
+      wasDowned = !!me2.downed;
       if (feelLvl !== null && me2.level > feelLvl) {
         try { G.Sound && G.Sound.levelup && G.Sound.levelup(); } catch (_e) {}
         try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 }); } catch (_e) {}
@@ -479,7 +559,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-    if ((dx || dy) && predInit && G.state.scene === 'play') {
+    if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && snap.me.downed)) {
       const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (dt / (1000 / serverHz));
       const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
       if (!G.canMoveTo || G.canMoveTo(nx, pred.y, w, h)) pred.x = nx;
@@ -520,6 +600,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
       G.updateCamera(); G.applyShake(); G.renderWorld();
       drawOthers(others);
+      drawPings();                                       // co-op rally markers (world-space, on top of players)
       G.drawWayfinder && G.drawWayfinder();
       G.updateMinimap && G.updateMinimap();
       G.updateHubTabs && G.updateHubTabs();
@@ -527,6 +608,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       G.updateHUD && G.updateHUD();
       placeAccountBtn();                                 // keep the account chip pinned under the (live-sized) HUD
     } catch (e) { st('render error: ' + e.message); console.error(e); }
+    updateDownedOverlay(snap.me);                        // "you are downed" vignette + bleed/revive readout
     if (hurtFx > 0.001) { hurtFx = Math.max(0, hurtFx - 0.06); const hv = document.getElementById('mp-hurt'); if (hv) hv.style.opacity = hurtFx.toFixed(2); }
   }
   realRAF(frame);
