@@ -29,9 +29,10 @@ const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
 // handles the choppiness from snapshots arriving unevenly on a high-fps display.
 const HZ = Number(process.env.HZ) || 80;
 // Disconnect a player who hasn't done anything meaningful for this long — a backstop so
-// an AFK/backgrounded tab can't keep the sim (and the bill) running all night. The client
-// pauses itself sooner; this catches anything it misses. Their hero is saved on disconnect.
-const IDLE_MS = Number(process.env.IDLE_MS) || 10 * 60 * 1000;
+// an AFK/backgrounded tab can't keep the sim (and the bill) running, and so an away player
+// isn't left standing in danger for long. The client pauses itself at the same mark; this
+// catches anything it misses. Their hero is saved on disconnect. Heartbeat granularity 15s.
+const IDLE_MS = Number(process.env.IDLE_MS) || 2 * 60 * 1000;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one

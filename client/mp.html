@@ -197,7 +197,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // for a while so the server can idle its sim, and DON'T silently reconnect — show a
   // Resume button instead. Your hero is saved on disconnect. ----
   let noReconnect = false, lastUserActive = Date.now(), hiddenSince = 0;
-  const HIDDEN_LIMIT = 2 * 60 * 1000, IDLE_LIMIT = 10 * 60 * 1000;
+  const HIDDEN_LIMIT = 2 * 60 * 1000, IDLE_LIMIT = 2 * 60 * 1000;   // pause ~2m after backgrounded or untouched
   const markActive = () => { lastUserActive = Date.now(); };
   ['keydown', 'pointerdown', 'mousemove', 'wheel', 'touchstart'].forEach((ev) => realWinAdd(ev, markActive, { passive: true }));
   realWinAdd('visibilitychange', () => { if (document.hidden) { hiddenSince = Date.now(); } else { hiddenSince = 0; markActive(); } });
