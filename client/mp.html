@@ -193,29 +193,42 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     });
   }
 
-  // ---- idle / away handling (cost control): disconnect a tab that's hidden or untouched
-  // for a while so the server can idle its sim, and DON'T silently reconnect — show a
-  // Resume button instead. Your hero is saved on disconnect. ----
-  let noReconnect = false, lastUserActive = Date.now(), hiddenSince = 0;
-  const HIDDEN_LIMIT = 2 * 60 * 1000, IDLE_LIMIT = 2 * 60 * 1000;   // pause ~2m after backgrounded or untouched
-  const markActive = () => { lastUserActive = Date.now(); };
+  // ---- two-stage away handling (cost control) ----
+  // ~1 min idle/hidden → SLEEP: pause locally, keep the socket open, resume INSTANTLY on any
+  //   activity (the server pauses its sim in lockstep, so the world costs nothing meanwhile).
+  // ~2 min → DISCONNECT: close the socket + a Resume button (no silent reconnect).
+  // Hero is saved either way.
+  let noReconnect = false, sleeping = false, lastUserActive = Date.now(), hiddenSince = 0;
+  const SLEEP_LIMIT = 60 * 1000, DISCONNECT_LIMIT = 2 * 60 * 1000;
+  const idleFor = () => { const now = Date.now(); return document.hidden ? now - (hiddenSince || now) : now - lastUserActive; };
+  function markActive() { lastUserActive = Date.now(); if (sleeping) wakeFromSleep(); }
   ['keydown', 'pointerdown', 'mousemove', 'wheel', 'touchstart'].forEach((ev) => realWinAdd(ev, markActive, { passive: true }));
   realWinAdd('visibilitychange', () => { if (document.hidden) { hiddenSince = Date.now(); } else { hiddenSince = 0; markActive(); } });
-  function pauseForIdle(why) {
+  function goToSleep() {
+    if (sleeping || noReconnect) return;
+    sleeping = true; st('💤 sleeping');
+    openModal('<h2>💤 Sleeping</h2><p>Paused to save server cost while you\'re away. Move the mouse or press a key to jump right back in.</p>');
+  }
+  function wakeFromSleep() {
+    if (!sleeping) return;
+    sleeping = false; closeModal(); st(mpLive ? '● live' : '○ …');
+    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'wake' })); } catch (_e) {} }   // wake the server sim now
+  }
+  function disconnectIdle() {
     if (noReconnect) return;
-    noReconnect = true;
+    noReconnect = true; sleeping = false;
     try { ws && ws.close(); } catch (_e) {}
-    mpLive = false; st('○ paused');
-    const c = openModal('<h2>Paused</h2><p>You were disconnected to save server cost while ' + (why === 'hidden' ? 'this tab was in the background' : 'you were away') + '. Your hero is saved — pick up right where you left off.</p><button class="mp-btn primary" id="mp-resume">Resume playing</button>');
+    mpLive = false; st('○ disconnected');
+    const c = openModal('<h2>Disconnected</h2><p>You were away a couple of minutes, so we disconnected to save server cost. Your hero is saved — pick up right where you left off.</p><button class="mp-btn primary" id="mp-resume">Resume playing</button>');
     c.querySelector('#mp-resume').addEventListener('click', () => { closeModal(); resumeSession(); });
   }
-  function resumeSession() { noReconnect = false; lastUserActive = Date.now(); hiddenSince = 0; connect(); }
+  function resumeSession() { noReconnect = false; sleeping = false; lastUserActive = Date.now(); hiddenSince = 0; connect(); }
   setInterval(() => {
     if (noReconnect || !ws || ws.readyState !== 1) return;
-    const now = Date.now();
-    if (document.hidden && hiddenSince && now - hiddenSince > HIDDEN_LIMIT) pauseForIdle('hidden');
-    else if (now - lastUserActive > IDLE_LIMIT) pauseForIdle('idle');
-  }, 20000);
+    const idle = idleFor();
+    if (idle > DISCONNECT_LIMIT) disconnectIdle();
+    else if (idle > SLEEP_LIMIT) goToSleep();
+  }, 5000);
 
   function connect() {
     ws = new WebSocket(WS_URL);
@@ -331,7 +344,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === ' ' || k === 'j') held._atk = false;
   });
   setInterval(() => {
-    if (!ws || ws.readyState !== 1) return;
+    if (!ws || ws.readyState !== 1 || sleeping) return;   // asleep → send nothing so the server can idle its sim
     const inMenu = G.state && G.state.scene !== 'play';   // don't walk/fight while a panel is open
     const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
     const act = actions; actions = [];                    // always flush queued RPCs (even from menus)

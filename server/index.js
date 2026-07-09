@@ -33,6 +33,10 @@ const HZ = Number(process.env.HZ) || 80;
 // isn't left standing in danger for long. The client pauses itself at the same mark; this
 // catches anything it misses. Their hero is saved on disconnect. Heartbeat granularity 15s.
 const IDLE_MS = Number(process.env.IDLE_MS) || 2 * 60 * 1000;
+// Two-stage away handling: once EVERY connected player has been idle this long, pause the
+// sim (they may still be connected — the client shows a "sleeping" screen and resumes
+// instantly on activity). Full disconnect follows at IDLE_MS.
+const SLEEP_MS = Number(process.env.SLEEP_MS) || 60 * 1000;
 const ROOT = path.join(__dirname, '..');
 
 // Serve the MP client + the game HTML it fetches, so the whole experience is one
@@ -103,9 +107,10 @@ wss.on('connection', (ws) => {
       return;
     }
     // ---- authed traffic ----
-    // Idle-kick clock: a bare "not moving, no actions" input doesn't count as active,
-    // so an AFK/backgrounded tab (which still streams empty input) eventually times out.
-    if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) ws.lastActive = Date.now();
+    // Activity clock: a bare "not moving, no actions" input doesn't count as active, so an
+    // AFK/backgrounded tab (which still streams empty input) goes idle. Any meaningful input
+    // (or a wake ping) marks active AND wakes the sim instantly.
+    if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) { ws.lastActive = Date.now(); startSim(); }
     if (m.type === 'input') world.setInput(ws.pid, m);
     else if (m.type === 'shop') { const data = world.shopPayloadFor(ws.pid); if (data) { try { ws.send(JSON.stringify({ type: 'shopData', data })); } catch (_e) {} } }
     else if (m.type === 'rename' && ws.token && m.name) {
@@ -170,7 +175,7 @@ function simStep() {
 // (with idle-kick below draining AFK tabs) is what stops "left it open overnight" from
 // billing a full simulation for hours. startSim on the first join, stopSim when empty.
 function startSim() { if (simTimer) return; acc = 0; lastT = Date.now(); lastBcast = 0; simTimer = setInterval(simStep, 4); console.log('▶ sim running'); }
-function stopSim() { if (!simTimer) return; clearInterval(simTimer); simTimer = null; console.log('⏸ sim idle — no players'); }
+function stopSim() { if (!simTimer) return; clearInterval(simTimer); simTimer = null; console.log('⏸ sim paused (no active players)'); }
 
 // Heartbeat: reap connections that died WITHOUT a clean close (network drop,
 // laptop sleep, backgrounded tab). No TCP close = no removePlayer, so without
@@ -192,6 +197,16 @@ setInterval(() => {
     try { ws.ping(); } catch (_e) {}
   }
 }, 15000);
+
+// The big saver: pause the sim once EVERY connected player has gone idle > SLEEP_MS,
+// even though they're still connected (they'll get the 2-min kick separately). Waking is
+// instant — any meaningful input calls startSim() above.
+setInterval(() => {
+  const now = Date.now();
+  let active = false;
+  for (const ws of wss.clients) { if (ws.authed && ws.pid && now - (ws.lastActive || 0) < SLEEP_MS) { active = true; break; } }
+  if (active) startSim(); else stopSim();
+}, 10000);
 
 db.init().catch((e) => console.error('[db] init failed (heroes ephemeral this run):', e && e.message));
 
