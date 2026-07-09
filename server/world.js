@@ -126,6 +126,8 @@ const RPC_OK = new Set([
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleMount', 'toggleBoat', 'doCamp',
   // shop (Merchant) transactions — run on the acting player's own gold/inventory
   'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
+  // blacksmith — act on the acting player's own gear/gold ('repairItem' resolved specially)
+  'reforgeWeapon', 'fuseWeapon', 'repairAll',
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
@@ -251,6 +253,13 @@ class World {
       const arr = kind === 'weapon' ? p.inventory.weapons : (kind === 'armor' ? p.inventory.armor : null);
       const it = arr && arr[idx];
       if (it && it.name === nm && typeof G.sellItem === 'function') G.sellItem(it, kind);
+      return;
+    }
+    if (rpc === 'repairItem') {                                  // blacksmith: resolve the damaged item by slot
+      const kind = args[0], idx = args[1], nm = args[2];
+      const arr = kind === 'weapon' ? p.inventory.weapons : (kind === 'armor' ? p.inventory.armor : null);
+      const it = arr && arr[idx];
+      if (it && it.name === nm && typeof G.repairItem === 'function') G.repairItem(it);
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);

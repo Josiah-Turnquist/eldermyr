@@ -289,6 +289,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (sc === 'inventory') window.toggleInventory && window.toggleInventory();
       else if (sc === 'skills') window.toggleSkills && window.toggleSkills();
       else if (sc === 'shop') closeShopMP();
+      else if (sc === 'smith') closeSmithMP();
       else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
     } catch (_e) {}
   }
@@ -319,6 +320,21 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.buyArmor = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
   window.sellItem = (it, kind) => { const arr = kind === 'weapon' ? G.state.inventory.weapons : (kind === 'armor' ? G.state.inventory.armor : null); if (!arr) return; const idx = arr.indexOf(it); if (idx < 0) return; actions.push({ rpc: 'sellItem', args: [idx, kind, it.name] }); };
   window.closeShop = closeShopMP;
+  // ---- Blacksmith (reforge / fuse / repair): like the shop but acts on your own gear (no stock) ----
+  function nearestSmithNpc() {
+    if (!snap || !snap.npcs || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
+    let best = null, bd = 66 * 66;
+    for (const n of snap.npcs) { if (n.id !== 'smith') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+  function openSmithMP() { G.state.scene = 'smith'; const el = document.getElementById('smith'); if (el) el.style.display = 'block'; try { window.renderSmith && window.renderSmith(); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+  function closeSmithMP() { const el = document.getElementById('smith'); if (el) el.style.display = 'none'; if (G.state.scene === 'smith') G.state.scene = 'play'; }
+  window.reforgeWeapon = () => actions.push({ rpc: 'reforgeWeapon', args: [] });
+  window.fuseWeapon = () => actions.push({ rpc: 'fuseWeapon', args: [] });
+  window.repairAll = () => actions.push({ rpc: 'repairAll', args: [] });
+  window.repairItem = (it) => { if (!it) return; const wi = G.state.inventory.weapons.indexOf(it), ai = G.state.inventory.armor.indexOf(it); if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
+  window.closeSmith = closeSmithMP;
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
@@ -331,11 +347,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'k') { try { window.toggleSkills && window.toggleSkills(); } catch (_e) {} e.preventDefault(); return; }
     if (k === 'escape') { closePanel(); return; }
     if (G.state.scene === 'shop') { if (k === 'e') { closeShopMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the shop
+    if (G.state.scene === 'smith') { if (k === 'e') { closeSmithMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the smith
     // gameplay keys only while actually playing (menu open = no walking/fighting)
     if (G.state.scene !== 'play') return;
     if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
     if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
-    if (k === 'e') { if (nearestShopNpc()) { openShopMP(); e.preventDefault(); } else actions.push('interact'); }
+    if (k === 'e') { if (nearestShopNpc()) { openShopMP(); e.preventDefault(); } else if (nearestSmithNpc()) { openSmithMP(); e.preventDefault(); } else actions.push('interact'); }
     if (k === 'shift' || k === 'l') actions.push('dodge');
     // abilities / potion / mount → server RPCs (applied to this player)
     if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
@@ -490,6 +507,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     } else if (G.state.scene === 'shop') {
       const sig = 'shop|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + ((G.state.shopPurchased || []).length);
       if (sig !== panelSig) { panelSig = sig; try { window.renderShop && window.renderShop(); } catch (_e) {} }
+    } else if (G.state.scene === 'smith') {
+      const sig = 'smith|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '');
+      if (sig !== panelSig) { panelSig = sig; try { window.renderSmith && window.renderSmith(); } catch (_e) {} }
     } else if (panelSig) panelSig = '';
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
