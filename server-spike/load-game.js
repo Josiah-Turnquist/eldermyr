@@ -105,7 +105,7 @@ const CAPTURE = [
   'tryAttack', 'tryInteract', 'killEnemy', 'addProjectile', 'makeWildEnemy', 'spawnPackAround',
   'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
   'liberateHolding', 'clearPOI',   // server reconciles outpost/POI liberation across combat partitions
-  'projSpeedMul', 'profAtkSpeedMul',   // proficiency scaling helpers (added for the combat-depth arc)
+  'projParams', 'canDominate', 'dominate',   // combat-depth arc: proj speed + elite domination (tests)
   'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
   'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)
   'distFactor', 'regionOf', 'rectDist', 'stepToward',
