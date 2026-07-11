@@ -604,7 +604,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.40.1';   // the cape rides the walk (trails, flaps, billows when facing away); warbands hold formation slots instead of stacking
+const GAME_VERSION = 'v2.40.2';   // the cape layers correctly: behind you facing the camera, OVER your back when walking away
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -1737,7 +1737,9 @@ function drawPlayer(){ const p=state.player,sx=p.x-state.camera.x,sy=p.y-state.c
   const lg=p.moving?[[2,0],[1,1],[0,2],[1,1]][p.animFrame%4]:[1,1];
   // CLOAK (knight/ranger/rogue): fabric that FOLLOWS the walk — trails opposite your travel
   // direction, flaps with each step, billows fuller when you face away, breathes idle.
-  if(AR.cape){
+  // LAYER: hangs off the BACK, so it draws BEHIND the body normally but ON TOP when you
+  // face away (walking up = back to camera → the cape covers you).
+  const drawCape=()=>{
     const st2=p.moving?Math.sin(p.animFrame*1.57):0;   // step phase −1..1
     let trail=0, flare=0, lift=0, wide=0;
     if(p.moving){
@@ -1746,12 +1748,14 @@ function drawPlayer(){ const p=state.player,sx=p.x-state.camera.x,sy=p.y-state.c
       else if(p.dir==='up'){ wide=2; flare=1.6+st2*1.4; }   // back to camera → the cape IS the view: fuller + flapping
       else { lift=1.6+st2; flare=st2*1.6; }            // toward camera → hem kicks up + wags behind
     } else trail=Math.sin(Date.now()/650)*0.8;         // idle breeze
-    const hemY=(AR.short?p.h-8:p.h-3)-lift;
+    const hemY=(AR.short?p.h-8:p.h-3)-lift, topY=(p.dir==='up'?4:10);   // facing away → the collar rides higher over the shoulders
     ctx.fillStyle=AR.cape; ctx.beginPath();
-    ctx.moveTo(sx+5-wide,sy+10+bob); ctx.lineTo(sx+p.w-5+wide,sy+10+bob);
+    ctx.moveTo(sx+5-wide,sy+topY+bob); ctx.lineTo(sx+p.w-5+wide,sy+topY+bob);
     ctx.lineTo(sx+p.w-2+wide+trail+flare,sy+hemY+bob); ctx.lineTo(sx+2-wide+trail-flare,sy+hemY+bob);
     ctx.closePath(); ctx.fill();
-    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(sx+3+trail*0.6,sy+hemY-2+bob,p.w-6,2); }
+    if(p.dir==='up'){ ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(sx+p.w/2-1,sy+topY+2+bob,2,hemY-topY-3); }   // a center seam down the back
+    ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(sx+3+trail*0.6,sy+hemY-2+bob,p.w-6,2); };
+  if(AR.cape&&p.dir!=='up') drawCape();                // facing toward/across camera → cape is behind the body
   ctx.fillStyle='#2c3050'; ctx.fillRect(sx+7,sy+p.h-6+bob,4,4+lg[0]); ctx.fillRect(sx+p.w-11,sy+p.h-6+bob,4,4+lg[1]);
   ctx.fillStyle=bodyColor; ctx.fillRect(sx+5,sy+10+bob,p.w-10,p.h-15);
   ctx.fillStyle='rgba(255,255,255,0.14)'; ctx.fillRect(sx+5,sy+10+bob,3,p.h-15);
@@ -1765,6 +1769,7 @@ function drawPlayer(){ const p=state.player,sx=p.x-state.camera.x,sy=p.y-state.c
   if(AR.band){ ctx.fillStyle=AR.band; ctx.fillRect(sx+6,sy+3+bob,p.w-12,2); }
   if(AR.pauld){ ctx.fillStyle=AR.pauld; ctx.fillRect(sx+3,sy+10+bob,4,4); ctx.fillRect(sx+p.w-7,sy+10+bob,4,4); }
   if(AR.mask){ ctx.fillStyle=AR.mask; ctx.fillRect(sx+6,sy+7+bob,p.w-12,4); }
+  if(AR.cape&&p.dir==='up') drawCape();                // facing away → the cape drapes OVER the back, on top of the body
   ctx.fillStyle='#000'; if(p.dir==='down'){ ctx.fillRect(sx+8,sy+5+bob,2,2); ctx.fillRect(sx+13,sy+5+bob,2,2); } if(p.dir==='left') ctx.fillRect(sx+7,sy+5+bob,2,2); if(p.dir==='right') ctx.fillRect(sx+13,sy+5+bob,2,2); const acc={melee:'#ff9060',ranged:'#90e060',magic:'#b070ff'}[style]; ctx.fillStyle=acc; ctx.fillRect(sx+p.w-7,sy+9+bob,3,8); if(p.whirl>0){ const cx=sx+p.w/2,cy=sy+p.h/2,alpha=p.whirl/16,r=24+(16-p.whirl)*1.6; ctx.strokeStyle=`rgba(160,220,255,${alpha})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(cx,cy,r,0,6.28); ctx.stroke(); ctx.strokeStyle=`rgba(220,240,255,${alpha*0.7})`; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(cx,cy,r*0.7,0,6.28); ctx.stroke(); } if(style==='melee'&&p.attacking>0&&p.whirl<=0){ ctx.strokeStyle='#f0f0f0'; ctx.lineWidth=3; const prog=1-p.attacking/12; ctx.beginPath(); const cx=sx+p.w/2,cy=sy+p.h/2; if(p.dir==='right') ctx.arc(cx,cy,22,-1+prog*2,-1+prog*2+0.5); else if(p.dir==='left') ctx.arc(cx,cy,22,3.6-prog*2,3.6-prog*2+0.5); else if(p.dir==='up') ctx.arc(cx,cy,22,-2.3+prog*1.5,-2.3+prog*1.5+0.5); else ctx.arc(cx,cy,22,0.8+prog*1.5,0.8+prog*1.5+0.5); ctx.stroke(); } if(p.chillT>0){ ctx.fillStyle='#a6e2ff'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText('❄',sx+p.w/2,sy-9); ctx.textAlign='left'; } }
 function drawEnemy(e){ const sx=e.x-state.camera.x,sy=e.y-state.camera.y; ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(sx+e.w/2,sy+e.h+1,e.w/2,3,0,0,6.28); ctx.fill(); const flash=(e.hitFlash>0&&Math.floor(e.hitFlash/2)%2===0)||(e.tele&&e.tele.t<10&&Math.floor(e.tele.t/2)%2===0); ctx.fillStyle=flash?'#ffffff':e.color;
   if(e.type==='slime'){ const sq=Math.sin(e.wobble)*2; ctx.beginPath(); ctx.ellipse(sx+e.w/2,sy+e.h/2+sq/2,e.w/2,e.h/2-sq/2,0,0,6.28); ctx.fill(); ctx.fillStyle='#000'; ctx.fillRect(sx+e.w/2-5,sy+e.h/2-2,2,2); ctx.fillRect(sx+e.w/2+3,sy+e.h/2-2,2,2); }
