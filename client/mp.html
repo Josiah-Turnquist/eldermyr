@@ -685,6 +685,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      if (snap.feed) { for (const f of snap.feed) { try { G.log && G.log(f.m, f.c || 'good'); } catch (_e) {} } }   // server EVENT FEED → bottom-left log (kills, drops, fishing, quests + epic broadcasts)
       {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
         const inv = me2.inventory;
         if (inv) {
@@ -694,9 +695,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
             for (const [k, n] of sig) {
               if (n > (feelInv.get(k) || 0)) {
                 const r = parseInt(k.slice(k.lastIndexOf('|') + 1), 10) | 0;
-                if (r >= 2) {
-                  const nm = k.slice(0, k.lastIndexOf('|'));
-                  try { const rn = window.rarityName ? window.rarityName(r) : ''; G.log && G.log('✦ ' + (rn ? rn + ' ' : '') + nm + ' acquired!', 'quest'); } catch (_e) {}
+                if (r >= 2) {   // rare+ drop → jingle (the log line comes from the server feed now)
                   try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {}
                 }
               }
@@ -709,10 +708,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         const fc = me2.fishCd | 0;
         const fn = (me2.ingredients && me2.ingredients.fish) | 0;
         if (feelFishCd !== null && fc > 30 && feelFishCd <= 0) {
-          try {
-            if (fn > (feelFishN | 0)) { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 6, { color: '#a8d8f0', speed: 1.4, up: 0.5, decay: 0.06 }); G.Sound && G.Sound.item && G.Sound.item(); G.log && G.log('🎣 You catch a fish! (cook at a town Hearth)', 'good'); }
-            else if (window.isWinter && window.isWinter()) { G.log && G.log('The waters lie frozen — no fishing until the thaw.', 'lore'); }
-            else { G.log && G.log('🎣 The line comes up empty — cast again.', 'lore'); }
+          try {   // fishing splash + sound; the catch/empty text comes from the server feed now
+            if (fn > (feelFishN | 0)) { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 6, { color: '#a8d8f0', speed: 1.4, up: 0.5, decay: 0.06 }); G.Sound && G.Sound.item && G.Sound.item(); }
           } catch (_e) {}
         }
         feelFishCd = fc; feelFishN = fn;
@@ -763,9 +760,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         if (prev.hp <= (prev.mhp || 999) * 0.34) {                      // was dying → vanish = kill
           try { G.spawnBurst && G.spawnBurst(prev.x + prev.w / 2, prev.y + prev.h / 2, 12, { color: '#c04040', speed: 2.4, decay: 0.04 }); } catch (_e) {}
           try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {}
-          // significant kills make the log (server-side kill messages never reach this screen)
-          if (prev.hunt) { try { G.log && G.log('★ ' + (prev.nm || 'The great beast') + ' is slain — a legendary hunt!', 'quest'); G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {} }
-          else if (prev.big) { try { G.log && G.log('☠ ' + (prev.nm || 'A mighty foe') + ' has fallen!', 'good'); } catch (_e) {} }
+          if (prev.hunt) { try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {} }   // kill TEXT now comes from the server feed; keep the flourish
+          if (prev.hunt || prev.big) { try { G.addShake && G.addShake(5); } catch (_e) {} }
         }
         enemyMem.delete(nid);
       }
@@ -804,6 +800,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.projectiles = snap.proj || [];
     S.npcs = snap.npcs || [];
     S.shrines = snap.shrines || []; S.loreStones = snap.lore || []; S.pois = snap.pois || [];   // adopt the server's world features (render + [E] prompt)
+    if (snap.holdings) { for (let i = 0; i < snap.holdings.length; i++) { if (S.holdings && S.holdings[i]) Object.assign(S.holdings[i], snap.holdings[i]); } }   // outpost status → [E] prompt + flip on capture
     if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
     S.time = snap.t; S.weather = snap.wx;
     const others = (snap.players || []).filter((p) => p.id !== myId);

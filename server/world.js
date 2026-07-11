@@ -27,6 +27,21 @@ G.startGame();
 const S = G.state;
 S.players = [];
 const SPAWN = { x: S.player.x, y: S.player.y };
+
+// ---- EVENT FEED: capture the game's own log() calls (kills, drops, fishing, quests…) ----
+// load-game routes bare log() through global.__onLog. We stamp each with the player who was
+// acting when it fired (S.player) so the room can route it: personal → that hero, epic → all.
+const _logbuf = [];
+try {
+  global.__onLog = function (m, c) {
+    if (!m) return;
+    const p = S.player;
+    _logbuf.push({ m: String(m).slice(0, 180), c: c || '', id: p ? p.id : null });
+    if (_logbuf.length > 300) _logbuf.splice(0, _logbuf.length - 300);
+  };
+} catch (_e) {}
+// epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
+const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
 const OW_W = G.OW_W || 248, OW_H = G.OW_H || 208;
 const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
 // Enemy density (server-owned). The game seeds ~127 foes across the whole 248x208 map and
@@ -71,7 +86,8 @@ function wanderHome(e) {
   e.tele = null; e.dash = null; e.windup = 0; e.chargeState = 0;
   const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
   let hx, hy;
-  if (e.isWildDragon && S.dragonLair) { hx = S.dragonLair.tx * TILE + 16; hy = S.dragonLair.ty * TILE + 16; }
+  if (e.isKraken && S.krakenArena) { hx = S.krakenArena.tx * TILE; hy = S.krakenArena.ty * TILE; }   // the Kraken stays in its peak-ringed arena (was wandering to the nearest map edge → "escaping")
+  else if (e.isWildDragon && S.dragonLair) { hx = S.dragonLair.tx * TILE + 16; hy = S.dragonLair.ty * TILE + 16; }
   else if (e.isGreatBeast && e.huntKey) {   // great beasts amble to their OWN lair (the Tide Leviathan was heading to "nearest edge" through dry land and embedding itself in walls)
     const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
     if (h && h.lair) { hx = h.lair.tx * TILE + 16; hy = h.lair.ty * TILE + 16; }
@@ -234,6 +250,19 @@ class World {
     this.dgSpawn = null;               // current floor's entry point (joiners + descends spawn here)
     this._qN = 1;                      // quest-state version: bumps when quests/bounty/lore change → clients resync
     try { this._qJson = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) { this._qJson = ''; }
+    this.feed = [];                    // event feed: {n, m, c, id, bc} — personal to `id`, or bc=broadcast to all
+    this.feedN = 0;
+  }
+
+  // drain this tick's captured log() calls into the versioned feed (called at tick end)
+  _drainFeed() {
+    if (!_logbuf.length) return;
+    for (const e of _logbuf) {
+      const nm = e.id && this.players.get(e.id) ? this.players.get(e.id).name : '';
+      this.feed.push({ n: ++this.feedN, m: e.m, c: e.c, id: e.id, bc: FEED_BROADCAST.test(e.m), nm });
+    }
+    _logbuf.length = 0;
+    if (this.feed.length > 140) this.feed.splice(0, this.feed.length - 140);
   }
 
   get list() { return S.players; }
@@ -257,6 +286,7 @@ class World {
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
+    p._feedSeen = this.feedN | 0;      // join fresh — don't replay the room's whole event history
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -745,6 +775,26 @@ class World {
 
     // ---- DOWNED & REVIVE (overworld heroes; the dungeon phase runs its own pass) ----
     this._downedPass(players);
+
+    // Liberation reconciliation: during partitioned combat state.enemies is only one player's
+    // bucket, so killEnemy's "last occupier dead?" check can miss. Sweep the FULL list here.
+    if (S.map === 'overworld' && G.liberateHolding && S.holdings) {
+      for (let i = 0; i < S.holdings.length; i++) {
+        const hd = S.holdings[i];
+        if (hd && !hd.liberated && !hd.built && !S.enemies.some((e) => e.holdKey === i)) {
+          S.player = players[0] || S.player; try { G.liberateHolding(i); } catch (_e) {}
+        }
+      }
+    }
+    if (S.map === 'overworld' && G.clearPOI && S.pois) {
+      for (const poi of S.pois) {
+        if (poi && !poi.cleared && !S.enemies.some((e) => e.poiKey === poi.key)) {
+          S.player = players[0] || S.player; try { G.clearPOI(poi); } catch (_e) {}
+        }
+      }
+    }
+
+    this._drainFeed();                 // ship this tick's captured log lines to the event feed
   }
 
   // 0 HP = incapacitated, not dead (co-op). A teammate revives you by standing close; or you
@@ -808,9 +858,21 @@ class World {
       shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
       pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
+      holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
     };
     if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; }
     // quest state rides along only when it changed since this client last got it (shared questline)
+    // event feed: your own messages + epic broadcasts you haven't seen (bottom-left log)
+    if ((me._feedSeen | 0) < this.feedN) {
+      const fs = [];
+      for (const e of this.feed) {
+        if (e.n <= (me._feedSeen | 0)) continue;
+        if (e.id === id) fs.push({ m: e.m, c: e.c });                                  // your own event
+        else if (e.bc) fs.push({ m: (e.nm ? e.nm + ': ' : '') + e.m, c: e.c || 'good' });   // someone else's epic moment
+      }
+      me._feedSeen = this.feedN;
+      if (fs.length) snap.feed = fs.slice(-8);   // cap the burst a single snapshot can carry
+    }
     if ((me._qSeen | 0) !== this._qN) {
       me._qSeen = this._qN;
       snap.quests = safeClone(S.quests);
