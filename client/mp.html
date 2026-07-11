@@ -750,6 +750,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       for (const en of (snap.enemies || [])) if (en._nid != null) { const k = 'e' + en._nid; const s = smooth.get(k); if (s) { s.tx = en.x; s.ty = en.y; } else smooth.set(k, { tx: en.x, ty: en.y, rx: en.x, ry: en.y }); _live.add(k); }
       for (const pr of (snap.proj || [])) if (pr._pid != null) { const k = 'r' + pr._pid; const s = smooth.get(k); if (s) { s.tx = pr.x; s.ty = pr.y; } else smooth.set(k, { tx: pr.x, ty: pr.y, rx: pr.x, ry: pr.y }); _live.add(k); }
       for (const pl of (snap.players || [])) { if (pl.id === myId) continue; const k = 'u' + pl.id; const s = smooth.get(k); if (s) { s.tx = pl.x; s.ty = pl.y; } else smooth.set(k, { tx: pl.x, ty: pl.y, rx: pl.x, ry: pl.y }); _live.add(k); }
+      for (const c of (snap.comps || [])) if (c._cid != null) { const k = 'c' + c._cid; const s = smooth.get(k); if (s) { s.tx = c.x; s.ty = c.y; } else smooth.set(k, { tx: c.x, ty: c.y, rx: c.x, ry: c.y }); _live.add(k); }
       for (const k of smooth.keys()) if (!_live.has(k)) smooth.delete(k);
     }
     // --- dead-reckon my movement each frame (input feels instant) ---
@@ -788,6 +789,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       for (const e of S.enemies) { const s = smooth.get('e' + e._nid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; e.x = s.rx; e.y = s.ry; } }
       for (const pr of S.projectiles) { const s = smooth.get('r' + pr._pid); if (s) { s.rx += (s.tx - s.rx) * _skp; s.ry += (s.ty - s.ry) * _skp; pr.x = s.rx; pr.y = s.ry; } }
       for (const op of others) { const s = smooth.get('u' + op.id); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; op.x = s.rx; op.y = s.ry; } }
+      for (const c of (S.companions || [])) { const s = c._cid != null && smooth.get('c' + c._cid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; c.x = s.rx; c.y = s.ry; } }   // warband glides too (it stepped/jittered without smoothing)
     }
     // keep an open inventory/skills panel fresh after server-applied changes
     if (G.state.scene === 'inventory' || G.state.scene === 'skills') {

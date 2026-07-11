@@ -167,7 +167,11 @@ function packScalar(o) {
   for (const k in o) { const v = o[k], t = typeof v; if (v === null || t === 'number' || t === 'string' || t === 'boolean') r[k] = v; }
   return r;
 }
-let _nidSeq = 0, _pidSeq = 0;
+let _nidSeq = 0, _pidSeq = 0, _cidSeq = 0;
+function packComp(c) {
+  if (c._cid == null) c._cid = ++_cidSeq;   // stable id so the client can SMOOTH companions across snapshots (they stepped/jittered without it)
+  return packScalar(c);
+}
 function packEnemy(e) {
   if (e._nid == null) e._nid = ++_nidSeq;   // stable id so the client can diff hits/deaths + smooth across snapshots
   const r = packScalar(e);
@@ -782,7 +786,7 @@ class World {
       pickups: pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
       npcs: npcs.filter(near).map(packScalar),
       // warband companions (overworld only — they idle topside while their owner delves)
-      comps: inDg ? [] : (S.companions || []).filter((c) => c.alive && near(c)).map(packScalar),
+      comps: inDg ? [] : (S.companions || []).filter((c) => c.alive && near(c)).map(packComp),
       // world features (overworld only) so the client can RENDER them + light the [E] prompt
       shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
