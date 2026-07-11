@@ -103,11 +103,12 @@ const CAPTURE = [
   'updateWorldLine', 'updateMusicMood', 'updateAmbience', 'updateTime',
   'tryAttack', 'tryInteract', 'killEnemy', 'addProjectile', 'makeWildEnemy', 'spawnPackAround',
   'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
+  'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
   'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)
   'distFactor', 'regionOf', 'rectDist', 'stepToward',
   'doDodge', 'drinkPotion', 'toggleMount',   // discrete actions the server routes per-player
   // menu action RPCs (run per-player on the server; client overrides these to route here)
-  'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'spendPoint',
+  'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'spendPoint', 'unlockAbility',
   'buyPotion', 'buyTonic', 'buySharpen', 'buyWeapon', 'buyArmor', 'buyGood', 'sellGood', 'sellIngredient',   // Merchant shop
   'reforgeWeapon', 'fuseWeapon', 'repairItem', 'repairAll',   // blacksmith
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',

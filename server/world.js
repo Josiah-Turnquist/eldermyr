@@ -158,7 +158,7 @@ function safeClone(v, d) {
 // (Anything not here — startGame, genLegion, etc. — is ignored, so a client
 // can't drive arbitrary server logic.)
 const RPC_OK = new Set([
-  'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint',
+  'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint', 'unlockAbility',
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleMount', 'toggleBoat', 'doCamp',
   // shop (Merchant) transactions — run on the acting player's own gold/inventory
   'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
@@ -405,7 +405,20 @@ class World {
         for (const a of p.actions) {
           try {
             if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
-            else if (a === 'interact' && G.tryInteract) G.tryInteract();
+            else if (a === 'interact' && G.tryInteract) {
+              const m0 = S.map, px0 = p.x, py0 = p.y;
+              G.tryInteract();
+              // A dungeon entry flips the SHARED map to 'dungeon' — which invalidates every OTHER
+              // player's position (their overworld coords read as dungeon walls) and freezes them.
+              // Co-op dungeon instancing is a bigger feature; until then, immediately UNDO the entry
+              // so the shared overworld (and everyone in it) is never corrupted.
+              if (S.map !== 'overworld' && m0 === 'overworld') {
+                if (G.loadOverworld) { try { G.loadOverworld(); } catch (_e) {} }
+                if (S.map !== 'overworld') S.map = 'overworld';
+                p.x = px0; p.y = py0;   // setupDungeonFloor teleported the enterer to the dungeon spawn — put them back at the entrance
+                p._dungeonBlockN = (p._dungeonBlockN || 0) + 1;   // bumped each attempt → client shows a "co-op dungeons coming soon" notice on the rising edge
+              }
+            }
             else if (a === 'dodge' && G.doDodge) G.doDodge();
             else if (a && a.rpc) this._runRpc(a, p);
           } catch (_e) {}
