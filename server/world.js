@@ -254,6 +254,54 @@ class World {
     try { this._qJson = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) { this._qJson = ''; }
     this.feed = [];                    // event feed: {n, m, c, id, bc} — personal to `id`, or bc=broadcast to all
     this.feedN = 0;
+    this.rift = null;                  // ephemeral deep-dungeon RIFT (#14): {x,y,deep,expires,n} — 30s window, one at a time
+    this._riftSeq = 0;
+    this._riftCd = 800;                // ticks until the first rift can open (~10s), then randomized
+  }
+
+  // #14: occasionally tear open a 30s deep-dungeon rift near a surface hero (only when nobody is delving,
+  // since the room runs ONE shared dungeon instance — the rift just seeds it at a deeper floor).
+  _maybeRift() {
+    if (this.rift && S.time > this.rift.expires) this.rift = null;   // window closed, unused
+    if (this.rift || this.sharedDg) return;
+    if (this._riftCd-- > 0) return;
+    const ow = S.players.filter((p) => p.map !== 'dungeon' && !p.downed);
+    if (!ow.length) { this._riftCd = 400; return; }
+    this._riftCd = 1600 + Math.floor(Math.random() * 1200);          // ~20–35s between rifts
+    const host = ow[Math.floor(Math.random() * ow.length)];
+    const htx = Math.round((host.x + host.w / 2) / TILE), hty = Math.round((host.y + host.h / 2) / TILE);
+    for (let t = 0; t < 24; t++) {
+      const ang = Math.random() * 6.28, d = 4 + Math.random() * 5;
+      const tx = Math.round(htx + Math.cos(ang) * d), ty = Math.round(hty + Math.sin(ang) * d);
+      const tile = G.getTile('overworld', tx, ty);
+      if (tile === G.T.GRASS || tile === G.T.FLOWER || tile === G.T.PATH) {
+        this.rift = { x: tx * TILE, y: ty * TILE, deep: 3 + Math.floor(Math.random() * 4), expires: S.time + 2400, n: ++this._riftSeq };
+        break;
+      }
+    }
+  }
+
+  // A hero breaches the rift: costs one key, drops the party into a fresh deep floor (becomes the shared dungeon).
+  _enterRift(p) {
+    if (!this.rift || this.sharedDg || p.map === 'dungeon') return;
+    const dx = this.rift.x - p.x, dy = this.rift.y - p.y;
+    if (dx * dx + dy * dy > 80 * 80) return;                          // must be standing on it
+    if ((p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
+    p.inventory.keys--;
+    const deep = this.rift.deep; this.rift = null;
+    const projBefore = S.projectiles;
+    const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);
+    S.player = p; S.inventory = p.inventory; swapInPP(p);
+    try { G.enterDungeon(); } catch (_e) {}                           // builds floor 1 + stashes the overworld into owSave
+    try { S.dungeonLevel = deep; S.maxDepth = Math.max(S.maxDepth | 0, deep); G.setupDungeonFloor(deep); } catch (_e) {}   // rebuild at the deep floor
+    if (S.map === 'dungeon') {
+      this.sharedDg = grabWorld(); this.dgSpawn = { x: p.x, y: p.y };
+      p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+      if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
+      S.map = 'overworld'; S.projectiles = projBefore;
+      for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; }      // warband stays topside
+      _logbuf.push({ m: `✦ You breach a RIFT into the deep — Depth ${deep}! (a key is spent)`, c: 'quest', id: p.id });
+    }
   }
 
   // drain this tick's captured log() calls into the versioned feed (called at tick end)
@@ -432,6 +480,7 @@ class World {
           }
         }
         else if (a === 'dodge' && G.doDodge) G.doDodge();
+        else if (a === 'enterRift') this._enterRift(p);   // #14: breach a deep-dungeon rift
         else if (a && a.rpc) this._runRpc(a, p);
       } catch (_e) {}
     }
@@ -568,6 +617,7 @@ class World {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     S._partyLevel = Math.round(S.players.reduce((a, p) => a + (p.level || 1), 0) / S.players.length);   // #2: Legion/Hunts scale with the party's average level
+    this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
     // Quest sync: version-stamp the (shared) quest state so snapshots only carry it when it CHANGES.
     if (S.time % 40 === 0) {
@@ -864,6 +914,7 @@ class World {
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
       pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
+      rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift
     };
     if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; }
     // quest state rides along only when it changed since this client last got it (shared questline)
