@@ -777,7 +777,7 @@ class World {
     const cx = me.x, cy = me.y;
     const near = (o) => (o.x - cx) ** 2 + (o.y - cy) ** 2 < World.R2;
     const snap = {
-      t: S.time, wx: S.weather, you: id, map: inDg ? 'dungeon' : 'overworld',
+      t: S.time, wx: S.weather, you: id, map: inDg ? 'dungeon' : 'overworld', n: S.players.length,
       me: safeClone(me),
       // you see whoever shares YOUR world: fellow delvers below, fellow surfacers above
       players: S.players.filter((p) => (p.map === 'dungeon') === inDg).map(lightPlayer),
