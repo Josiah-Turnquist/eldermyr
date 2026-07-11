@@ -164,6 +164,8 @@ const RPC_OK = new Set([
   'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
   // blacksmith — act on the acting player's own gear/gold ('repairItem' resolved specially)
   'reforgeWeapon', 'fuseWeapon', 'repairAll',
+  // hearth (cook) + warband (recruit/arm/garrison/dismiss) — panel actions on the acting hero
+  'cook', 'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
@@ -324,6 +326,64 @@ class World {
     p._shopStock = npc.stock || { weapons: [], armor: [] };
     p._shopTown = ti;
     return { name: (npc.shopTown && npc.shopTown.name) || 'Shop', town: ti, stock: p._shopStock, purchased: (p.shopPurchased || []).slice() };
+  }
+
+  // Co-op [E] on an NPC: resolve what to show/do for the acting hero near NPC `npcId`.
+  // Returns a descriptor the client acts on — open a panel (it has the game's own render fns;
+  // we just hand it the data), show dialogue (lines resolved here), or toast an instant result.
+  // (shop/smith keep their own dedicated messages; this covers everyone else.)
+  resolveInteract(id, npcId) {
+    const p = this.players.get(id); if (!p) return null;
+    const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+    let npc = null, bd = Infinity;
+    for (const n of (S.npcs || [])) { if (n.id !== npcId) continue; const d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; npc = n; } }
+    if (!npc || bd > (130 * 130)) return null;                 // must actually be standing at that NPC
+    const pp = S.player, pi = S.inventory;
+    S.player = p; S.inventory = p.inventory; swapInPP(p);       // act as this hero
+    let res = null;
+    try {
+      if (npcId === 'hearth') res = { kind: 'panel', panel: 'cook' };                                   // client already has ingredients (snap.me)
+      else if (npcId === 'hunts') res = { kind: 'panel', panel: 'hunts', huntsSlain: (S.huntsSlain || []).slice() };
+      else if (npcId === 'recruit') res = { kind: 'panel', panel: 'companions', companions: (S.companions || []).map((c) => safeClone(c)) };
+      else if (npcId === 'bounty') res = this._doInstant(p, 'openBounty');
+      else if (npcId === 'shipwright') res = this._doInstant(p, 'buyBoat');
+      else {                                                    // elder / guard / any talker → dialogue
+        const lines = (npcId === 'elder' && typeof G.elderLines === 'function') ? G.elderLines() : (Array.isArray(npc.lines) ? npc.lines.slice() : ['…']);
+        if (npcId === 'elder' && S.quests) {                   // the elder advances the (shared) questline
+          if (S.quests.talk) S.quests.talk.done = true;
+          if (S.quests.main) S.quests.main.started = true;
+          if (S.quests.key) S.quests.key.hidden = false;
+          if (S.quests.legion && !S.quests.legion.started) { S.quests.legion.started = true; S.quests.legion.stage = 'camps'; }
+        }
+        res = { kind: 'dialogue', speaker: npc.name || '', lines: Array.isArray(lines) ? lines : ['…'] };
+      }
+    } catch (_e) {}
+    writeBackPP(p); S.player = pp; S.inventory = pi;
+    return res;
+  }
+
+  // Instant NPC action (bounty/boat): run the game fn for p, compose feedback from state deltas
+  // (the game's log() only writes to the DOM, so we can't read its text server-side).
+  _doInstant(p, fn) {
+    if (fn === 'openBounty') {
+      const b0 = S.bounty ? { desc: S.bounty.desc, target: S.bounty.target, progress: S.bounty.progress, done: S.bounty.progress >= S.bounty.target } : null;
+      const g0 = p.gold | 0;
+      if (typeof G.openBounty === 'function') G.openBounty();
+      const b = S.bounty, dg = (p.gold | 0) - g0;
+      let text;
+      if (!b0) text = b ? `Bounty accepted — ${b.desc}. Reward: ${b.reward} gold${b.sp ? ' + a skill point' : ''}${b.loot ? ' + rare loot' : ''}.` : 'No bounty available right now.';
+      else if (b0.done) text = `Bounty complete!${dg > 0 ? ' +' + dg + ' gold' : ''} — a new one awaits.`;
+      else text = `Bounty in progress — ${b0.desc} (${Math.min(b0.progress, b0.target)}/${b0.target}). Return when it's done.`;
+      return { kind: 'toast', text, cls: 'quest' };
+    }
+    if (fn === 'buyBoat') {
+      const had = !!S.hasBoat, g0 = p.gold | 0;
+      if (typeof G.buyBoat === 'function') G.buyBoat();
+      if (!had && S.hasBoat) return { kind: 'toast', text: '★ You acquire a sturdy boat! Press [B] by open water to set sail.', cls: 'quest' };
+      if (had) return { kind: 'toast', text: 'You already own a boat. Press [B] beside open water to sail.', cls: 'lore' };
+      return { kind: 'toast', text: `A boat costs 250 gold — return when you can pay (you have ${g0}).`, cls: 'combat' };
+    }
+    return null;
   }
 
   // ---- the authoritative tick ----
@@ -496,6 +556,11 @@ class World {
       proj: S.projectiles.filter(near).map(packProj),
       pickups: S.pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
       npcs: (S.npcs || []).filter(near).map(packScalar),
+      // world features so the client can RENDER them + light the [E] prompt; they already
+      // trigger server-side via the 'interact' action (activateShrine/readLoreStone/etc.).
+      shrines: (S.shrines || []).filter(near).map((s) => safeClone(s)),
+      lore: (S.loreStones || []).filter(near).map((s) => safeClone(s)),
+      pois: (S.pois || []).filter(near).map((s) => safeClone(s)),
     };
   }
 

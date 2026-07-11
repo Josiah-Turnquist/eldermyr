@@ -115,6 +115,10 @@ wss.on('connection', (ws) => {
     if (m.type !== 'input' || (m.held && Object.values(m.held).some(Boolean)) || (m.actions && m.actions.length)) ws.lastActive = Date.now();
     if (m.type === 'input') world.setInput(ws.pid, m);
     else if (m.type === 'shop') { const data = world.shopPayloadFor(ws.pid); if (data) { try { ws.send(JSON.stringify({ type: 'shopData', data })); } catch (_e) {} } }
+    else if (m.type === 'interact' && typeof m.npcId === 'string') {   // co-op [E] on an NPC → dialogue / panel / instant result
+      const res = world.resolveInteract(ws.pid, m.npcId);
+      if (res) { try { ws.send(JSON.stringify({ type: 'interactResult', res })); } catch (_e) {} }
+    }
     else if (m.type === 'chat' && typeof m.text === 'string') {
       const text = m.text.replace(/\s+/g, ' ').trim().slice(0, 200);
       const now = Date.now();

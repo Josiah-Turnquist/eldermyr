@@ -329,6 +329,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         try { window.renderShop && window.renderShop(); } catch (_e) {}
         try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
       }
+      else if (m.type === 'interactResult') {            // server resolved an [E] on an NPC
+        const r = m.res; if (!r) return;
+        if (r.kind === 'dialogue') openDialogueMP(r.speaker, r.lines);
+        else if (r.kind === 'toast') { try { G.log && G.log(r.text, r.cls || 'quest'); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+        else if (r.kind === 'panel') {
+          if (r.panel === 'cook') openCookMP();
+          else if (r.panel === 'hunts') { G.state.huntsSlain = r.huntsSlain || []; if (G.state.scene === 'hunts') { try { window.renderHunts && window.renderHunts(); } catch (_e) {} } else openHuntsMP(); }
+          else if (r.panel === 'companions') { G.state.companions = r.companions || []; if (G.state.scene === 'companions') { try { window.renderCompanions && window.renderCompanions(); } catch (_e) {} } else openCompanionsMP(); }
+        }
+      }
       else if (m.type === 'idle-disconnect') { showAwayScreen(); }   // server dropped an idle tab; wait for a Resume click
       else if (m.type === 'chat') { addChatLine(m.name, m.text); try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
       else if (m.type === 'ping') { pings.push({ x: m.x, y: m.y, name: m.name, kind: m.kind, t: performance.now() }); if (pings.length > 16) pings.shift(); try { (m.kind === 'downed' ? (G.Sound && G.Sound.boss) : (G.Sound && G.Sound.blip)) && (m.kind === 'downed' ? G.Sound.boss() : G.Sound.blip()); } catch (_e) {} }
@@ -350,6 +360,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else if (sc === 'skills') window.toggleSkills && window.toggleSkills();
       else if (sc === 'shop') closeShopMP();
       else if (sc === 'smith') closeSmithMP();
+      else if (sc === 'dialogue') closeDialogueMP();
+      else if (sc === 'cook') closeCookMP();
+      else if (sc === 'hunts') closeHuntsMP();
+      else if (sc === 'companions') closeCompanionsMP();
       else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
     } catch (_e) {}
   }
@@ -395,6 +409,65 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.repairAll = () => actions.push({ rpc: 'repairAll', args: [] });
   window.repairItem = (it) => { if (!it) return; const wi = G.state.inventory.weapons.indexOf(it), ai = G.state.inventory.armor.indexOf(it); if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
   window.closeSmith = closeSmithMP;
+
+  // ---- co-op NPC interactions: dialogue + hearth/hunts/warband (server-resolved) ----------
+  // [E] on any NPC → the server resolves it (dialogue lines / panel data / instant result) and
+  // we present it here using the game's OWN panel renderers. Shop & smith keep their dedicated
+  // handlers above; this covers the elder, guard, hearth, bounty, hunt master and sellsword.
+  function nearestNpc(maxPx) {
+    if (!snap || !snap.npcs || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 66) * (maxPx || 66);
+    let best = null, bd = r2;
+    for (const n of snap.npcs) { const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+  function requestInteract(npcId) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'interact', npcId })); } catch (_e) {} } }
+  function openPanelMP(scene, id, render) { G.state.scene = scene; const el = document.getElementById(id); if (el) el.style.display = 'block'; try { render && render(); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+  function closePanelMP(scene, id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; if (G.state.scene === scene) G.state.scene = 'play'; }
+  function openCookMP() { openPanelMP('cook', 'cook', window.renderCook); }
+  function closeCookMP() { closePanelMP('cook', 'cook'); }
+  function openHuntsMP() { openPanelMP('hunts', 'hunts', window.renderHunts); }
+  function closeHuntsMP() { closePanelMP('hunts', 'hunts'); }
+  function openCompanionsMP() { openPanelMP('companions', 'companions', window.renderCompanions); }
+  function closeCompanionsMP() { closePanelMP('companions', 'companions'); }
+  window.closeCook = closeCookMP; window.closeHunts = closeHuntsMP; window.closeCompanions = closeCompanionsMP;
+  // hearth (cook) + warband actions → server RPCs (own hero / the shared warband); warband actions
+  // re-request the panel so the roster reflects the server after the change.
+  window.cook = (key) => actions.push({ rpc: 'cook', args: [key] });
+  ['recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion'].forEach((fn) => {
+    window[fn] = function () { actions.push({ rpc: fn, args: [].slice.call(arguments) }); setTimeout(() => { if (G.state.scene === 'companions') requestInteract('recruit'); }, 200); };
+  });
+  // client-side dialogue: the server hands us the lines; advancing/closing is local
+  let mpDlg = null;
+  function openDialogueMP(speaker, lines) {
+    if (!lines || !lines.length) return;
+    mpDlg = { speaker: speaker || '', lines, idx: 0 };
+    G.state.scene = 'dialogue';
+    const el = document.getElementById('dialogue'); if (el) el.style.display = 'block';
+    const sp = document.getElementById('d-speaker'), tx = document.getElementById('d-text');
+    if (sp) sp.textContent = mpDlg.speaker; if (tx) tx.textContent = mpDlg.lines[0];
+    try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+  }
+  function advanceDialogueMP() {
+    if (!mpDlg) { closeDialogueMP(); return; }
+    mpDlg.idx++;
+    if (mpDlg.idx >= mpDlg.lines.length) { closeDialogueMP(); return; }
+    const tx = document.getElementById('d-text'); if (tx) tx.textContent = mpDlg.lines[mpDlg.idx];
+    try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+  }
+  function closeDialogueMP() { const el = document.getElementById('dialogue'); if (el) el.style.display = 'none'; if (G.state.scene === 'dialogue') G.state.scene = 'play'; mpDlg = null; }
+  // world features (shrine/lore/dragon/outpost/fish) fire via the 'interact' action server-side;
+  // add a local flavor line since the game's log runs on the server (its text can't reach us).
+  function nearestFeature(maxPx) {
+    if (!snap || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 52) * (maxPx || 52);
+    const scan = (arr, kind) => { for (const s of (arr || [])) { if ((s.x - px) ** 2 + (s.y - py) ** 2 < r2) return kind; } return null; };
+    return scan(snap.lore, 'lore') || scan(snap.shrines, 'shrine');
+  }
+  function interactFlavor() {
+    const f = nearestFeature(56); if (!f) return;
+    try { G.log && G.log(f === 'lore' ? 'You study the Realm-stone…' : 'You reach out to the shrine…', 'lore'); } catch (_e) {}
+  }
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
@@ -407,14 +480,26 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'i') { try { window.toggleInventory && window.toggleInventory(); } catch (_e) {} e.preventDefault(); return; }
     if (k === 'k') { try { window.toggleSkills && window.toggleSkills(); } catch (_e) {} e.preventDefault(); return; }
     if (k === 'escape') { closePanel(); return; }
+    if (G.state.scene === 'dialogue') { if (k === 'e' || k === ' ') { advanceDialogueMP(); e.preventDefault(); } return; }   // [E]/[Space] advance
     if (G.state.scene === 'shop') { if (k === 'e') { closeShopMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the shop
     if (G.state.scene === 'smith') { if (k === 'e') { closeSmithMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the smith
+    if (G.state.scene === 'cook') { if (k === 'e') { closeCookMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hearth
+    if (G.state.scene === 'hunts') { if (k === 'e') { closeHuntsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hunts
+    if (G.state.scene === 'companions') { if (k === 'e') { closeCompanionsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the warband
     // gameplay keys only while actually playing (menu open = no walking/fighting)
     if (G.state.scene !== 'play') return;
     if (snap && snap.me && snap.me.downed) return;   // downed: no walking/fighting ([T] ping & [Enter] chat handled above)
     if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
     if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
-    if (k === 'e') { if (nearestShopNpc()) { openShopMP(); e.preventDefault(); } else if (nearestSmithNpc()) { openSmithMP(); e.preventDefault(); } else actions.push('interact'); }
+    if (k === 'e') {
+      const npc = nearestNpc(66);
+      if (npc) {
+        if (npc.id === 'shop') openShopMP();
+        else if (npc.id === 'smith') openSmithMP();
+        else requestInteract(npc.id);            // hearth/bounty/hunts/recruit/shipwright/elder/guard → server resolves
+        e.preventDefault();
+      } else { actions.push('interact'); interactFlavor(); }   // world feature: shrine/lore/dragon/outpost/fish
+    }
     if (k === 'shift' || k === 'l') actions.push('dodge');
     // abilities / potion / mount → server RPCs (applied to this player)
     if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
@@ -576,6 +661,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];
     S.npcs = snap.npcs || [];
+    S.shrines = snap.shrines || []; S.loreStones = snap.lore || []; S.pois = snap.pois || [];   // adopt the server's world features (render + [E] prompt)
     S.time = snap.t; S.weather = snap.wx;
     const others = (snap.players || []).filter((p) => p.id !== myId);
     // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
@@ -595,6 +681,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     } else if (G.state.scene === 'smith') {
       const sig = 'smith|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '');
       if (sig !== panelSig) { panelSig = sig; try { window.renderSmith && window.renderSmith(); } catch (_e) {} }
+    } else if (G.state.scene === 'cook') {                 // hearth: reflect ingredients spent as you cook
+      const sig = 'cook|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + snap.me.gold;
+      if (sig !== panelSig) { panelSig = sig; try { window.renderCook && window.renderCook(); } catch (_e) {} }
     } else if (panelSig) panelSig = '';
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned

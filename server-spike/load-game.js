@@ -112,6 +112,9 @@ const CAPTURE = [
   'reforgeWeapon', 'fuseWeapon', 'repairItem', 'repairAll',   // blacksmith
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
   'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
+  // NPC interactions (co-op [E] resolver): dialogue lines, instant actions, and panel-action RPCs
+  'elderLines', 'openBounty', 'buyBoat', 'cook',
+  'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ];
 
 function loadGame() {
