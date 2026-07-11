@@ -115,6 +115,7 @@ const CAPTURE = [
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
   'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
   'projParams',                         // testing: assert the pierce rules (magic pierces 1, arrows never)
+  'drawPlayer',                         // testing: smoke every archetype render path (ghost ctx absorbs draws, exceptions surface)
   // NPC interactions (co-op [E] resolver): dialogue lines, instant actions, and panel-action RPCs
   'elderLines', 'openBounty', 'buyBoat', 'cook',
   'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',

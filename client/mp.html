@@ -177,12 +177,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     c.querySelector('#mp-code-cancel').addEventListener('click', () => (fromNameEntry ? showNameEntry() : showAccount()));
   }
 
-  // ---- hero skins: 5 looks, server-authoritative (drawPlayer reads p.skin) ----
-  const SKIN_COLS = ['#4060c0', '#c03030', '#2e8a4a', '#8a50c0', '#d09a20'];
-  const SKIN_NAMES = ['Azure', 'Crimson', 'Forest', 'Violet', 'Gilded'];
+  // ---- hero archetypes: 5 distinct characters, server-authoritative (drawPlayer reads p.skin) ----
+  const SKIN_META = [['Knight', '🛡', '#4060c0'], ['Ranger', '🏹', '#2e6b3f'], ['Mage', '✨', '#6a3fa0'], ['Barbarian', '🪓', '#c03030'], ['Rogue', '🗡', '#3a4152']];
   function curSkin() { const n = parseInt(lsGet(LS_SKIN)); return Number.isFinite(n) ? Math.max(0, Math.min(4, n)) : ((snap && snap.me && snap.me.skin) | 0); }
   function sendSkin(n) { lsSet(LS_SKIN, String(n)); if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'skin', skin: n })); } catch (_e) {} } }
-  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Hero look:</p><div class="mp-row" id="mp-skin-row">' + SKIN_COLS.map((col, i) => '<button class="mp-btn" data-skin="' + i + '" title="' + SKIN_NAMES[i] + '" style="background:' + col + ';min-width:34px;height:26px;padding:0;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '"></button>').join('') + '</div>';
+  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Hero:</p><div class="mp-row" id="mp-skin-row">' + SKIN_META.map((m, i) => '<button class="mp-btn" data-skin="' + i + '" title="' + m[0] + '" style="background:' + m[2] + ';min-width:52px;height:38px;padding:2px 4px;line-height:1.15;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '">' + m[1] + '<br><span style="font-size:9px">' + m[0] + '</span></button>').join('') + '</div>';
   }
   function wireSkinRow(c) {
     c.querySelectorAll('#mp-skin-row [data-skin]').forEach((b) => b.addEventListener('click', () => {
@@ -573,7 +572,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // instant, and reconcile toward the server's authoritative position.
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
-  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null; const enemyMem = new Map();
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
   // client-side smoothing: remote entities only get new positions at the snapshot rate
   // (and unevenly over the wire); glide each toward its latest server position so a
   // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
@@ -686,6 +685,26 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
+        const inv = me2.inventory;
+        if (inv) {
+          const sig = new Map();
+          for (const arr of [inv.weapons || [], inv.armor || []]) for (const it of arr) { if (!it || !it.name) continue; const k = it.name + '|' + (it.rarity | 0); sig.set(k, (sig.get(k) || 0) + 1); }
+          if (feelInv) {
+            for (const [k, n] of sig) {
+              if (n > (feelInv.get(k) || 0)) {
+                const r = parseInt(k.slice(k.lastIndexOf('|') + 1), 10) | 0;
+                if (r >= 2) {
+                  const nm = k.slice(0, k.lastIndexOf('|'));
+                  try { const rn = window.rarityName ? window.rarityName(r) : ''; G.log && G.log('✦ ' + (rn ? rn + ' ' : '') + nm + ' acquired!', 'quest'); } catch (_e) {}
+                  try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {}
+                }
+              }
+            }
+          }
+          feelInv = sig;
+        }
+      }
       {                                                  // FISHING happened server-side (fishCd 0 → ~70) → replay the cast feedback here
         const fc = me2.fishCd | 0;
         const fn = (me2.ingredients && me2.ingredients.fish) | 0;
@@ -737,13 +756,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
           try { G.floatDamage && G.floatDamage(en.x + en.w / 2, en.y, Math.round(prev.hp - en.hp), '#fff060'); } catch (_e) {}
           try { G.Sound && G.Sound.hit && G.Sound.hit(); } catch (_e) {}
         }
-        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h });
+        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h, nm: en.name, hunt: !!en.isGreatBeast, big: !!(en.isBoss || en.isNemesis || en.isWildDragon) });
       }
       for (const [nid, prev] of enemyMem) {
         if (seen.has(nid)) continue;
         if (prev.hp <= (prev.mhp || 999) * 0.34) {                      // was dying → vanish = kill
           try { G.spawnBurst && G.spawnBurst(prev.x + prev.w / 2, prev.y + prev.h / 2, 12, { color: '#c04040', speed: 2.4, decay: 0.04 }); } catch (_e) {}
           try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {}
+          // significant kills make the log (server-side kill messages never reach this screen)
+          if (prev.hunt) { try { G.log && G.log('★ ' + (prev.nm || 'The great beast') + ' is slain — a legendary hunt!', 'quest'); G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {} }
+          else if (prev.big) { try { G.log && G.log('☠ ' + (prev.nm || 'A mighty foe') + ' has fallen!', 'good'); } catch (_e) {} }
         }
         enemyMem.delete(nid);
       }
