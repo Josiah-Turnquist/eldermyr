@@ -412,6 +412,18 @@ class World {
       S.scene = sc;
       return;
     }
+    // Warband actions run against YOUR recruits only: the game's COMP_CAP(3) and every
+    // panel INDEX otherwise hit the shared all-players list — one full warband blocked
+    // everyone else's recruiting, and "dismiss #0" could fire someone else's companion.
+    if (rpc === 'recruitCompanion' || rpc === 'armCompanion' || rpc === 'unarmCompanion' || rpc === 'garrisonCompanion' || rpc === 'recallCompanion' || rpc === 'dismissCompanion') {
+      const all = S.companions || (S.companions = []);
+      const others = all.filter((c) => c.ownerId !== p.id);
+      S.companions = all.filter((c) => c.ownerId === p.id);      // the game sees only YOUR warband (cap + indexes correct)
+      try { if (typeof G[rpc] === 'function') G[rpc].apply(null, args); } catch (_e) {}
+      for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit is yours
+      S.companions = others.concat(S.companions);                // merge back (dismissals stay gone, others untouched)
+      return;
+    }
     if (rpc === 'buyWeapon' || rpc === 'buyArmor') {
       const stock = p._shopStock; if (!stock) return;
       const list = rpc === 'buyWeapon' ? stock.weapons : stock.armor;
@@ -475,7 +487,7 @@ class World {
     try {
       if (npcId === 'hearth') res = { kind: 'panel', panel: 'cook' };                                   // client already has ingredients (snap.me)
       else if (npcId === 'hunts') res = { kind: 'panel', panel: 'hunts', huntsSlain: (S.huntsSlain || []).slice() };
-      else if (npcId === 'recruit') res = { kind: 'panel', panel: 'companions', companions: (S.companions || []).map((c) => safeClone(c)) };
+      else if (npcId === 'recruit') res = { kind: 'panel', panel: 'companions', companions: (S.companions || []).filter((c) => c.ownerId === p.id).map((c) => safeClone(c)) };   // YOUR warband only (roster + indexes must match the per-owner RPCs)
       else if (npcId === 'bounty') res = this._doInstant(p, 'openBounty');
       else if (npcId === 'shipwright') res = this._doInstant(p, 'buyBoat');
       else {                                                    // elder / guard / any talker → dialogue

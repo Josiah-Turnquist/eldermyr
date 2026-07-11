@@ -178,7 +178,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   }
 
   // ---- hero skins: 5 looks, server-authoritative (drawPlayer reads p.skin) ----
-  const SKIN_COLS = ['#4060c0', '#b03838', '#2e8a4a', '#8a50c0', '#c8922e'];
+  const SKIN_COLS = ['#4060c0', '#c03030', '#2e8a4a', '#8a50c0', '#d09a20'];
   const SKIN_NAMES = ['Azure', 'Crimson', 'Forest', 'Violet', 'Gilded'];
   function curSkin() { const n = parseInt(lsGet(LS_SKIN)); return Number.isFinite(n) ? Math.max(0, Math.min(4, n)) : ((snap && snap.me && snap.me.skin) | 0); }
   function sendSkin(n) { lsSet(LS_SKIN, String(n)); if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'skin', skin: n })); } catch (_e) {} } }
@@ -622,6 +622,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   function drawOthers(others) {
     const ctx = G.ctx; if (!ctx) return;
     const meRef = S.player;
+    const invRef = S.inventory;
+    S.inventory = { weapons: [], armor: [], items: [] };   // drawPlayer reads equipped gear from the SINGLETON inventory — without this, MY plate armor turned every other hero metal on my screen
     for (const op of others) {
       const sy = op.y - S.camera.y - 16;
       if (op.downed) {                                   // fallen teammate — collapsed marker + revive ring
@@ -649,7 +651,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       ctx.fillStyle = '#66cc66'; ctx.fillRect(sx - 13, sy + 2, 26 * Math.max(0, op.hp / op.maxHp), 3);
       ctx.textAlign = 'left';
     }
-    S.player = meRef;
+    S.player = meRef; S.inventory = invRef;
   }
   let _fpsN = 0, _fpsT = 0, statusHidden = false;
   function frame() {
