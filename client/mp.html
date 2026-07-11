@@ -305,17 +305,23 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     else if (me.stabilizing) { if (sub) { sub.textContent = 'No foes near — recovering on your own…'; sub.style.color = '#ffe0a0'; } if (bar) { bar.style.width = '100%'; bar.style.background = '#e0b24b'; } if (secs) secs.textContent = 'Stabilizing…'; }
     else { if (sub) { sub.textContent = 'Bleeding out — a teammate can revive you, or reach safety'; sub.style.color = '#ffd0d0'; } if (bar) { bar.style.width = Math.round((me.bleedFrac || 0) * 100) + '%'; bar.style.background = '#e14b4b'; } if (secs) secs.textContent = (me.bleedSecs != null ? me.bleedSecs : 0) + 's'; }
   }
-  function drawRift() {   // #14: a swirling purple portal on the overworld, with a live countdown + [E] prompt
+  function drawRift() {   // #14: a swirling portal — BLUE = party (co-op) rift, PURPLE = solo rift
     if (!snap || !snap.rift) return;
     const ctx = G.ctx, cam = G.state.camera; if (!ctx) return;
     const cx = snap.rift.x + 16 - cam.x, cy = snap.rift.y + 16 - cam.y;
-    const t = performance.now() / 1000;
-    for (let i = 3; i >= 0; i--) { const r = 8 + i * 4 + Math.sin(t * 3 + i) * 2; ctx.strokeStyle = `rgba(${150 - i * 20},${70 + i * 20},${220},${0.85 - i * 0.16})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r, t * 2 + i, t * 2 + i + 4.6); ctx.stroke(); }
-    ctx.fillStyle = 'rgba(40,10,60,0.6)'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 6.28); ctx.fill();
-    ctx.fillStyle = '#e0b0ff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    const t = performance.now() / 1000, party = snap.rift.party;
+    for (let i = 3; i >= 0; i--) {
+      const r = 8 + i * 4 + Math.sin(t * 3 + i) * 2;
+      ctx.strokeStyle = party ? `rgba(${70 + i * 20},${150 - i * 10},${240},${0.85 - i * 0.16})` : `rgba(${150 - i * 20},${70 + i * 20},${220},${0.85 - i * 0.16})`;
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r, t * 2 + i, t * 2 + i + 4.6); ctx.stroke();
+    }
+    ctx.fillStyle = party ? 'rgba(12,26,60,0.6)' : 'rgba(40,10,60,0.6)'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 6.28); ctx.fill();
+    ctx.fillStyle = party ? '#a8d0ff' : '#e0b0ff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
     const me = snap.me, near = me && Math.hypot((me.x) - snap.rift.x, (me.y) - snap.rift.y) < 58;
-    ctx.fillText(near ? `[E] Breach · Depth ${snap.rift.deep}` : `✦ Rift · Depth ${snap.rift.deep}`, cx, cy - 20);
-    ctx.fillStyle = '#b088cc'; ctx.font = '9px monospace'; ctx.fillText(snap.rift.secs + 's', cx, cy + 26);
+    const kind = party ? 'Party Rift' : 'Rift';
+    const act = snap.rift.open ? (party ? '[E] Join' : 'in progress') : '[E] Breach';
+    ctx.fillText(near ? `${act} · Depth ${snap.rift.deep}` : `✦ ${kind} · Depth ${snap.rift.deep}`, cx, cy - 20);
+    ctx.fillStyle = party ? '#88b0e0' : '#b088cc'; ctx.font = '9px monospace'; ctx.fillText(snap.rift.secs + 's', cx, cy + 26);
     ctx.textAlign = 'left';
   }
   function drawPings() {

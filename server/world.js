@@ -275,32 +275,46 @@ class World {
       const tx = Math.round(htx + Math.cos(ang) * d), ty = Math.round(hty + Math.sin(ang) * d);
       const tile = G.getTile('overworld', tx, ty);
       if (tile === G.T.GRASS || tile === G.T.FLOWER || tile === G.T.PATH) {
-        this.rift = { x: tx * TILE, y: ty * TILE, deep: 3 + Math.floor(Math.random() * 4), expires: S.time + 2400, n: ++this._riftSeq };
+        this.rift = { x: tx * TILE, y: ty * TILE, deep: 3 + Math.floor(Math.random() * 4), expires: S.time + 2400, n: ++this._riftSeq, party: Math.random() < 0.4 };   // ~40% are BLUE party rifts the whole group can dive together
         break;
       }
     }
   }
 
-  // A hero breaches the rift: costs one key, drops the party into a fresh deep floor (becomes the shared dungeon).
+  // Breach a rift. PURPLE (solo) rifts close on entry — one diver. BLUE (party) rifts stay open
+  // their full 30s so teammates can [E] to join the same deep run (joiners pay no key, like the
+  // fixed dungeon). Either way the deep floor lives in the shared instance (sharedDg).
   _enterRift(p) {
-    if (!this.rift || this.sharedDg || p.map === 'dungeon') return;
+    if (!this.rift || p.map === 'dungeon') return;
     const dx = this.rift.x - p.x, dy = this.rift.y - p.y;
     if (dx * dx + dy * dy > 80 * 80) return;                          // must be standing on it
-    if ((p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
-    p.inventory.keys--;
-    const deep = this.rift.deep; this.rift = null;
     const projBefore = S.projectiles;
     const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);
+    const restoreOw = () => { if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; } S.map = 'overworld'; S.projectiles = projBefore; for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; } };
+    if (this.sharedDg) {                                              // a party rift's delve is already open → JOIN it (no key)
+      if (!this.rift.party) return;                                  // a solo run isn't joinable
+      S.player = p; S.inventory = p.inventory; swapInPP(p);
+      try { G.enterDungeon(); } catch (_e) {}                        // build+stash a throwaway floor; the shared one is restored next tick
+      if (S.map === 'dungeon') {
+        if (this.dgSpawn) { p.x = this.dgSpawn.x; p.y = this.dgSpawn.y; }
+        p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+        restoreOw();
+        _logbuf.push({ m: '✦ You dive through the rift to join the delve!', c: 'quest', id: p.id });
+      }
+      return;
+    }
+    if ((p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
+    p.inventory.keys--;
+    const deep = this.rift.deep, party = this.rift.party;
+    if (!party) this.rift = null;                                     // solo rift closes on breach; party rift stays open for teammates
     S.player = p; S.inventory = p.inventory; swapInPP(p);
     try { G.enterDungeon(); } catch (_e) {}                           // builds floor 1 + stashes the overworld into owSave
     try { S.dungeonLevel = deep; S.maxDepth = Math.max(S.maxDepth | 0, deep); G.setupDungeonFloor(deep); } catch (_e) {}   // rebuild at the deep floor
     if (S.map === 'dungeon') {
       this.sharedDg = grabWorld(); this.dgSpawn = { x: p.x, y: p.y };
       p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
-      if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
-      S.map = 'overworld'; S.projectiles = projBefore;
-      for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; }      // warband stays topside
-      _logbuf.push({ m: `✦ You breach a RIFT into the deep — Depth ${deep}! (a key is spent)`, c: 'quest', id: p.id });
+      restoreOw();
+      _logbuf.push({ m: `✦ You breach a ${party ? 'PARTY ' : ''}RIFT into the deep — Depth ${deep}! (a key is spent)${party ? ' Allies can dive in too!' : ''}`, c: 'quest', id: p.id });
     }
   }
 
@@ -914,7 +928,7 @@ class World {
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
       pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
-      rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift
+      rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, party: !!this.rift.party, open: !!this.sharedDg, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift (party=blue co-op)
     };
     if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; }
     // quest state rides along only when it changed since this client last got it (shared questline)
