@@ -704,15 +704,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
           feelInv = sig;
         }
       }
-      {                                                  // FISHING happened server-side (fishCd 0 → ~70) → replay the cast feedback here
-        const fc = me2.fishCd | 0;
+      {                                                  // FISHING: sync the bobber flag (drawPlayer shows the line) + splash on a catch; text comes from the feed
+        try { if (G.state && G.state.player) { G.state.player.fishing = !!me2.fishing; G.state.player.fishT = me2.fishT | 0; } } catch (_e) {}
         const fn = (me2.ingredients && me2.ingredients.fish) | 0;
-        if (feelFishCd !== null && fc > 30 && feelFishCd <= 0) {
-          try {   // fishing splash + sound; the catch/empty text comes from the server feed now
-            if (fn > (feelFishN | 0)) { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 6, { color: '#a8d8f0', speed: 1.4, up: 0.5, decay: 0.06 }); G.Sound && G.Sound.item && G.Sound.item(); }
-          } catch (_e) {}
-        }
-        feelFishCd = fc; feelFishN = fn;
+        if (feelFishN !== null && fn > feelFishN) { try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 8, { color: '#a8d8f0', speed: 1.7, up: 0.6, decay: 0.05 }); G.Sound && G.Sound.item && G.Sound.item(); } catch (_e) {} }
+        feelFishN = fn;
       }
       {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → regenerate its juice here
         const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
