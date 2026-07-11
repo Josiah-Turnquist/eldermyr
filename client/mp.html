@@ -726,6 +726,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      if (me2.tonics != null) G.state.tonics = me2.tonics | 0;              // keep the shop's Health-Tonic price live (server charges the scaled cost; the display was stale)
+      if (me2.sharpenLevel != null) G.state.sharpenLevel = me2.sharpenLevel | 0;
       if (snap.feed) { for (const f of snap.feed) { try { G.log && G.log(f.m, f.c || 'good'); } catch (_e) {} } }   // server EVENT FEED → bottom-left log (kills, drops, fishing, quests + epic broadcasts)
       {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
         const inv = me2.inventory;

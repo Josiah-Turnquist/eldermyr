@@ -257,6 +257,35 @@ class World {
     this.rift = null;                  // ephemeral deep-dungeon RIFT (#14): {x,y,deep,expires,n} — 30s window, one at a time
     this._riftSeq = 0;
     this._riftCd = 800;                // ticks until the first rift can open (~10s), then randomized
+    this._threatLvl = 0;              // party level the Legion/Hunts are currently scaled to (0 = baked at boot ~lvl 1)
+  }
+
+  // Legion & Great Beasts are generated at server BOOT, when the only "player" is the level-1
+  // template — so they baked in weak and never tracked the party. Re-scale them up whenever the
+  // party's average level climbs (they were 3-shot easy for a leveled group).
+  _rescaleThreats(lvl) {
+    for (const e of S.enemies) {
+      if (e.isGreatBeast && e.huntKey) {                    // Hunts: recompute from the template at the new level
+        const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
+        if (!h) continue;
+        const asc = 1 + (S.ascension || 0) * 0.2;
+        const df = G.distFactor(Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE));
+        const lf = 1 + Math.max(0, lvl - 5) * 0.11, dcf = 1 + df * 0.7;
+        const newMax = Math.round(h.hp * asc * lf * dcf), frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
+        e.maxHp = newMax; e.hp = Math.max(1, Math.round(newMax * frac));
+        e.atk = Math.round(h.atk * asc * (1 + df * 0.3) * (1 + Math.max(0, lvl - 5) * 0.05));
+        e.xp = Math.round(h.xp * lf * dcf); e.gold = Math.round(h.gold * lf * dcf);
+      } else if (e.warlordRef) {                            // a spawned warlord enemy: scale HP/atk to the party
+        const boost = Math.max(1, (lvl + (e.warlordRef.rank || 0)) / Math.max(1, e.warlordRef.level || 1));
+        const frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
+        e.maxHp = Math.round(e.maxHp * boost); e.hp = Math.max(1, Math.round(e.maxHp * frac));
+        e.atk = Math.round(e.atk * (1 + (boost - 1) * 0.6));
+      }
+    }
+    if (S.legion && S.legion.warlords) {                    // level the roster so FUTURE warlord spawns are strong too
+      for (const w of S.legion.warlords) if ((w.level || 1) < lvl + (w.rank || 0)) w.level = lvl + (w.rank || 0);
+      if (S.legion.overlord && (S.legion.overlord.level || 1) < lvl + 5) S.legion.overlord.level = lvl + 5;
+    }
   }
 
   // #14: occasionally tear open a 30s deep-dungeon rift near a surface hero (only when nobody is delving,
@@ -631,6 +660,7 @@ class World {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     S._partyLevel = Math.round(S.players.reduce((a, p) => a + (p.level || 1), 0) / S.players.length);   // #2: Legion/Hunts scale with the party's average level
+    if (S._partyLevel > this._threatLvl) { this._threatLvl = S._partyLevel; try { this._rescaleThreats(S._partyLevel); } catch (_e) {} }   // catch up boot-baked Legion/Hunts to the party
     this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
     // Quest sync: version-stamp the (shared) quest state so snapshots only carry it when it CHANGES.
