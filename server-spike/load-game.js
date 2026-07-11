@@ -106,6 +106,7 @@ const CAPTURE = [
   'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
   'liberateHolding', 'clearPOI',   // server reconciles outpost/POI liberation across combat partitions
   'projParams', 'canDominate', 'dominate',   // combat-depth arc: proj speed + elite domination (tests)
+  'makeGreatBeast', 'makeWildEnemy', 'distFactor',   // world-scaling tests (#2/#16)
   'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
   'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)
   'distFactor', 'regionOf', 'rectDist', 'stepToward',

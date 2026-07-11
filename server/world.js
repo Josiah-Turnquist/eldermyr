@@ -567,6 +567,7 @@ class World {
   tick() {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
+    S._partyLevel = Math.round(S.players.reduce((a, p) => a + (p.level || 1), 0) / S.players.length);   // #2: Legion/Hunts scale with the party's average level
     G.updateTime();
     // Quest sync: version-stamp the (shared) quest state so snapshots only carry it when it CHANGES.
     if (S.time % 40 === 0) {
