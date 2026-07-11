@@ -378,6 +378,7 @@ class World {
         if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
         else if (a === 'interact' && G.tryInteract) {
           const projBefore = S.projectiles;                  // enterDungeon swaps in a fresh [] and saveOverworld does NOT stash projectiles
+          const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // setupCompanions() (inside enterDungeon) teleports EVERY shared companion to the enterer
           G.tryInteract();
           if (!inDungeon && S.map === 'dungeon') {           // just ENTERED the dungeon
             if (this.sharedDg) {
@@ -394,6 +395,7 @@ class World {
             if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
             S.map = 'overworld';
             S.projectiles = projBefore;                      // the overworld keeps its REAL in-flight bullets — without this both worlds ALIAS one array and overworld shots die against the dungeon grid
+            for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // every warband stays topside where it was ("disappeared" = teleported to the enterer)
             break;                                           // p is now in the dungeon — stop overworld action processing
           }
         }
@@ -679,11 +681,14 @@ class World {
         if (p.downed || p.map !== 'dungeon') continue;
         S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
         try { G.updatePlayer(); } catch (_e) {}
+        const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // descend/exit run setupCompanions() → would teleport EVERY warband to this delver
         this._runActions(p, true);                         // interact = descend / exit / key-vault
         for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // hits credit the shooter
         if (S.map !== 'dungeon') {                         // exited — exitDungeon set their overworld position
           p.map = 'overworld'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+          for (const [c, cx2, cy2] of compPos) { if (c.ownerId !== p.id) { c.x = cx2; c.y = cy2; } }   // others' warbands stay put; the exiter's own reunite at the entrance
         } else if (S.dungeonLevel !== lvl0) {              // descended — the whole party goes down together
+          for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // ALL warbands stay topside (companions don't delve)
           lvl0 = S.dungeonLevel;
           this.dgSpawn = { x: p.x, y: p.y };               // new floor's entry (setupDungeonFloor put p there)
           for (const q of dgAll) { if (q !== p && q.map === 'dungeon') { q.x = p.x; q.y = p.y; q._mapSwitchN = (q._mapSwitchN || 0) + 1; } }
