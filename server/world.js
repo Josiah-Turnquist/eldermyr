@@ -319,6 +319,7 @@ class World {
     const i = S.players.indexOf(p);
     if (i >= 0) S.players.splice(i, 1);
     this.players.delete(id);
+    if (S.companions) for (const c of S.companions) if (c.ownerId === id) c.ownerId = null;   // orphaned recruits re-anchor to the next hero who acts
   }
 
   // hero look (0-4) — validated here, rendered by drawPlayer via p.skin, persisted in characterOf
@@ -347,6 +348,7 @@ class World {
       try {
         if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
         else if (a === 'interact' && G.tryInteract) {
+          const projBefore = S.projectiles;                  // enterDungeon swaps in a fresh [] and saveOverworld does NOT stash projectiles
           G.tryInteract();
           if (!inDungeon && S.map === 'dungeon') {           // just ENTERED the dungeon
             if (this.sharedDg) {
@@ -362,6 +364,7 @@ class World {
             // peel the shared overworld back into S (saveOverworld stashed it into owSave on entry)
             if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
             S.map = 'overworld';
+            S.projectiles = projBefore;                      // the overworld keeps its REAL in-flight bullets — without this both worlds ALIAS one array and overworld shots die against the dungeon grid
             break;                                           // p is now in the dungeon — stop overworld action processing
           }
         }
@@ -374,6 +377,12 @@ class World {
 
   _runRpc(a, p) {
     const rpc = a.rpc, args = Array.isArray(a.args) ? a.args : [];
+    if (rpc === 'sellAllJunk') {                                 // the game gates this on scene==='shop' — but the server pins scene='play' every tick
+      const sc = S.scene; S.scene = 'shop';
+      try { if (typeof G.sellAllJunk === 'function') G.sellAllJunk(); } catch (_e) {}
+      S.scene = sc;
+      return;
+    }
     if (rpc === 'buyWeapon' || rpc === 'buyArmor') {
       const stock = p._shopStock; if (!stock) return;
       const list = rpc === 'buyWeapon' ? stock.weapons : stock.armor;
@@ -499,6 +508,7 @@ class World {
       try { G.updatePlayer(); } catch (_e) {}
       this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
+      if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (p.map === 'dungeon') continue; // just entered — its dungeon runs next tick; skip overworld writeback
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       writeBackPP(p);
@@ -542,6 +552,24 @@ class World {
     if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
     for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
       if (G[fn]) try { G[fn](); } catch (_e) {}
+    }
+
+    // WARBAND: updateCompanions steps companions toward state.player — run it PER OWNER so each
+    // hero's recruits follow (and fight for) THEM, not players[0]. Owner in a dungeon → they idle.
+    if (G.updateCompanions && S.companions && S.companions.length && players.length) {
+      const all = S.companions;
+      const byOwner = new Map();
+      for (const c of all) {
+        const o = this.players.get(c.ownerId);
+        if (!o || o.map === 'dungeon' || o.downed) continue;
+        if (!byOwner.has(o)) byOwner.set(o, []);
+        byOwner.get(o).push(c);
+      }
+      for (const [o, list] of byOwner) {
+        S.player = o; S.inventory = o.inventory; S.companions = list;
+        try { G.updateCompanions(); } catch (_e) {}
+      }
+      S.companions = all;
     }
 
     // MP SPAWNING (replaces the single player-1 maybeSpawnWild call): feed EVERY player's
@@ -728,6 +756,8 @@ class World {
       proj: proj.filter(near).map(packProj),
       pickups: pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
       npcs: npcs.filter(near).map(packScalar),
+      // warband companions (overworld only — they idle topside while their owner delves)
+      comps: inDg ? [] : (S.companions || []).filter((c) => c.alive && near(c)).map(packScalar),
       // world features (overworld only) so the client can RENDER them + light the [E] prompt
       shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),

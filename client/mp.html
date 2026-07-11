@@ -767,6 +767,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.projectiles = snap.proj || [];
     S.npcs = snap.npcs || [];
     S.shrines = snap.shrines || []; S.loreStones = snap.lore || []; S.pois = snap.pois || [];   // adopt the server's world features (render + [E] prompt)
+    if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
     S.time = snap.t; S.weather = snap.wx;
     const others = (snap.players || []).filter((p) => p.id !== myId);
     // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
