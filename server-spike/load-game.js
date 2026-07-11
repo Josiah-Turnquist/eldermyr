@@ -96,6 +96,7 @@ function installBrowserStubs() {
 // Symbols the spikes / server need handles to (const/let/fn are lexical, not global).
 const CAPTURE = [
   'state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H',
+  'T', 'SOLID', 'getTile', 'GREAT_HUNTS',   // tile enum + solids + lairs (server unstick pass / boss wander-home)
   'startGame', 'startLoaded', 'loop', 'snapshot', 'applySnapshot', 'saveGame',
   'updateTime', 'updatePlayer', 'updateEnemies', 'updateAllies', 'updateCompanions',
   'updateProjectiles', 'maybeSpawnWild', 'updateParticles', 'updateFires', 'updateWeather',

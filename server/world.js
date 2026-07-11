@@ -72,7 +72,11 @@ function wanderHome(e) {
   const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
   let hx, hy;
   if (e.isWildDragon && S.dragonLair) { hx = S.dragonLair.tx * TILE + 16; hy = S.dragonLair.ty * TILE + 16; }
-  else {
+  else if (e.isGreatBeast && e.huntKey) {   // great beasts amble to their OWN lair (the Tide Leviathan was heading to "nearest edge" through dry land and embedding itself in walls)
+    const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
+    if (h && h.lair) { hx = h.lair.tx * TILE + 16; hy = h.lair.ty * TILE + 16; }
+  }
+  if (hx === undefined) {
     const W = OW_W * TILE, H = OW_H * TILE, dl = ecx, dr = W - ecx, dt = ecy, db = H - ecy, m = Math.min(dl, dr, dt, db);
     hx = m === dl ? 0 : (m === dr ? W : ecx);
     hy = m === dt ? 0 : (m === db ? H : ecy);
@@ -84,6 +88,39 @@ function wanderHome(e) {
   }
 }
 function isBoss(e) { return !!(e.isBoss || e.isNemesis || e.isGreatBeast || e.isWildDragon); }
+
+// ---- Unstick pass: pop enemies out of walls -----------------------------------
+// Knockback and wander-home move enemies without collision checks, so one can end up with its
+// center inside a solid tile (or an aquatic beast — the Tide Leviathan — on dry land) and then
+// stepToward's collision blocks every move: stuck forever, jittering in a wall. Every ~30 ticks,
+// snap any such enemy to the nearest tile that's actually passable FOR IT.
+function tileOkFor(e, t) {
+  if (t === undefined || t === null) return false;
+  if (e.aquatic) return G.T ? t === G.T.WATER : true;    // sea beasts live in water
+  return !(G.SOLID && G.SOLID.has(t));
+}
+function unstickEnemies(mapName) {
+  if (!G.getTile || !G.SOLID) return;
+  for (const e of S.enemies) {
+    const tx = Math.floor((e.x + e.w / 2) / TILE), ty = Math.floor((e.y + e.h / 2) / TILE);
+    let t; try { t = G.getTile(mapName, tx, ty); } catch (_e) { continue; }
+    if (tileOkFor(e, t)) continue;
+    let done = false;
+    const maxR = e.aquatic ? 12 : 6;                     // a beached sea-beast may be far from water
+    for (let r = 1; r <= maxR && !done; r++) {
+      for (let dy = -r; dy <= r && !done; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        let t2; try { t2 = G.getTile(mapName, tx + dx, ty + dy); } catch (_e) { continue; }
+        if (tileOkFor(e, t2)) { e.x = (tx + dx) * TILE + (TILE - e.w) / 2; e.y = (ty + dy) * TILE + (TILE - e.h) / 2; done = true; break; }
+      }
+    }
+    // aquatic + nothing near: it slips beneath the earth and resurfaces at its lair
+    if (!done && e.aquatic && e.huntKey) {
+      const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
+      if (h && h.lair) { e.x = h.lair.tx * TILE + (TILE - e.w) / 2; e.y = h.lair.ty * TILE + (TILE - e.h) / 2; }
+    }
+  }
+}
 
 // ---- Downed & revive (co-op) -------------------------------------------------
 // A hero at 0 HP isn't dead — they're DOWNED (incapacitated, bleeding out). A
@@ -182,13 +219,15 @@ function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; 
 const WORLD_SLOTS = ['map', 'enemies', 'pickups', 'npcs', 'projectiles', 'dungeonLevel', 'dungeonEntrance', 'dungeonThemeData', 'floorMod'];
 function grabWorld() { const w = {}; for (const k of WORLD_SLOTS) w[k] = S[k]; w.md = G.maps.dungeon; return w; }
 function putWorld(w) { for (const k of WORLD_SLOTS) S[k] = w[k]; G.maps.dungeon = w.md; }
-function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived }; }
+function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, skin: p.skin | 0, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived }; }
 
 class World {
   constructor() {
     this.state = S;
     this.players = new Map();          // id -> player object
     this._seq = 0;
+    this._qN = 1;                      // quest-state version: bumps when quests/bounty/lore change → clients resync
+    try { this._qJson = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) { this._qJson = ''; }
   }
 
   get list() { return S.players; }
@@ -210,6 +249,7 @@ class World {
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
+    p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -229,7 +269,7 @@ class World {
     S.player = pp; S.inventory = pi;
     if (!snap) return null;
     return {
-      v: 1, name: p.name, level: p.level | 0, player: snap.player, inventory: snap.inventory,
+      v: 1, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
     };
   }
@@ -255,6 +295,7 @@ class World {
           (p.inventory.armor || []).forEach((a) => { try { G.normItem(a, false); } catch (_e) {} });
         }
       }
+      if (Number.isInteger(c && c.skin)) p.skin = Math.max(0, Math.min(4, c.skin));   // hero look
       if (c && c.shop) {                                         // restore this hero's town-economy state
         p.shopPurchased = Array.isArray(c.shop.shopPurchased) ? c.shop.shopPurchased.slice() : [];
         p.tonics = c.shop.tonics | 0; p.sharpenLevel = c.shop.sharpenLevel | 0;
@@ -277,6 +318,9 @@ class World {
     if (i >= 0) S.players.splice(i, 1);
     this.players.delete(id);
   }
+
+  // hero look (0-4) — validated here, rendered by drawPlayer via p.skin, persisted in characterOf
+  setSkin(id, n) { const p = this.players.get(id); if (p) p.skin = Math.max(0, Math.min(4, n | 0)); }
 
   // client → server input for one player this frame
   setInput(id, msg) {
@@ -430,6 +474,11 @@ class World {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     G.updateTime();
+    // Quest sync: version-stamp the (shared) quest state so snapshots only carry it when it CHANGES.
+    if (S.time % 40 === 0) {
+      let j = ''; try { j = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) {}
+      if (j && j !== this._qJson) { this._qJson = j; this._qN++; }
+    }
 
     // Split the party: heroes on the SHARED overworld vs. each inside their OWN private dungeon.
     const owPre = S.players.filter((p) => p.map !== 'dungeon');
@@ -476,6 +525,7 @@ class World {
       for (const e of wanderers) { wanderHome(e); survivors.push(e); }
       S.enemies = survivors;
     }
+    if (S.time % 30 === 0) unstickEnemies('overworld');   // pop wall-embedded foes out (leviathan-on-land etc.)
 
     // remaining shared systems run once (acting player = first, cosmetic-only bias)
     if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
@@ -549,6 +599,7 @@ class World {
           if (p.map === 'dungeon' && S.map === 'dungeon') {
             if (S.enemies.length) { try { G.updateEnemies(); } catch (_e) {} }   // solo partition: foes target this hero
             try { G.updateProjectiles(); } catch (_e) {}
+            if (S.time % 30 === 0) unstickEnemies('dungeon');
           }
           if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
           writeBackPP(p);
@@ -620,6 +671,14 @@ class World {
       pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
     };
     if (inDg) { snap.dgLevel = me.dg.dungeonLevel | 0; snap.dgTheme = me.dg.dungeonThemeData ? safeClone(me.dg.dungeonThemeData) : null; }
+    // quest state rides along only when it changed since this client last got it (shared questline)
+    if ((me._qSeen | 0) !== this._qN) {
+      me._qSeen = this._qN;
+      snap.quests = safeClone(S.quests);
+      snap.bounty = S.bounty ? safeClone(S.bounty) : null;
+      snap.loreFound = (S.loreFound || []).slice();
+      snap.maxDepth = S.maxDepth | 0;
+    }
     // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch
     if ((me._mapSwitchN || 0) !== (me._sentDgN || 0)) { me._sentDgN = me._mapSwitchN || 0; if (inDg && me.dg.md) snap.dgTiles = me.dg.md; }
     return snap;

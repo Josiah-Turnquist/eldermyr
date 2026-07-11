@@ -129,6 +129,7 @@ wss.on('connection', (ws) => {
         for (const c of wss.clients) { if (c.readyState === 1 && c.pid) { try { c.send(payload); } catch (_e) {} } }
       }
     }
+    else if (m.type === 'skin' && Number.isFinite(m.skin)) { world.setSkin(ws.pid, m.skin); }   // hero look picker
     else if (m.type === 'ping') {                                    // co-op rally marker → relay to everyone
       const now = Date.now();
       if (!(ws.lastPing && now - ws.lastPing < 600)) {               // ~1.6/s anti-spam

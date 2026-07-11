@@ -29,10 +29,11 @@
   .mp-warn{font-size:11px;color:#e0a860;background:rgba(120,80,20,0.18);border:1px solid #6a5228;border-radius:4px;padding:7px 9px;margin-bottom:12px;line-height:1.45}
   .mp-mut{font-size:11px;color:#6b7080;margin-top:12px;text-align:center}
   /* --- chat --- */
-  #mp-chat{position:fixed;left:10px;bottom:118px;z-index:99990;width:min(46vw,360px);display:flex;flex-direction:column;gap:3px;pointer-events:none;font:12px ui-monospace,Menlo,monospace}
+  /* the game's #log occupies bottom:12px + up to ~134px tall — keep chat ABOVE it */
+  #mp-chat{position:fixed;left:10px;bottom:188px;z-index:99990;width:min(46vw,360px);display:flex;flex-direction:column;gap:3px;pointer-events:none;font:12px ui-monospace,Menlo,monospace}
   .mp-chat-line{align-self:flex-start;max-width:100%;background:rgba(16,16,24,0.72);border-left:2px solid #5a5040;padding:2px 8px;border-radius:0 4px 4px 0;color:#d3d8e2;text-shadow:1px 1px 0 #000;word-break:break-word;transition:opacity .8s ease}
   .mp-chat-line b{color:#9fe0ff;font-weight:600}
-  #mp-chat-input{position:fixed;left:10px;bottom:90px;z-index:99991;width:min(46vw,360px);box-sizing:border-box;display:none;background:#0e0e16;border:1px solid #c9a54e;color:#fff;font:13px ui-monospace,Menlo,monospace;padding:6px 9px;border-radius:4px;outline:none;text-shadow:1px 1px 0 #000}
+  #mp-chat-input{position:fixed;left:10px;bottom:154px;z-index:99991;width:min(46vw,360px);box-sizing:border-box;display:none;background:#0e0e16;border:1px solid #c9a54e;color:#fff;font:13px ui-monospace,Menlo,monospace;padding:6px 9px;border-radius:4px;outline:none;text-shadow:1px 1px 0 #000}
   #mp-chat-input.on{display:block}
 </style>
 </head>
@@ -106,7 +107,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // ---- identity: "hero name + recovery code" (no passwords), persisted per browser ----
   // token   → the browser's saved secret; presenting it auto-restores the hero.
   // recovery→ a human code (shown once) to reclaim the hero on another device.
-  const LS_TOKEN = 'eldermyr_token', LS_REC = 'eldermyr_recovery', LS_NAME = 'eldermyr_name', LS_PEND = 'eldermyr_pending_code';
+  const LS_TOKEN = 'eldermyr_token', LS_REC = 'eldermyr_recovery', LS_NAME = 'eldermyr_name', LS_PEND = 'eldermyr_pending_code', LS_SKIN = 'eldermyr_skin';
   const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
   const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
   let myToken = lsGet(LS_TOKEN), myRecovery = lsGet(LS_REC), myName = lsGet(LS_NAME) || 'Hero', persistent = false;
@@ -176,6 +177,23 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     c.querySelector('#mp-code-cancel').addEventListener('click', () => (fromNameEntry ? showNameEntry() : showAccount()));
   }
 
+  // ---- hero skins: 5 looks, server-authoritative (drawPlayer reads p.skin) ----
+  const SKIN_COLS = ['#4060c0', '#b03838', '#2e8a4a', '#8a50c0', '#c8922e'];
+  const SKIN_NAMES = ['Azure', 'Crimson', 'Forest', 'Violet', 'Gilded'];
+  function curSkin() { const n = parseInt(lsGet(LS_SKIN)); return Number.isFinite(n) ? Math.max(0, Math.min(4, n)) : ((snap && snap.me && snap.me.skin) | 0); }
+  function sendSkin(n) { lsSet(LS_SKIN, String(n)); if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'skin', skin: n })); } catch (_e) {} } }
+  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Hero look:</p><div class="mp-row" id="mp-skin-row">' + SKIN_COLS.map((col, i) => '<button class="mp-btn" data-skin="' + i + '" title="' + SKIN_NAMES[i] + '" style="background:' + col + ';min-width:34px;height:26px;padding:0;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '"></button>').join('') + '</div>';
+  }
+  function wireSkinRow(c) {
+    c.querySelectorAll('#mp-skin-row [data-skin]').forEach((b) => b.addEventListener('click', () => {
+      const n = parseInt(b.getAttribute('data-skin')) || 0;
+      sendSkin(n);
+      c.querySelectorAll('#mp-skin-row [data-skin]').forEach((x) => { x.style.border = '2px solid rgba(255,255,255,0.15)'; });
+      b.style.border = '2px solid #fff';
+      try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+    }));
+  }
+
   function showAccount() {
     if (!myId) return;   // not spawned yet
     const recHtml = myRecovery
@@ -187,12 +205,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       '<p style="margin-bottom:6px">Name:</p>' +
       '<input id="mp-acct-name" maxlength="18" value="' + esc(myName) + '"' + (persistent ? '' : ' disabled') + '>' +
       (persistent ? '<button class="mp-btn" id="mp-acct-rename">Save name</button>' : '') +
+      '<div style="height:12px"></div>' + skinRowHtml() +
       '<div style="height:12px"></div>' + recHtml +
       '<div style="height:12px"></div>' +
       '<button class="mp-btn" id="mp-acct-login">Log in with a different code</button>' +
       '<button class="mp-btn danger" id="mp-acct-new">Start a new hero</button>' +
       '<button class="mp-btn primary" id="mp-acct-close">Close</button>');
     c.querySelector('#mp-acct-close').addEventListener('click', closeModal);
+    wireSkinRow(c);
     const cp = c.querySelector('#mp-acct-copy'); cp && cp.addEventListener('click', (e) => copyText(myRecovery, e.currentTarget));
     const rn = c.querySelector('#mp-acct-rename'); rn && rn.addEventListener('click', () => { const nm = (c.querySelector('#mp-acct-name').value || '').trim().slice(0, 18); if (nm && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'rename', name: nm })); } catch (e) {} } });
     c.querySelector('#mp-acct-login').addEventListener('click', () => showReclaim(false));
@@ -314,6 +334,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         if (m.recoveryCode) { myRecovery = m.recoveryCode; lsSet(LS_REC, myRecovery); showRecovery(m.recoveryCode); }   // brand-new hero → show once
         else if (pendingCode) { lsSet(LS_REC, pendingCode); }   // reclaimed via a code the player typed → remember it here
         updateAcctBtn();
+        { const _sk = parseInt(lsGet(LS_SKIN)); if (Number.isFinite(_sk)) { try { ws.send(JSON.stringify({ type: 'skin', skin: _sk })); } catch (_e) {} } }   // re-apply this browser's hero look
         G.maps.overworld = m.map.tiles;                  // adopt the server's world
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
@@ -659,6 +680,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      if (snap.quests) {                                 // shared questline changed → adopt + re-render the quest box
+        S.quests = snap.quests; S.bounty = snap.bounty || null;
+        if (snap.loreFound) S.loreFound = snap.loreFound;
+        if (snap.maxDepth != null) S.maxDepth = snap.maxDepth;
+        try { window.updateQuests && window.updateQuests(); } catch (_e) {}
+      }
       if ((me2._dungeonBlockN || 0) > lastDungeonBlockN) {   // tried to enter a dungeon — co-op instances not ready yet
         lastDungeonBlockN = me2._dungeonBlockN || 0;
         try { G.log && G.log('The dungeon stays sealed in co-op — shared delves are coming soon.', 'quest'); } catch (_e) {}
@@ -703,7 +730,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
     if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && snap.me.downed)) {
-      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (dt / (1000 / serverHz));
+      let _exh = false; try { _exh = !(S.dragon && S.dragon.mounted) && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
+      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror the server's exhaustion slow (v2.38.0)
       const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
       if (!G.canMoveTo || G.canMoveTo(nx, pred.y, w, h)) pred.x = nx;
       if (!G.canMoveTo || G.canMoveTo(pred.x, ny, w, h)) pred.y = ny;
