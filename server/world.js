@@ -168,6 +168,8 @@ function reviveAt(p, frac) {
   p.bleedFrac = 0; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false;
 }
 function respawnAt(p) {
+  const lost = Math.floor((p.gold || 0) / 2);   // died with no rescue → forfeit half your gold (#7)
+  if (lost > 0) { p.gold -= lost; _logbuf.push({ m: `You fell in battle — ${lost} gold slips from your purse.`, c: 'combat', id: p.id }); }
   p.downed = false; p.hp = p.maxHp; p.x = SPAWN.x; p.y = SPAWN.y; p.invuln = 90;
   if (p.map === 'dungeon') { p.map = 'overworld'; p.dg = null; p._mapSwitchN = (p._mapSwitchN || 0) + 1; }   // died below → surface at town
   p.chillT = 0; p.burnT = 0; p.poisonT = 0; p.dead = false;
@@ -778,19 +780,21 @@ class World {
 
     // Liberation reconciliation: during partitioned combat state.enemies is only one player's
     // bucket, so killEnemy's "last occupier dead?" check can miss. Sweep the FULL list here.
+    // Only fires once guardians were actually PRESENT then removed (_seen gate) — never for a
+    // site whose guardians simply haven't spawned, which would hand out free liberation gold.
     if (S.map === 'overworld' && G.liberateHolding && S.holdings) {
       for (let i = 0; i < S.holdings.length; i++) {
         const hd = S.holdings[i];
-        if (hd && !hd.liberated && !hd.built && !S.enemies.some((e) => e.holdKey === i)) {
-          S.player = players[0] || S.player; try { G.liberateHolding(i); } catch (_e) {}
-        }
+        if (!hd || hd.liberated || hd.built) continue;
+        if (S.enemies.some((e) => e.holdKey === i)) hd._seen = true;
+        else if (hd._seen) { S.player = players[0] || S.player; try { G.liberateHolding(i); } catch (_e) {} }
       }
     }
     if (S.map === 'overworld' && G.clearPOI && S.pois) {
       for (const poi of S.pois) {
-        if (poi && !poi.cleared && !S.enemies.some((e) => e.poiKey === poi.key)) {
-          S.player = players[0] || S.player; try { G.clearPOI(poi); } catch (_e) {}
-        }
+        if (!poi || poi.cleared) continue;
+        if (S.enemies.some((e) => e.poiKey === poi.key)) poi._seen = true;
+        else if (poi._seen) { S.player = players[0] || S.player; try { G.clearPOI(poi); } catch (_e) {} }
       }
     }
 
