@@ -477,6 +477,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   function closeSmithMP() { const el = document.getElementById('smith'); if (el) el.style.display = 'none'; if (G.state.scene === 'smith') G.state.scene = 'play'; }
   window.reforgeWeapon = () => actions.push({ rpc: 'reforgeWeapon', args: [] });
   window.fuseWeapon = () => actions.push({ rpc: 'fuseWeapon', args: [] });
+  window.temperWeapon = () => actions.push({ rpc: 'temperWeapon', args: [] });   // capped per-weapon empower, blacksmith-only now
   window.repairAll = () => actions.push({ rpc: 'repairAll', args: [] });
   window.repairItem = (it) => { if (!it) return; const wi = invIndexOf(G.state.inventory.weapons, it), ai = wi < 0 ? invIndexOf(G.state.inventory.armor, it) : -1; if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
   window.closeSmith = closeSmithMP;

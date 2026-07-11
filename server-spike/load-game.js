@@ -115,7 +115,7 @@ const CAPTURE = [
   // menu action RPCs (run per-player on the server; client overrides these to route here)
   'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'spendPoint', 'unlockAbility',
   'buyPotion', 'buyTonic', 'buySharpen', 'buyWeapon', 'buyArmor', 'buyGood', 'sellGood', 'sellIngredient',   // Merchant shop
-  'reforgeWeapon', 'fuseWeapon', 'repairItem', 'repairAll',   // blacksmith
+  'reforgeWeapon', 'fuseWeapon', 'repairItem', 'repairAll', 'temperWeapon',   // blacksmith
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
   'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
   'projParams',                         // testing: assert the pierce rules (magic pierces 1, arrows never)

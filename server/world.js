@@ -223,7 +223,7 @@ const RPC_OK = new Set([
   // shop (Merchant) transactions — run on the acting player's own gold/inventory
   'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
   // blacksmith — act on the acting player's own gear/gold ('repairItem' resolved specially)
-  'reforgeWeapon', 'fuseWeapon', 'repairAll',
+  'reforgeWeapon', 'fuseWeapon', 'repairAll', 'temperWeapon',
   // hearth (cook) + warband (recruit/arm/garrison/dismiss) — panel actions on the acting hero
   'cook', 'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ]);

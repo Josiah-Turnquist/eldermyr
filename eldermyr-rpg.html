@@ -604,7 +604,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.49.1';   // ability ranks hit harder; Legion/Hunts re-scale to the party (were baked weak at boot); shop tonic price now shows the real rising cost
+const GAME_VERSION = 'v2.50.0';   // weapon Empower moved to the blacksmith as capped per-weapon TEMPER (2-6 slots by rarity) — no more infinite +power faucet
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -1324,7 +1324,6 @@ function renderShop(){
   const svc=document.getElementById('shop-list-svc'); svc.innerHTML='';
   svc.appendChild(shopRow('Potion','Heal 15 HP','15 gold', ()=>buyPotion(), p.gold<15, false));
   svc.appendChild(shopRow('Health Tonic','+5 Max HP (permanent)',tonicCost()+' gold', ()=>buyTonic(), p.gold<tonicCost(), false));
-  const w=equippedWeapon(); svc.appendChild(shopRow('Empower Weapon',`+2 power to ${w?w.name:'weapon'}`,sharpenCost()+' gold', ()=>buySharpen(), p.gold<sharpenCost(), false));
   const wEl=document.getElementById('shop-list-weap'); wEl.innerHTML='';
   (state.activeStock?state.activeStock.weapons:[]).forEach(it=>{ const owned=state.shopPurchased.includes(it.id); wEl.appendChild(shopRow(`<span style="color:${rarityColor(it.rarity)}">${it.name}</span>`,`+${it.atk} · <span class="${styleTag(it.style)}">${styleLabel(it.style)}</span>${elemHtml(it.element)}${affixHtml(it)} · req Lv ${it.reqLevel}/${styleLabel(it.style)} ${it.reqProf}`,buyPrice(it.cost)+' gold', ()=>buyWeapon(it), p.gold<buyPrice(it.cost), owned)); });
   const aEl=document.getElementById('shop-list-armor'); aEl.innerHTML='';
@@ -1352,6 +1351,9 @@ function damagedItems(){ const list=[]; state.inventory.weapons.forEach(w=>{ if(
 // Forge services (v2.32.0): REFORGE rerolls the equipped weapon's affixes; FUSE melts your best spare
 // same-style weapon into it (+25% of its atk, max 3 fusions, inherits its element if the blade has none).
 function bestFuseSacrifice(){ const w=equippedWeapon(); if(!w) return null; const st=styleOf(w); return state.inventory.weapons.filter(x=>x!==w&&!x.equipped&&styleOf(x)===st).sort((a,b)=>(b.atk||0)-(a.atk||0))[0]||null; }
+function temperMax(w){ return w?2+(w.rarity||0):0; }   // Common 2 slots … Legendary 6
+function temperCost(w){ return w?70+(w.temper||0)*60+(w.rarity||0)*40:0; }
+function temperWeapon(){ const p=state.player; const w=equippedWeapon(); if(!w){ log('Equip a weapon first.'); return; } if((w.temper||0)>=temperMax(w)){ Sound.error&&Sound.error(); log(`${w.name} is tempered to its limit (${temperMax(w)}/${temperMax(w)}).`,'lore'); return; } const c=temperCost(w); if(p.gold<c){ Sound.error(); return; } p.gold-=c; w.atk=(w.atk||0)+2; w.temper=(w.temper||0)+1; recalcStats(); Sound.jingle&&Sound.jingle(); addShake(2); log(`\u2692 ${w.name} tempered \u2014 +2 power (temper ${w.temper}/${temperMax(w)}).`,'good'); renderSmith(); updateHUD(); saveGame(); }
 function reforgeWeapon(){ const p=state.player; const w=equippedWeapon(); if(!w||(w.rarity||0)<2) return; const cost=120*((w.rarity||0)+1); if(p.gold<cost){ Sound.error(); return; } p.gold-=cost; let af=null; for(let i=0;i<24&&!af;i++) af=rollAffixes(w.rarity||0,true); if(af) w.affixes=af; recalcStats(); Sound.jingle&&Sound.jingle(); log(`⚒ ${w.name} reforged — ${w.affixes&&w.affixes.length?w.affixes.map(a=>a.label).join(', '):'the metal stays plain'}.`,'good'); renderSmith(); updateHUD(); saveGame(); }
 function fuseWeapon(){ const p=state.player; const w=equippedWeapon(); const sac=bestFuseSacrifice(); if(!w||!sac||(w.fused||0)>=3) return; const cost=150; if(p.gold<cost){ Sound.error(); return; } p.gold-=cost; const gain=Math.max(1,Math.ceil((sac.atk||0)*0.25)); w.atk=(w.atk||0)+gain; w.fused=(w.fused||0)+1; let elMsg=''; if(!w.element&&sac.element){ w.element=sac.element; elMsg=` It drinks in the sacrifice's ${ELEMENTS[sac.element].name}!`; } state.inventory.weapons.splice(state.inventory.weapons.indexOf(sac),1); recalcStats(); Sound.levelup&&Sound.levelup(); addShake(3); log(`⚒ ${sac.name} is melted into ${w.name}: +${gain} ⚔ (fusion ${w.fused}/3).${elMsg}`,'good'); renderSmith(); updateHUD(); saveGame(); }
 function renderSmith(){
@@ -1361,6 +1363,7 @@ function renderSmith(){
   if(w){ const hdr=document.createElement('div'); hdr.style.cssText='color:#d0b070;font-size:12px;text-align:center;margin:2px 0 5px'; hdr.textContent='⚒ FORGE — '+w.name; el.appendChild(hdr);
     const rc=120*((w.rarity||0)+1); const r1=document.createElement('div'); r1.className='skill-row'; r1.innerHTML=`<div><b>Reforge Affixes</b> <span class="sk-desc">reroll this weapon's affixes anew</span><br><span class="sk-val">${w.affixes&&w.affixes.length?w.affixes.map(a=>a.label).join(', '):'no affixes yet'} · <span style="color:#f0d050">${rc}g</span></span></div>`; const b1=document.createElement('button'); b1.className='sk-btn'; if((w.rarity||0)<2){ b1.textContent='Rarity 2+'; b1.disabled=true; } else if(p.gold<rc){ b1.textContent='Need gold'; b1.disabled=true; } else { b1.textContent='Reforge'; b1.onclick=()=>reforgeWeapon(); } r1.appendChild(b1); el.appendChild(r1);
     const sac=bestFuseSacrifice(); const fusedN=w.fused||0; const r2=document.createElement('div'); r2.className='skill-row'; r2.innerHTML=`<div><b>Fuse Weapon</b> <span class="sk-desc">melt your best spare ${styleLabel(styleOf(w))} arm into this one (${fusedN}/3)</span><br><span class="sk-val">${sac?`consumes ${sac.name} → +${Math.max(1,Math.ceil((sac.atk||0)*0.25))} ⚔${(!w.element&&sac.element)?' + its element':''}`:'no spare '+styleLabel(styleOf(w))+' weapon'} · <span style="color:#f0d050">150g</span></span></div>`; const b2=document.createElement('button'); b2.className='sk-btn'; if(!sac){ b2.textContent='No spare'; b2.disabled=true; } else if(fusedN>=3){ b2.textContent='Max fused'; b2.disabled=true; } else if(p.gold<150){ b2.textContent='Need gold'; b2.disabled=true; } else { b2.textContent='Fuse'; b2.onclick=()=>fuseWeapon(); } r2.appendChild(b2); el.appendChild(r2);
+    { const tc=temperCost(w), tmax=temperMax(w), tcur=w.temper||0, tmaxed=tcur>=tmax; el.appendChild(shopRow('Temper Weapon', `+2 power \u2014 hone the blade (${tcur}/${tmax})`, tmaxed?'at its limit':(tc+' gold'), ()=>temperWeapon(), !tmaxed&&p.gold<tc, tmaxed)); }
     const rh=document.createElement('div'); rh.style.cssText='color:#d0b070;font-size:12px;text-align:center;margin:8px 0 4px'; rh.textContent='🔧 REPAIRS'; el.appendChild(rh);
   }
   const items=damagedItems();
