@@ -543,9 +543,13 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
     if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
     if (k === 'c') {
-      actions.push({ rpc: 'doCamp', args: [] });
-      const me = snap.me, safe = !(snap.enemies || []).some((e) => Math.hypot((e.x + e.w / 2) - (pred.x + me.w / 2), (e.y + e.h / 2) - (pred.y + me.h / 2)) < 210);
-      try { if (safe) { G.spawnBurst && G.spawnBurst(pred.x + me.w / 2, pred.y + me.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 }); G.log && G.log('You make camp and rest.', 'good'); } else G.log && G.log('Too dangerous to make camp — foes are near.', 'combat'); } catch (_e) {}
+      actions.push({ rpc: 'doCamp', args: [] });   // server toggles: start camping / break camp
+      const me = snap.me;
+      if (me && me.camping) { try { G.log && G.log('You break camp.', 'lore'); } catch (_e) {} }
+      else {
+        const safe = !(snap.enemies || []).some((e) => Math.hypot((e.x + e.w / 2) - (pred.x + me.w / 2), (e.y + e.h / 2) - (pred.y + me.h / 2)) < 210);
+        try { if (safe) { G.spawnBurst && G.spawnBurst(pred.x + me.w / 2, pred.y + me.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 }); G.log && G.log('You make camp — resting… press [C] to break camp.', 'good'); } else G.log && G.log('Too dangerous to make camp — foes are near.', 'combat'); } catch (_e) {}
+      }
     }
   });
   realWinAdd('keyup', (e) => {
@@ -729,7 +733,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-    if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && snap.me.downed)) {
+    if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && (snap.me.downed || snap.me.camping))) {
       let _exh = false; try { _exh = !(S.dragon && S.dragon.mounted) && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
       const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror the server's exhaustion slow (v2.38.0)
       const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;

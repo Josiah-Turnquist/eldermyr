@@ -488,6 +488,7 @@ class World {
       S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
       try { G.updatePlayer(); } catch (_e) {}
       this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
+      for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (p.map === 'dungeon') continue; // just entered — its dungeon runs next tick; skip overworld writeback
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       writeBackPP(p);
@@ -596,6 +597,7 @@ class World {
         if (!p.downed) {
           try { G.updatePlayer(); } catch (_e) {}
           this._runActions(p, true);                       // interact = descend / exit / key-vault
+          for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // solo dungeon, but keep credit consistent
           if (p.map === 'dungeon' && S.map === 'dungeon') {
             if (S.enemies.length) { try { G.updateEnemies(); } catch (_e) {} }   // solo partition: foes target this hero
             try { G.updateProjectiles(); } catch (_e) {}
