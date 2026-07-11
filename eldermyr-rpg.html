@@ -604,7 +604,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.48.1';   // CRIT: server no longer crashes the room on a bad snapshot; MP log feed now actually writes (log was missing from client capture)
+const GAME_VERSION = 'v2.49.0';   // rifts come in two flavors: PURPLE solo (one diver) and BLUE party (whole group can [E] in, no key for joiners)
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
