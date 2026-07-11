@@ -178,10 +178,31 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   }
 
   // ---- hero archetypes: 5 distinct characters, server-authoritative (drawPlayer reads p.skin) ----
-  const SKIN_META = [['Knight', '🛡', '#4060c0'], ['Ranger', '🏹', '#2e6b3f'], ['Mage', '✨', '#6a3fa0'], ['Barbarian', '🪓', '#c03030'], ['Rogue', '🗡', '#3a4152']];
+  // draw each hero ARCHETYPE as a real sprite so players pick an avatar, not a color/label (#22)
+  const AV_ARCH = [{ cape: '#4060c0', hair: '#6a4a2a' }, { cape: '#2e6b3f', hood: '#245232' }, { robe: '#6a3fa0', hat: '#4a2c78' }, { hair: '#241616', band: '#c03030', pauld: '#8a6a3a' }, { cape: '#3a4152', hair: '#1c1f2a', mask: '#2c3140', short: true }];
+  function avatarDataURL(skin) {
+    const S = 3, W = 22, H = 28, sx = 2, sy = 8;
+    const cv = document.createElement('canvas'); cv.width = (W + 4) * S; cv.height = (H + 10) * S;
+    const x = cv.getContext('2d'); x.scale(S, S); const AR = AV_ARCH[skin] || AV_ARCH[0], body = '#6b7086';
+    x.fillStyle = 'rgba(0,0,0,0.25)'; x.beginPath(); x.ellipse(sx + W / 2, sy + H + 2, W / 2, 3, 0, 0, 6.28); x.fill();
+    if (AR.cape) { const hemY = AR.short ? H - 10 : H - 4; x.fillStyle = AR.cape; x.beginPath(); x.moveTo(sx + 5, sy + 10); x.lineTo(sx + W - 5, sy + 10); x.lineTo(sx + W - 3, sy + hemY); x.lineTo(sx + 3, sy + hemY); x.closePath(); x.fill(); }
+    x.fillStyle = '#2c3050'; x.fillRect(sx + 7, sy + H - 6, 4, 5); x.fillRect(sx + W - 11, sy + H - 6, 4, 5);
+    x.fillStyle = body; x.fillRect(sx + 5, sy + 10, W - 10, H - 15);
+    x.fillStyle = '#3a2c18'; x.fillRect(sx + 5, sy + 15, W - 10, 2);
+    x.fillStyle = '#e8c090'; x.fillRect(sx + 6, sy, W - 12, 11);
+    if (AR.hair) { x.fillStyle = AR.hair; x.fillRect(sx + 6, sy, W - 12, 4); x.fillRect(sx + 6, sy, 2, 7); }
+    if (AR.hood) { x.fillStyle = AR.hood; x.fillRect(sx + 5, sy - 1, W - 10, 5); x.fillRect(sx + 5, sy + 2, 2, 8); x.fillRect(sx + W - 7, sy + 2, 2, 8); }
+    if (AR.hat) { x.fillStyle = AR.hat; x.beginPath(); x.moveTo(sx + W / 2, sy - 8); x.lineTo(sx + W - 3, sy + 3); x.lineTo(sx + 3, sy + 3); x.closePath(); x.fill(); }
+    if (AR.robe) { x.fillStyle = AR.robe; x.beginPath(); x.moveTo(sx + 5, sy + 12); x.lineTo(sx + W - 5, sy + 12); x.lineTo(sx + W - 3, sy + H); x.lineTo(sx + 3, sy + H); x.closePath(); x.fill(); }
+    if (AR.band) { x.fillStyle = AR.band; x.fillRect(sx + 6, sy + 3, W - 12, 2); }
+    if (AR.pauld) { x.fillStyle = AR.pauld; x.fillRect(sx + 3, sy + 10, 4, 4); x.fillRect(sx + W - 7, sy + 10, 4, 4); }
+    if (AR.mask) { x.fillStyle = AR.mask; x.fillRect(sx + 6, sy + 7, W - 12, 4); }
+    x.fillStyle = '#000'; x.fillRect(sx + 8, sy + 5, 2, 2); x.fillRect(sx + 13, sy + 5, 2, 2);
+    return cv.toDataURL();
+  }
   function curSkin() { const n = parseInt(lsGet(LS_SKIN)); return Number.isFinite(n) ? Math.max(0, Math.min(4, n)) : ((snap && snap.me && snap.me.skin) | 0); }
   function sendSkin(n) { lsSet(LS_SKIN, String(n)); if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'skin', skin: n })); } catch (_e) {} } }
-  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Hero:</p><div class="mp-row" id="mp-skin-row">' + SKIN_META.map((m, i) => '<button class="mp-btn" data-skin="' + i + '" title="' + m[0] + '" style="background:' + m[2] + ';min-width:52px;height:38px;padding:2px 4px;line-height:1.15;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '">' + m[1] + '<br><span style="font-size:9px">' + m[0] + '</span></button>').join('') + '</div>';
+  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Choose your hero:</p><div class="mp-row" id="mp-skin-row">' + [0, 1, 2, 3, 4].map((i) => '<button class="mp-btn" data-skin="' + i + '" title="Avatar ' + (i + 1) + '" style="padding:3px;background:#161a24;min-width:44px;height:58px;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '"><img src="' + avatarDataURL(i) + '" style="height:48px;image-rendering:pixelated;pointer-events:none"></button>').join('') + '</div>';
   }
   function wireSkinRow(c) {
     c.querySelectorAll('#mp-skin-row [data-skin]').forEach((b) => b.addEventListener('click', () => {
