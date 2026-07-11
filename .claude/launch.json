@@ -11,7 +11,8 @@
       "name": "eldermyr-mp",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server/index.js"],
-      "port": 8138
+      "port": 8138,
+      "autoPort": true
     }
   ]
 }
