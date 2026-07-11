@@ -573,7 +573,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // instant, and reconcile toward the server's authoritative position.
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
-  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0; const enemyMem = new Map();
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null; const enemyMem = new Map();
   // client-side smoothing: remote entities only get new positions at the snapshot rate
   // (and unevenly over the wire); glide each toward its latest server position so a
   // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
@@ -684,6 +684,17 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → regenerate its juice here
+        const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
+        if (feelUltCd !== null && uc > 200 && feelUltCd <= 60) {
+          try { G.addShake && G.addShake(6); } catch (_e) {}
+          try { for (let ri = 0; ri < 3; ri++) G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 20, { color: ri === 1 ? '#fff060' : '#cfe6ff', speed: 2.2 + ri * 1.3, decay: 0.035 }); } catch (_e) {}
+          try { G.Sound && G.Sound.whirl && G.Sound.whirl(); } catch (_e) {}
+          try { G.Sound && G.Sound.cast && G.Sound.cast(); } catch (_e) {}
+          try { G.log && G.log('✦ Your ultimate erupts! ✦', 'good'); } catch (_e) {}
+        }
+        feelUltCd = uc;
+      }
       if (snap.quests) {                                 // shared questline changed → adopt + re-render the quest box
         S.quests = snap.quests; S.bounty = snap.bounty || null;
         if (snap.loreFound) S.loreFound = snap.loreFound;
