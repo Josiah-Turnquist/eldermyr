@@ -714,6 +714,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
     if (snap.me.lastRestDay != null) S.lastRestDay = snap.me.lastRestDay;   // per-player fatigue → correct Exhausted state/penalty
+    // per-player map: the shared overworld OR your own private dungeon (server sends the grid on switch)
+    if (snap.dgTiles && G.maps) G.maps.dungeon = snap.dgTiles;
+    if (snap.map && S.map !== snap.map) S.map = snap.map;
+    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; }
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];

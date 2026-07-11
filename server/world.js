@@ -116,6 +116,7 @@ function reviveAt(p, frac) {
 }
 function respawnAt(p) {
   p.downed = false; p.hp = p.maxHp; p.x = SPAWN.x; p.y = SPAWN.y; p.invuln = 90;
+  if (p.map === 'dungeon') { p.map = 'overworld'; p.dg = null; p._mapSwitchN = (p._mapSwitchN || 0) + 1; }   // died below → surface at town
   p.chillT = 0; p.burnT = 0; p.poisonT = 0; p.dead = false;
   p.bleedT = 0; p.reviveProg = 0; p.safeT = 0; p.bleedFrac = 0; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false;
   p._respawned = (p._respawned || 0) + 1;
@@ -150,7 +151,7 @@ function safeClone(v, d) {
   if (t !== 'object' || d > 6) return undefined;
   if (Array.isArray(v)) return v.map((x) => { const c = safeClone(x, d + 1); return c === undefined ? null : c; });
   const r = {};
-  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }
+  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === '_shopStock') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }
   return r;
 }
 
@@ -172,6 +173,16 @@ const RPC_OK = new Set([
 const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay'];
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; if (p._shopTown != null) S.activeShopTown = p._shopTown; }
 function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; }
+
+// ---- Per-player dungeon instancing -------------------------------------------
+// A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
+// singleton "world slots" that differ between the two contexts; we stash/restore them around
+// each dungeon player so N heroes can each be in a separate dungeon (or the overworld) without
+// corrupting the shared world or one another. Dungeons stay SOLO for now.
+const WORLD_SLOTS = ['map', 'enemies', 'pickups', 'npcs', 'projectiles', 'dungeonLevel', 'dungeonEntrance', 'dungeonThemeData', 'floorMod'];
+function grabWorld() { const w = {}; for (const k of WORLD_SLOTS) w[k] = S[k]; w.md = G.maps.dungeon; return w; }
+function putWorld(w) { for (const k of WORLD_SLOTS) S[k] = w[k]; G.maps.dungeon = w.md; }
+function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived }; }
 
 class World {
   constructor() {
@@ -198,6 +209,7 @@ class World {
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
+    p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -279,6 +291,33 @@ class World {
   // Item-taking calls carry an identifier the client can't turn into a server object,
   // so we resolve those here: shop buys against the player's open stock, sells against
   // the player's own inventory (verified by name to guard against a stale index).
+  // Process a player's queued discrete actions (attack/dodge/interact/rpc). `inDungeon` picks how
+  // [E] resolves: on the overworld it may ENTER a dungeon (which we capture into p.dg and then peel
+  // the shared overworld back into S); inside a dungeon it's descend/exit/key-vault (handled by the
+  // game against the swapped-in dungeon context).
+  _runActions(p, inDungeon) {
+    if (!p.actions.length) return;
+    for (const a of p.actions) {
+      try {
+        if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
+        else if (a === 'interact' && G.tryInteract) {
+          G.tryInteract();
+          if (!inDungeon && S.map === 'dungeon') {           // just ENTERED a dungeon
+            p.dg = grabWorld();                              // capture the freshly-built private dungeon
+            p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+            // peel the shared overworld back into S (saveOverworld stashed it into owSave on entry)
+            if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
+            S.map = 'overworld';
+            break;                                           // p is now in a dungeon — stop overworld action processing
+          }
+        }
+        else if (a === 'dodge' && G.doDodge) G.doDodge();
+        else if (a && a.rpc) this._runRpc(a, p);
+      } catch (_e) {}
+    }
+    p.actions.length = 0;
+  }
+
   _runRpc(a, p) {
     const rpc = a.rpc, args = Array.isArray(a.args) ? a.args : [];
     if (rpc === 'buyWeapon' || rpc === 'buyArmor') {
@@ -392,49 +431,22 @@ class World {
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     G.updateTime();
 
-    // PER-PLAYER: movement, discrete actions, fatigue. Swap the acting player +
-    // its inventory into the singleton slots the game logic reads.
-    for (const p of S.players) {
-      if (p.downed) continue;            // incapacitated — no move/attack/regen; the downed pass (below) runs their timers
-      S.player = p; S.inventory = p.inventory;
-      swapInPP(p);                       // this hero's shop/economy state into the singleton slots
-      setKeys(p.held);
+    // Split the party: heroes on the SHARED overworld vs. each inside their OWN private dungeon.
+    const owPre = S.players.filter((p) => p.map !== 'dungeon');
+    // PER-PLAYER (overworld): movement, discrete actions, fatigue.
+    for (const p of owPre) {
+      if (p.downed) continue;            // incapacitated — the downed pass (below) runs their timers
+      S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
       try { G.updatePlayer(); } catch (_e) {}
-      // discrete actions (edge-triggered in single-player via keydown)
-      if (p.actions.length) {
-        for (const a of p.actions) {
-          try {
-            if (a === 'attack' && G.tryAttack) { G.keys[' '] = true; G.tryAttack(); }
-            else if (a === 'interact' && G.tryInteract) {
-              const m0 = S.map, px0 = p.x, py0 = p.y;
-              G.tryInteract();
-              // A dungeon entry flips the SHARED map to 'dungeon' — which invalidates every OTHER
-              // player's position (their overworld coords read as dungeon walls) and freezes them.
-              // Co-op dungeon instancing is a bigger feature; until then, immediately UNDO the entry
-              // so the shared overworld (and everyone in it) is never corrupted.
-              if (S.map !== 'overworld' && m0 === 'overworld') {
-                if (G.loadOverworld) { try { G.loadOverworld(); } catch (_e) {} }
-                if (S.map !== 'overworld') S.map = 'overworld';
-                p.x = px0; p.y = py0;   // setupDungeonFloor teleported the enterer to the dungeon spawn — put them back at the entrance
-                p._dungeonBlockN = (p._dungeonBlockN || 0) + 1;   // bumped each attempt → client shows a "co-op dungeons coming soon" notice on the rising edge
-              }
-            }
-            else if (a === 'dodge' && G.doDodge) G.doDodge();
-            else if (a && a.rpc) this._runRpc(a, p);
-          } catch (_e) {}
-        }
-        p.actions.length = 0;
-      }
-      // per-player exhaustion: recalcStats reads isExhausted(), which now reads THIS hero's
-      // lastRestDay (swapped in above). Re-apply only on a state flip so it's consistent per
-      // player (the game's shared updateFatigue would thrash with per-player rest days).
+      this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
+      if (p.map === 'dungeon') continue; // just entered — its dungeon runs next tick; skip overworld writeback
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       writeBackPP(p);
     }
 
-    // SHARED WORLD — enemies via nearest-player PARTITION (reuses real updateEnemies)
-    const players = S.players;
-    if (S.enemies.length) {
+    // SHARED WORLD — overworld heroes only (dungeon delvers run in their own phase below)
+    const players = S.players.filter((p) => p.map !== 'dungeon');
+    if (players.length && S.enemies.length) {
       // Main-town safety: on the overworld, BOSSES can't see players in the town vicinity —
       // they target only players who are OUT of town, and wander home if nobody is.
       const overworld = S.map === 'overworld';
@@ -466,7 +478,7 @@ class World {
     }
 
     // remaining shared systems run once (acting player = first, cosmetic-only bias)
-    S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]);
+    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
     for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
       if (G[fn]) try { G[fn](); } catch (_e) {}
     }
@@ -522,11 +534,38 @@ class World {
       }
     }
 
+    // ============================ DUNGEONS (per-player, private) ============================
+    // Each dungeon delver runs in their OWN instance: stash the shared overworld, swap the hero's
+    // dungeon world into S, run their movement + their foes + their projectiles, save it back.
+    const dg = S.players.filter((p) => p.map === 'dungeon' && p.dg);
+    if (dg.length) {
+      const owBase = grabWorld();                          // stash the shared overworld out of S
+      for (const p of dg) {
+        putWorld(p.dg);                                    // this hero's private dungeon into S
+        S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
+        if (!p.downed) {
+          try { G.updatePlayer(); } catch (_e) {}
+          this._runActions(p, true);                       // interact = descend / exit / key-vault
+          if (p.map === 'dungeon' && S.map === 'dungeon') {
+            if (S.enemies.length) { try { G.updateEnemies(); } catch (_e) {} }   // solo partition: foes target this hero
+            try { G.updateProjectiles(); } catch (_e) {}
+          }
+          if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
+          writeBackPP(p);
+        }
+        if (S.map !== 'dungeon') { p.map = 'overworld'; p.dg = null; p._mapSwitchN = (p._mapSwitchN || 0) + 1; }   // exitDungeon → surface (it set our overworld pos)
+        else if (p.hp <= 0) { respawnAt(p); p.dg = null; }                                                        // died below → respawnAt surfaces us at town
+        else { const lvl0 = p.dg.dungeonLevel; p.dg = grabWorld(); if (p.dg.dungeonLevel !== lvl0) p._mapSwitchN = (p._mapSwitchN || 0) + 1; }   // save evolved dungeon; descended → resend grid
+      }
+      putWorld(owBase);                                    // restore the shared overworld for everyone else
+    }
+
     // ---- DOWNED & REVIVE ----------------------------------------------------
     // 0 HP = incapacitated, not dead (co-op). A teammate revives you by standing
     // close; or you self-recover if no foe is near (keeps solo fair). Bleed-out
     // only ticks while a foe is near — so crawling to safety stabilizes you. Only
     // when the bleed timer runs out do you truly die and respawn at town.
+    // (Overworld heroes only; a solo dungeon death boots you straight to town above.)
     for (const p of players) {
       if (!p.downed) { if (p.hp <= 0) goDown(p); continue; }   // just fell → go down
       if (p.hp < 0) p.hp = 0;
@@ -559,22 +598,31 @@ class World {
   snapshotFor(id) {
     const me = this.players.get(id);
     if (!me) return null;
+    const inDg = me.map === 'dungeon' && !!me.dg;        // read entities from the hero's private dungeon or the shared overworld
+    const enemies = inDg ? (me.dg.enemies || []) : S.enemies;
+    const proj = inDg ? (me.dg.projectiles || []) : S.projectiles;
+    const pickups = inDg ? (me.dg.pickups || []) : S.pickups;
+    const npcs = inDg ? (me.dg.npcs || []) : (S.npcs || []);
     const cx = me.x, cy = me.y;
     const near = (o) => (o.x - cx) ** 2 + (o.y - cy) ** 2 < World.R2;
-    return {
-      t: S.time, wx: S.weather, you: id,
+    const snap = {
+      t: S.time, wx: S.weather, you: id, map: inDg ? 'dungeon' : 'overworld',
       me: safeClone(me),
-      players: S.players.map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived })),
-      enemies: S.enemies.filter(near).map(packEnemy),
-      proj: S.projectiles.filter(near).map(packProj),
-      pickups: S.pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
-      npcs: (S.npcs || []).filter(near).map(packScalar),
-      // world features so the client can RENDER them + light the [E] prompt; they already
-      // trigger server-side via the 'interact' action (activateShrine/readLoreStone/etc.).
-      shrines: (S.shrines || []).filter(near).map((s) => safeClone(s)),
-      lore: (S.loreStones || []).filter(near).map((s) => safeClone(s)),
-      pois: (S.pois || []).filter(near).map((s) => safeClone(s)),
+      // dungeons are solo → no other players; on the overworld, exclude anyone off in a dungeon
+      players: inDg ? [] : S.players.filter((p) => p.map !== 'dungeon').map(lightPlayer),
+      enemies: enemies.filter(near).map(packEnemy),
+      proj: proj.filter(near).map(packProj),
+      pickups: pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
+      npcs: npcs.filter(near).map(packScalar),
+      // world features (overworld only) so the client can RENDER them + light the [E] prompt
+      shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
+      lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
+      pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
     };
+    if (inDg) { snap.dgLevel = me.dg.dungeonLevel | 0; snap.dgTheme = me.dg.dungeonThemeData ? safeClone(me.dg.dungeonThemeData) : null; }
+    // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch
+    if ((me._mapSwitchN || 0) !== (me._sentDgN || 0)) { me._sentDgN = me._mapSwitchN || 0; if (inDg && me.dg.md) snap.dgTiles = me.dg.md; }
+    return snap;
   }
 
   // static map + dims, sent ONCE when a client joins
