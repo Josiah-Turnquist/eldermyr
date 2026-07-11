@@ -365,6 +365,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else if (sc === 'cook') closeCookMP();
       else if (sc === 'hunts') closeHuntsMP();
       else if (sc === 'companions') closeCompanionsMP();
+      else if (sc === 'map') { window.closeFullMap ? window.closeFullMap() : (function () { const el = document.getElementById('fullmap'); if (el) el.style.display = 'none'; G.state.scene = 'play'; })(); }   // [Esc] closes the enlarged map
       else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
     } catch (_e) {}
   }
