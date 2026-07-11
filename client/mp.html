@@ -573,7 +573,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // instant, and reconcile toward the server's authoritative position.
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
-  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null; const enemyMem = new Map();
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null; const enemyMem = new Map();
   // client-side smoothing: remote entities only get new positions at the snapshot rate
   // (and unevenly over the wire); glide each toward its latest server position so a
   // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
@@ -684,6 +684,18 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       feelHp = me2.hp;
       if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
       wasDowned = !!me2.downed;
+      {                                                  // FISHING happened server-side (fishCd 0 → ~70) → replay the cast feedback here
+        const fc = me2.fishCd | 0;
+        const fn = (me2.ingredients && me2.ingredients.fish) | 0;
+        if (feelFishCd !== null && fc > 30 && feelFishCd <= 0) {
+          try {
+            if (fn > (feelFishN | 0)) { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 6, { color: '#a8d8f0', speed: 1.4, up: 0.5, decay: 0.06 }); G.Sound && G.Sound.item && G.Sound.item(); G.log && G.log('🎣 You catch a fish! (cook at a town Hearth)', 'good'); }
+            else if (window.isWinter && window.isWinter()) { G.log && G.log('The waters lie frozen — no fishing until the thaw.', 'lore'); }
+            else { G.log && G.log('🎣 The line comes up empty — cast again.', 'lore'); }
+          } catch (_e) {}
+        }
+        feelFishCd = fc; feelFishN = fn;
+      }
       {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → regenerate its juice here
         const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
         if (feelUltCd !== null && uc > 200 && feelUltCd <= 60) {

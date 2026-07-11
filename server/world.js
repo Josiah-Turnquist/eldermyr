@@ -207,9 +207,9 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay'];
+const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay', 'fishCd'];
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; if (p._shopTown != null) S.activeShopTown = p._shopTown; }
-function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; }
+function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -249,6 +249,7 @@ class World {
     p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
+    p.fishCd = 0;                      // per-player fishing cooldown (a shared one let players block each other's casts)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
