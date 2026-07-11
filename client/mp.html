@@ -52,9 +52,10 @@
  * Nothing about eldermyr-rpg.html is copied or modified.
  * ========================================================================== */
 const MP_PORT = 8138;
-// Local dev: this page is on the 8137 dev server but the WS server is on 8138 → target it.
-// Production: the server serves this page, so connect same-origin (wss on the service URL).
-const WS_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '')
+// The node server serves this page AND the ws on ONE port → same-origin works everywhere
+// (prod wss, local node on any port — incl. auto-assigned dev ports). The only exception:
+// the python single-player dev server (8137) serving this page — target the node port then.
+const WS_URL = (location.port === String(8137))
   ? 'ws://localhost:' + MP_PORT
   : (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
 const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.textContent = t; };
@@ -392,7 +393,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.sellIngredient = (k) => actions.push({ rpc: 'sellIngredient', args: [k] });
   window.buyWeapon = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyWeapon', args: [it.id] }); };
   window.buyArmor = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
-  window.sellItem = (it, kind) => { const arr = kind === 'weapon' ? G.state.inventory.weapons : (kind === 'armor' ? G.state.inventory.armor : null); if (!arr) return; const idx = arr.indexOf(it); if (idx < 0) return; actions.push({ rpc: 'sellItem', args: [idx, kind, it.name] }); };
+  // Resolve an item to its index in the CURRENT inventory. The snapshot REPLACES the inventory
+  // arrays every frame, so a button captured at render time holds a stale object that === nothing
+  // in the live array (arr.indexOf → -1) — that's why selling & repair silently did nothing.
+  // Fall back to a value match (name + stats) so the click still resolves to the right slot.
+  function invIndexOf(arr, it) {
+    if (!arr || !it) return -1;
+    const i = arr.indexOf(it); if (i >= 0) return i;
+    return arr.findIndex((x) => x && x.name === it.name && (x.atk | 0) === (it.atk | 0) && (x.def | 0) === (it.def | 0) && (x.dur | 0) === (it.dur | 0) && (x.rarity | 0) === (it.rarity | 0));
+  }
+  window.sellItem = (it, kind) => { const arr = kind === 'weapon' ? G.state.inventory.weapons : (kind === 'armor' ? G.state.inventory.armor : null); const idx = invIndexOf(arr, it); if (idx < 0) return; actions.push({ rpc: 'sellItem', args: [idx, kind, it.name] }); };
   window.closeShop = closeShopMP;
   // ---- Blacksmith (reforge / fuse / repair): like the shop but acts on your own gear (no stock) ----
   function nearestSmithNpc() {
@@ -407,7 +417,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.reforgeWeapon = () => actions.push({ rpc: 'reforgeWeapon', args: [] });
   window.fuseWeapon = () => actions.push({ rpc: 'fuseWeapon', args: [] });
   window.repairAll = () => actions.push({ rpc: 'repairAll', args: [] });
-  window.repairItem = (it) => { if (!it) return; const wi = G.state.inventory.weapons.indexOf(it), ai = G.state.inventory.armor.indexOf(it); if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
+  window.repairItem = (it) => { if (!it) return; const wi = invIndexOf(G.state.inventory.weapons, it), ai = wi < 0 ? invIndexOf(G.state.inventory.armor, it) : -1; if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
   window.closeSmith = closeSmithMP;
 
   // ---- co-op NPC interactions: dialogue + hearth/hunts/warband (server-resolved) ----------
@@ -542,6 +552,23 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // (and unevenly over the wire); glide each toward its latest server position so a
   // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
   const smooth = new Map(); let lastSmoothT = 0;
+  // Overlay the other heroes on the corner minimap (same world→pixel transform the game
+  // uses for the "you" triangle: tile position × canvas/OW scale). Redrawn each frame after
+  // the game repaints the minimap. Cyan dot = ally, red = downed.
+  function drawPlayersOnMinimap() {
+    if (!snap || !snap.players) return;
+    const mm = document.getElementById('minimap'); if (!mm || mm.style.display === 'none') return;
+    const x = mm.getContext('2d'); if (!x) return;
+    const W = mm.width, H = mm.height, OWW = G.OW_W || 248, OWH = G.OW_H || 208, TILE = G.TILE || 32;
+    const sxr = W / OWW, syr = H / OWH;
+    for (const op of snap.players) {
+      if (op.id === myId) continue;
+      const mx = (op.x + (op.w || 0) / 2) / TILE * sxr, my = (op.y + (op.h || 0) / 2) / TILE * syr;
+      x.beginPath(); x.arc(mx, my, 2.4, 0, Math.PI * 2);
+      x.fillStyle = op.downed ? '#ff5a5a' : '#5ad1ff'; x.fill();
+      x.lineWidth = 0.8; x.strokeStyle = 'rgba(0,0,0,0.75)'; x.stroke();
+    }
+  }
   function drawOthers(others) {
     const ctx = G.ctx; if (!ctx) return;
     const meRef = S.player;
@@ -574,10 +601,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     }
     S.player = meRef;
   }
-  let _fpsN = 0, _fpsT = 0;
+  let _fpsN = 0, _fpsT = 0, statusHidden = false;
   function frame() {
     realRAF(frame);
     _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; st((mpLive ? '● live · ' : '○ ') + window.__mpFps + ' fps' + (snap ? ' · ' + snap.enemies.length + ' foes' : '')); }
+    { const _open = !!(G.state && G.state.scene !== 'play'); if (_open !== statusHidden) { statusHidden = _open; const se = document.getElementById('mp-status'); if (se) se.style.display = _open ? 'none' : 'block'; } }   // hide the fps/status chip while any menu is open
     // self-heal the canvas size: in some browsers innerWidth is 0 at boot (layout
     // not settled), which zeroes fitCanvas. Re-fit once the viewport is real.
     if (G.canvas && !G.canvas.width && window.innerWidth > 0 && G.fitCanvas) { try { G.fitCanvas(); } catch (e) {} }
@@ -692,6 +720,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       drawPings();                                       // co-op rally markers (world-space, on top of players)
       G.drawWayfinder && G.drawWayfinder();
       G.updateMinimap && G.updateMinimap();
+      drawPlayersOnMinimap();                            // overlay other heroes on the corner minimap
       G.updateHubTabs && G.updateHubTabs();
       G.updateCombatHud && G.updateCombatHud();
       G.updateHUD && G.updateHUD();
