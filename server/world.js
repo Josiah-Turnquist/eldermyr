@@ -273,6 +273,12 @@ class World {
     return {
       v: 1, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
+      // YOUR recruits travel with YOUR character (connection ids change every reconnect — never key on them)
+      companions: (S.companions || []).filter((c) => c.ownerId === id).map((c) => ({
+        name: c.name, cls: c.cls, level: c.level | 0, maxHp: c.maxHp, hp: c.hp, atk: c.atk, def: c.def,
+        alive: c.alive !== false, color: c.color || null, postedAt: (typeof c.postedAt === 'number' ? c.postedAt : null),
+        weapon: c.weapon ? safeClone(c.weapon) : null,
+      })),
     };
   }
 
@@ -298,6 +304,22 @@ class World {
         }
       }
       if (Number.isInteger(c && c.skin)) p.skin = Math.max(0, Math.min(4, c.skin));   // hero look
+      if (c && Array.isArray(c.companions)) {                    // your warband rejoins you, owned by your NEW connection id
+        if (!S.companions) S.companions = [];
+        for (const sc of c.companions.slice(0, 3)) {
+          if (!sc || !sc.cls) continue;
+          const comp = {
+            name: sc.name || 'Companion', cls: sc.cls, level: sc.level || 1,
+            maxHp: sc.maxHp || 30, hp: (sc.hp > 0 ? sc.hp : (sc.maxHp || 30)), atk: sc.atk || 5, def: sc.def || 1,
+            alive: sc.alive !== false, weapon: sc.weapon ? clone(sc.weapon) : null,
+            postedAt: (typeof sc.postedAt === 'number' ? sc.postedAt : null),
+            x: p.x, y: p.y, w: 22, h: 22, attackCd: 0, hurtCd: 0, wobble: Math.random() * 6.28,
+            color: sc.color || '#cccccc', ownerId: p.id,
+          };
+          if (comp.weapon && G.normItem) { try { G.normItem(comp.weapon, true); } catch (_e) {} }
+          S.companions.push(comp);
+        }
+      }
       if (c && c.shop) {                                         // restore this hero's town-economy state
         p.shopPurchased = Array.isArray(c.shop.shopPurchased) ? c.shop.shopPurchased.slice() : [];
         p.tonics = c.shop.tonics | 0; p.sharpenLevel = c.shop.sharpenLevel | 0;
@@ -319,7 +341,9 @@ class World {
     const i = S.players.indexOf(p);
     if (i >= 0) S.players.splice(i, 1);
     this.players.delete(id);
-    if (S.companions) for (const c of S.companions) if (c.ownerId === id) c.ownerId = null;   // orphaned recruits re-anchor to the next hero who acts
+    // your warband LEAVES with you (characterOf already captured it for persistent heroes) —
+    // never re-anchor recruits to another player: that's how "my warband follows someone else" happens
+    if (S.companions) for (let i = S.companions.length - 1; i >= 0; i--) if (S.companions[i].ownerId === id) S.companions.splice(i, 1);
   }
 
   // hero look (0-4) — validated here, rendered by drawPlayer via p.skin, persisted in characterOf
