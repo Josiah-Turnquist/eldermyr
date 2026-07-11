@@ -31,6 +31,11 @@ const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
 // the display refresh, so a 120Hz monitor plays at 2x. 80 is a chosen middle ground —
 // a touch faster than design without the frantic 2x. Client-side smoothing (below)
 // handles the choppiness from snapshots arriving unevenly on a high-fps display.
+// Last-resort safety net: a stray throw in a timer/handler must NEVER take the whole
+// room down (that reads to players as "everyone randomly lost connection"). Log and stay up.
+process.on('uncaughtException', (e) => { console.error('[uncaught]', e && e.stack || e); });
+process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e && (e.stack || e.message) || e); });
+
 const HZ = Number(process.env.HZ) || 80;
 // Disconnect a player who hasn't done anything meaningful for this long — a backstop so
 // an AFK/backgrounded tab can't keep the sim (and the bill) running, and so an away player
@@ -183,7 +188,9 @@ let acc = 0, lastT = Date.now(), lastBcast = 0, simTimer = null;
 function broadcast() {
   for (const ws of wss.clients) {
     if (ws.readyState !== 1 || !ws.pid) continue;
-    const snap = world.snapshotFor(ws.pid);
+    let snap;
+    try { snap = world.snapshotFor(ws.pid); }               // one bad snapshot must NOT crash the whole room
+    catch (e) { console.error('snapshotFor error for', ws.pid, e && e.message); continue; }
     if (snap) { try { ws.send(JSON.stringify({ type: 'state', snap })); } catch (_e) {} }
   }
 }

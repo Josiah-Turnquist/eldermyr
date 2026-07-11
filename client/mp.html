@@ -89,7 +89,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles'];
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'rarityName', 'isWinter', 'updateQuests'];   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2)
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   const G = window.__G;
