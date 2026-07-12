@@ -187,6 +187,8 @@ function respawnAt(p) {
   if (lost > 0) { p.gold -= lost; _logbuf.push({ m: `You fell in battle — ${lost} gold slips from your purse.`, c: 'combat', id: p.id }); }
   p.downed = false; p.hp = p.maxHp; p.x = SPAWN.x; p.y = SPAWN.y; p.invuln = 90;
   if (p.map === 'dungeon') { p.map = 'overworld'; p.dg = null; p._mapSwitchN = (p._mapSwitchN || 0) + 1; }   // died below → surface at town
+  // your warband can't be left stranded below: any of YOUR recruits that delved surface with you at town.
+  if (S.companions) for (const c of S.companions) { if (c.ownerId === p.id && c.map === 'dungeon') { c.map = 'overworld'; c.x = p.x - 22 + Math.random() * 44; c.y = p.y + 12 + Math.random() * 12; c.attackCd = 0; c.hurtCd = 0; } }
   p.chillT = 0; p.burnT = 0; p.poisonT = 0; p.dead = false;
   p.bleedT = 0; p.reviveProg = 0; p.safeT = 0; p.bleedFrac = 0; p.reviveFrac = 0; p.beingRevived = false; p.stabilizing = false;
   p._respawned = (p._respawned || 0) + 1;
@@ -301,16 +303,19 @@ class World {
   // party's average level climbs (they were 3-shot easy for a leveled group).
   _rescaleThreats(lvl) {
     for (const e of S.enemies) {
-      if (e.isGreatBeast && e.huntKey) {                    // Hunts: recompute from the template at the new level
+      if (e.isGreatBeast && e.huntKey) {                    // Hunts: rebuild via the REAL generator — no formula mirror (the old mirror drifted the moment the html steepened its curve; the generator is the single source of truth, whatever it becomes)
         const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
         if (!h) continue;
-        const asc = 1 + (S.ascension || 0) * 0.2;
-        const df = G.distFactor(Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE));
-        const lf = 1 + Math.max(0, lvl - 5) * 0.11, dcf = 1 + df * 0.7;
-        const newMax = Math.round(h.hp * asc * lf * dcf), frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
-        e.maxHp = newMax; e.hp = Math.max(1, Math.round(newMax * frac));
-        e.atk = Math.round(h.atk * asc * (1 + df * 0.3) * (1 + Math.max(0, lvl - 5) * 0.05));
-        e.xp = Math.round(h.xp * lf * dcf); e.gold = Math.round(h.gold * lf * dcf);
+        if (!G.makeGreatBeast) { this._err('gbTemplate', 'makeGreatBeast not captured'); continue; }
+        const gx = Math.floor((e.x + e.w / 2) / TILE), gy = Math.floor((e.y + e.h / 2) / TILE);
+        const pl0 = S._partyLevel, n0 = S.enemies.length; S._partyLevel = lvl;   // pin the generator's partyLvl() to THIS rescale's target (identical at the tick call site, which sets _partyLevel first); _partyN/huntCycle/ascension read live
+        let t = null;
+        try { t = G.makeGreatBeast(h, gx, gy); } catch (err) { this._err('gbTemplate', err); }
+        finally { S._partyLevel = pl0; if (S.enemies.length > n0) S.enemies.length = n0; }   // generator is a pure constructor today (returns, pushes nothing — verified) — the truncate is drift insurance only
+        if (!t) continue;
+        const frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;      // preserve damage-done, exactly as before
+        e.maxHp = t.maxHp; e.hp = Math.max(1, Math.round(t.maxHp * frac));
+        e.atk = t.atk; e.xp = t.xp; e.gold = t.gold;        // template discarded; def/e.cycle untouched (cycle stamps the SPAWN's drop tier — retagging a live beast would inflate its loot)
       } else if (e.warlordRef) {                            // a spawned warlord enemy: scale HP/atk to the party from a CACHED base
         // Stamp the base ONCE (like the Great-Beast branch recomputing from its template) and always derive from
         // it — re-multiplying the LIVE maxHp on every party-level rise compounded unboundedly (100→200→300→…).
@@ -318,7 +323,7 @@ class World {
         const boost = Math.max(1, (lvl + (e.warlordRef.rank || 0)) / e._baseWL);
         const frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
         e.maxHp = Math.round(e._baseHp * boost); e.hp = Math.max(1, Math.round(e.maxHp * frac));
-        e.atk = Math.round(e._baseAtk * (1 + (boost - 1) * 0.6));
+        e.atk = Math.round(e._baseAtk * boost);   // damage scales with the SAME boost as HP (was soft-pedalled ×0.6 → warlords were bullet-sponges that barely hit); idempotent (pure fn of lvl/rank/_baseWL)
       }
     }
     if (S.legion && S.legion.warlords) {                    // level the roster so FUTURE warlord spawns are strong too
@@ -343,7 +348,12 @@ class World {
       const tx = Math.round(htx + Math.cos(ang) * d), ty = Math.round(hty + Math.sin(ang) * d);
       const tile = G.getTile('overworld', tx, ty);
       if (tile === G.T.GRASS || tile === G.T.FLOWER || tile === G.T.PATH) {
-        this.rift = { x: tx * TILE, y: ty * TILE, deep: 3 + Math.floor(Math.random() * 4), expires: S.time + 2400, n: ++this._riftSeq, party: Math.random() < 0.4 };   // ~40% are BLUE party rifts the whole group can dive together
+        const party = Math.random() < 0.4;                              // ~40% are BLUE party rifts the whole group can dive together
+        const plvl = S._partyLevel || 1;                                // sane fallback (the tick sets this before _maybeRift runs)
+        // depth window scales with the party average: base 3 + floor(plvl/4) + a 0–3 spread; BLUE party rifts sit one deeper. clamp 3–16.
+        // → lvl≤3: solo 3–6 (party 4–7) · lvl 12: solo 6–9 (party 7–10) · lvl 25: solo 9–12 (party 10–13).
+        const deep = Math.max(3, Math.min(16, 3 + Math.floor(plvl / 4) + Math.floor(Math.random() * 4) + (party ? 1 : 0)));
+        this.rift = { x: tx * TILE, y: ty * TILE, deep, expires: S.time + 2400, n: ++this._riftSeq, party };
         break;
       }
     }
@@ -376,7 +386,14 @@ class World {
     } catch (e) { this._err('enterRift', e); }
     finally {
       putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else
-      for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; }     // companions stay topside where they were
+      // per-owner delving: the BREACHER's own alive, un-posted warband dives WITH them (keep the setupCompanions
+      // teleport, re-seat near p on the deep floor, tag map='dungeon'); everyone else stays topside where they were.
+      // A failed breach (entered=false) dives nobody — restore all.
+      let _di = 0;
+      for (const [c, cx, cy] of compPos) {
+        if (entered && c.ownerId === p.id && c.alive !== false && c.postedAt == null) { c.map = 'dungeon'; c.x = p.x + (_di++ % 2 ? 18 : -18); c.y = p.y + 16; c.attackCd = 0; }
+        else { c.x = cx; c.y = cy; }
+      }
     }
     if (entered) {
       if (!joining) { p.inventory.keys--; if (!party) this.rift = null; }   // key spent + solo rift closes ONLY on a successful breach (a failed build no longer eats the key)
@@ -484,7 +501,7 @@ class World {
             alive: sc.alive !== false, weapon: sc.weapon ? clone(sc.weapon) : null,
             postedAt: (typeof sc.postedAt === 'number' ? sc.postedAt : null),
             x: p.x, y: p.y, w: 22, h: 22, attackCd: 0, hurtCd: 0, wobble: Math.random() * 6.28,
-            color: sc.color || '#cccccc', ownerId: p.id,
+            color: sc.color || '#cccccc', ownerId: p.id, map: 'overworld',   // rejoin grounded topside (map is transient, like dragon.mounted — never persisted)
           };
           if (comp.weapon && G.normItem) { try { G.normItem(comp.weapon, true); } catch (_e) {} }
           S.companions.push(comp);
@@ -564,7 +581,13 @@ class World {
             if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
             S.map = 'overworld';
             S.projectiles = projBefore;                      // the overworld keeps its REAL in-flight bullets — without this both worlds ALIAS one array and overworld shots die against the dungeon grid
-            for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // every warband stays topside where it was ("disappeared" = teleported to the enterer)
+            // per-owner delving: the ENTERER's own alive, un-posted warband delves WITH them (keep the setupCompanions
+            // teleport, re-seat near p at the floor entrance, tag map='dungeon'); everyone else's warband stays topside.
+            let _di = 0;
+            for (const [c, cx2, cy2] of compPos) {
+              if (c.ownerId === p.id && c.alive !== false && c.postedAt == null) { c.map = 'dungeon'; c.x = p.x + (_di++ % 2 ? 18 : -18); c.y = p.y + 16; c.attackCd = 0; }
+              else { c.x = cx2; c.y = cy2; }
+            }
             break;                                           // p is now in the dungeon — stop overworld action processing
           }
         }
@@ -719,6 +742,7 @@ class World {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     S._partyLevel = Math.round(S.players.reduce((a, p) => a + (p.level || 1), 0) / S.players.length);   // #2: Legion/Hunts scale with the party's average level
+    S._partyN = S.players.length;     // #2: live party size — Hunt/Legion generators read state._partyN||1 for party-size damage scaling
     if (S._partyLevel > this._threatLvl) { this._threatLvl = S._partyLevel; try { this._rescaleThreats(S._partyLevel); } catch (e) { this._err('rescaleThreats', e); } }   // catch up boot-baked Legion/Hunts to the party
     this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
@@ -826,7 +850,7 @@ class World {
       const byOwner = new Map();
       for (const c of all) {
         const o = this.players.get(c.ownerId);
-        if (!o || o.map === 'dungeon' || o.downed) continue;
+        if (!o || o.map === 'dungeon' || o.downed || c.map === 'dungeon') continue;   // dungeon-tagged recruits are stepped by the DUNGEON phase, never here (wrong coordinate space + enemy list)
         if (!byOwner.has(o)) byOwner.set(o, []);
         byOwner.get(o).push(c);
       }
@@ -910,12 +934,20 @@ class World {
           if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall summoned mid-delve is attributed (allies stay overworld-only in MP — it idles topside)
           if (S.map !== 'dungeon') {                       // exited — exitDungeon set their overworld position
             p.map = 'overworld'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
-            for (const [c, cx2, cy2] of compPos) { if (c.ownerId !== p.id) { c.x = cx2; c.y = cy2; } }   // others' warbands stay put; the exiter's own reunite at the entrance
-          } else if (S.dungeonLevel !== lvl0) {            // descended — the whole party goes down together
-            for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // ALL warbands stay topside (companions don't delve)
+            for (const [c, cx2, cy2] of compPos) { if (c.ownerId !== p.id) { c.x = cx2; c.y = cy2; } else c.map = 'overworld'; }   // others' warbands stay put; the exiter's OWN reunite at the entrance (setupCompanions placed them) and return topside
+          } else if (S.dungeonLevel !== lvl0) {            // descended — the whole delving party goes down together
+            // p's OWN dungeon warband followed (setupCompanions teleported them near p on the new floor) — keep them;
+            // restore everyone else (topside warbands stay topside; other delvers' recruits re-placed with their owner below).
+            for (const [c, cx2, cy2] of compPos) { if (!(c.ownerId === p.id && c.map === 'dungeon' && c.alive !== false && c.postedAt == null)) { c.x = cx2; c.y = cy2; } }
             lvl0 = S.dungeonLevel;
             this.dgSpawn = { x: p.x, y: p.y };             // new floor's entry (setupDungeonFloor put p there)
-            for (const q of dgAll) { if (q !== p && q.map === 'dungeon') { q.x = p.x; q.y = p.y; q._mapSwitchN = (q._mapSwitchN || 0) + 1; } }
+            for (const q of dgAll) {
+              if (q !== p && q.map === 'dungeon') {
+                q.x = p.x; q.y = p.y; q._mapSwitchN = (q._mapSwitchN || 0) + 1;
+                let _di = 0;                               // bring q's OWN dungeon warband down to the new floor alongside them
+                for (const c of S.companions) if (c.ownerId === q.id && c.map === 'dungeon' && c.alive !== false && c.postedAt == null) { c.x = q.x + (_di++ % 2 ? 18 : -18); c.y = q.y + 16; c.attackCd = 0; }
+              }
+            }
             p._mapSwitchN = (p._mapSwitchN || 0) + 1;      // everyone (p included) gets the new grid
           }
           if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
@@ -940,6 +972,20 @@ class World {
             }
             S.enemies = survivors;
             global.__libGate = null;
+          }
+          // WARBAND (dungeon): step each delver's OWN dungeon recruits — mirrors the overworld partition exactly
+          // (S.player = delver, S.companions = their map==='dungeon' recruits, S.enemies = the full floor roster so
+          // they target/hit correctly, S.map = 'dungeon' from putWorld). Topside recruits are NOT touched here.
+          if (G.updateCompanions && S.companions && S.companions.length) {
+            const allC = S.companions;
+            for (const dp of stillIn) {
+              if (dp.downed) continue;                     // a downed delver's recruits idle (mirrors the overworld skip)
+              const mine = allC.filter((c) => c.ownerId === dp.id && c.map === 'dungeon');
+              if (!mine.length) continue;
+              S.player = dp; S.inventory = dp.inventory; S.companions = mine;
+              try { G.updateCompanions(); } catch (e) { this._err('updateCompanionsDg', e); }
+            }
+            S.companions = allC;
           }
           // projectiles once (acting player = first delver; others patched below)
           S.player = stillIn[0]; S.inventory = stillIn[0].inventory;
@@ -971,6 +1017,10 @@ class World {
         putWorld(owBase);                                  // ALWAYS restore the shared overworld for everyone else
       }
     } else if (!dgAll.length && this.sharedDg) { this.sharedDg = null; this.dgSpawn = null; }   // stragglers gone (disconnects) → dissolve
+
+    // SAFETY: with no live delve, no recruit may linger tagged 'dungeon' (owner bled out / left, or the instance
+    // dissolved). Force any straggler topside near its owner so it can't idle invisibly in a dead world-slot.
+    if (!this.sharedDg && S.companions) for (const c of S.companions) { if (c.map === 'dungeon') { c.map = 'overworld'; const o = this.players.get(c.ownerId); if (o) { c.x = o.x - 22 + Math.random() * 44; c.y = o.y + 12; } c.attackCd = 0; } }
 
     // ---- DOWNED & REVIVE (overworld heroes; the dungeon phase runs its own pass) ----
     this._downedPass(players);
@@ -1073,8 +1123,8 @@ class World {
       proj: proj.filter(near).map(packProj),
       pickups: pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
       npcs: npcs.filter(near).map(packScalar),
-      // warband companions (overworld only — they idle topside while their owner delves)
-      comps: inDg ? [] : (S.companions || []).filter((c) => c.alive && near(c)).map(packComp),
+      // warband companions: dungeon viewers see the delving warbands (map==='dungeon'), surfacers see the topside ones
+      comps: (S.companions || []).filter((c) => c.alive && ((c.map === 'dungeon') === inDg) && near(c)).map(packComp),
       // co-op allies (thralls / bound elites / Vigil patrols) — overworld only, interest-culled like enemies
       allies: inDg ? [] : (S.allies || []).filter(near).map(packAlly),
       // world features (overworld only) so the client can RENDER them + light the [E] prompt
