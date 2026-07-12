@@ -588,6 +588,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'f') actions.push({ rpc: 'castSpell', args: [] });
     if (k === 'z') actions.push({ rpc: 'useUltimate', args: [] });
     if (k === 'x') actions.push({ rpc: 'useSummon', args: [] });
+    if (k === 'v') held.v = true;   // [V] → HEAT vent (magic): streamed in the held map; the game's per-frame update triggers doVent server-side via setKeys
     if (k === '1') actions.push({ rpc: 'drinkPotion', args: [] });
     if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
     if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
@@ -605,12 +606,13 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const k = e.key.toLowerCase();
     if (KMAP[k]) held[KMAP[k]] = false;
     if (k === ' ' || k === 'j') held._atk = false;
+    if (k === 'v') held.v = false;
   });
   setInterval(() => {
     if (!ws || ws.readyState !== 1) return;
     const iAmDowned = snap && snap.me && snap.me.downed;
     const inMenu = chatting || iAmDowned || (G.state && G.state.scene !== 'play');   // no walk/fight while paneled, chatting, or downed
-    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
+    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d, v: !!held.v };   // v = HEAT vent (magic); server's setKeys → the game's per-frame update edge-triggers doVent
     const act = actions; actions = [];                    // always flush queued RPCs (even from menus)
     if (!inMenu && held._atk) act.push('attack');
     ws.send(JSON.stringify({ type: 'input', held: h, actions: act }));

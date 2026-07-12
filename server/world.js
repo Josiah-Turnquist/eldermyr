@@ -892,7 +892,8 @@ class World {
             if (pl.downed) continue;      // already down — bleed-out governs, don't pile on
             if (G.projHitsRect(pr, pl)) {
               S.player = pl; S.inventory = pl.inventory;
-              try { G.playerTakeDamage(pr.dmg); } catch (e) { this._err('playerTakeDamage', e); }
+              let _pd = 0; try { _pd = G.playerTakeDamage(pr.dmg) || 0; } catch (e) { this._err('playerTakeDamage', e); }
+                if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp && G.afxVampHeal) { try { G.afxVampHeal(pr.ownerRef, _pd); } catch (_e) {} }   // vampiric elites heal off EVERY player they hit, not just the tick's first
               if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
               S.projectiles.splice(i, 1);
               break;
@@ -999,7 +1000,8 @@ class World {
                 if (pl.downed) continue;
                 if (G.projHitsRect(pr, pl)) {
                   S.player = pl; S.inventory = pl.inventory;
-                  try { G.playerTakeDamage(pr.dmg); } catch (e) { this._err('playerTakeDamage', e); }
+                  let _pd = 0; try { _pd = G.playerTakeDamage(pr.dmg) || 0; } catch (e) { this._err('playerTakeDamage', e); }
+                if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp && G.afxVampHeal) { try { G.afxVampHeal(pr.ownerRef, _pd); } catch (_e) {} }   // vampiric elites heal off EVERY player they hit, not just the tick's first
                   if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
                   S.projectiles.splice(i, 1);
                   break;

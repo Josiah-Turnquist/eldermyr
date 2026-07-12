@@ -120,6 +120,7 @@ const CAPTURE = [
   'gainXP', 'recalcStats', 'normItem', 'equippedWeapon', 'setupOverworld', 'genLegion', 'initHoldings',
   'liberateHolding', 'clearPOI', 'liberateTown',   // server reconciles outpost/POI/siege liberation across combat partitions
   'projParams', 'canDominate', 'dominate',   // combat-depth arc: proj speed + elite domination (tests)
+  'makeElite', 'rollEliteAffixes', 'afxHit', 'enemyStrike', 'statusDamage', 'tryDropLoot',   // elite affixes (Pillar 3): spawn/drive/verify affixed elites headlessly
   'makeGreatBeast', 'makeWildEnemy', 'distFactor',   // world-scaling tests (#2/#16)
   'enterDungeon', 'setupDungeonFloor',   // ephemeral deep-dungeon rifts (#14)
   'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
@@ -131,7 +132,7 @@ const CAPTURE = [
   'buyPotion', 'buyTonic', 'buyWeapon', 'buyArmor', 'buyGood', 'sellGood', 'sellIngredient',   // Merchant shop
   'reforgeWeapon', 'fuseWeapon', 'repairItem', 'repairAll', 'temperWeapon',   // blacksmith
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleBoat', 'doCamp',
-  'projHitsRect', 'playerTakeDamage',   // so the server can land enemy projectiles/fire on non-first players
+  'projHitsRect', 'playerTakeDamage', 'afxVampHeal',   // so the server can land enemy projectiles/fire on non-first players (+ vampiric elites heal off those hits too)
   'projParams',                         // testing: assert the pierce rules (magic pierces 1, arrows never)
   'drawPlayer',                         // testing: smoke every archetype render path (ghost ctx absorbs draws, exceptions surface)
   // NPC interactions (co-op [E] resolver): dialogue lines, instant actions, and panel-action RPCs

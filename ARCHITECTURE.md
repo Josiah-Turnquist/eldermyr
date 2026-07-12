@@ -130,3 +130,79 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
 3. No bare `catch (_e) {}` around subsystem calls — use the throttled `_err(key, e)` logger.
 4. New per-player state: PP_KEYS + swapInPP + writeBackPP + save/load + snapshot + client adopt.
 5. **Update this file** when you change any invariant above — a wrong doc is worse than none.
+
+## Style-identity resources (Pillar 1: Momentum / Quarry Marks / Heat)
+
+Each combat style has a resource loop whose state and logic live **entirely inside the
+existing combat functions**, so the loader/room inherit it for free — no new server plumbing.
+
+- **All player state is scalars on `state.player`** (melee `momentum`/`riposteT`/`_momoDecay`;
+  magic `heat`/`silenceT`/`ventT`/`ventHeat`/`_heatCool`; ranged `_lastMarkN`/`_markShowT`;
+  plus `_lastStyle`). These are **transient** — deliberately *not* in `snapshot()`'s whitelist,
+  and `applySnapshot` zeroes them, so old saves default to 0/off. They reach MP clients with
+  **zero extra wiring**: the client adopts `me` wholesale (`S.player = snap.me`), and `safeClone`
+  copies top-level scalars — so unlike `state.X` fields (tonics/sailing/…), these need **no
+  explicit adoption line**. That is the whole reason they live on the player object.
+- **Marks are per-TARGET, so they live on the ENEMY**, not the player: `e._markN` (0–3, a number
+  — it *does* ride `packEnemy`/`packScalar`, harmless) and `e._markBy` = the **owning player
+  OBJECT ref**. The "bonus damage from you" check is `e._markBy === po` (identity, O(1)); packScalar
+  drops object-typed fields, so `_markBy` **never serializes** — do not change it to an id/string
+  (a string would leak onto the wire, and SP players have no `.id`). Enemies are shared in MP, so
+  one enemy carries exactly one owner's mark. The only entity scan these mechanics may do is the
+  **nearest-foe scan in `killEnemy`** for the kill-chain transfer (kill-rate, not frame-rate).
+  Everything else is O(1): Deadeye/point-blank are computed at hit-time from shooter→impact
+  distance (no scan), momentum/heat decay are counters in `updateStyleResources`.
+- **Reset-on-swap is a single seam:** `updateStyleResources()` (called each frame from
+  `updatePlayer`) compares `styleOf(equippedWeapon())` to `p._lastStyle`; on a *style* change it
+  wipes every other style's transients. This is the ONE reset path — it fires for SP equips, MP
+  equip RPCs, and load alike, so nothing else needs to know about swaps. (It runs after the first
+  frame latches `_lastStyle`, which is why `updatePlayer` must run before any attack — it already
+  does, both in the SP loop and the world tick's per-player phase.)
+- **Vent input `[V]`** rides the **held-map + `setKeys` path**, NOT an RPC — deliberately, so it
+  needs no `RPC_OK`/`CAPTURE`/allow-list change (no `world.js`/`load-game.js` edit). The client
+  streams `held.v` like a movement key; the server's `setKeys(p.held)` sets `keys['v']`, and
+  `updateStyleResources` (inside `updatePlayer`) edge-triggers `doVent` **once per press** via the
+  per-player `_vHeld` flag. SP and MP share this one path (SP's own keydown already sets `keys['v']`
+  generically — there is no direct keydown→`doVent` call). `doVent` only *starts* a channel
+  (`ventT`); the nova fires when the timer completes inside `updateStyleResources` (per-player
+  context, full enemy list) — identical on the overworld and in the shared dungeon phase, both of
+  which run `updatePlayer` per player. If you ever add a NON-key trigger for a new game fn the
+  server must call, that's when you'd touch `RPC_OK`+`CAPTURE` (see the capture-drift note above).
+- **Perfect-dodge seam:** `playerTakeDamage` treats a hit arriving during *active roll i-frames*
+  (`p.dodge>0 && p.invuln>0`) as a perfect dodge — melee keeps its pips (we `return` before the
+  on-hit pip drop) and opens the riposte window. Keying on `p.dodge>0` (not just `invuln`) is what
+  distinguishes a dodge from post-hit/blessing invuln.
+- **No parallel damage paths:** Momentum folds into `playerDmgMul()` (the one damage multiplier),
+  riposte/Deadeye set the existing `crit` flag, mark bonus multiplies the computed hit, and Heat
+  amplification routes through `applyElementOnHit` via `heatAmp()`. Touch those, not a copy.
+
+## Elite affixes (Pillar 3: Shielded / Vampiric / Splitting / Warded)
+
+- **All affix state is SCALARS on the enemy** (`_afxN`, `afxShield`/`afxVamp`/`afxSplit`/`afxWard`,
+  `shieldHp`/`shieldMax`/`shieldRegenT`, `wardT`/`wardCd`, the precomputed `afxTag` badge string, and the
+  prefixed `name`). packScalar keeps numbers/strings/booleans and DROPS arrays/objects — that is why there
+  is deliberately no `e.afx = [...]` array. Affixed elites therefore ride packEnemy → snapshot → the client's
+  wholesale enemy adoption → game-side drawEnemy with **zero mp.html changes**, and absent fields default OFF
+  (old saves and pre-affix enemies behave identically).
+- **Elite-only invariant:** affixes roll ONLY in `rollEliteAffixes`, called from `makeElite` (and the
+  keep-guardian branch, after its rename so the prefix/shield read the final identity). It refuses
+  isBoss/isNemesis/isGreatBeast/isWildDragon/isFinalBoss/named/dread/warlordRef and never re-rolls
+  (`_afxN` set = done). Party gate: 1 affix at partyLvl ≥15, 2 at ≥22, distinct picks.
+  `rollEliteAffixes(e, maxAfx)` is the hook for the later pinnacle/cycle 3-affix budget (pass 3);
+  pass 0 to suppress. (The `triggerEvent` war-pack sets a bare `e.elite=true` without `makeElite` —
+  those event mobs intentionally stay affix-free.)
+- **One damage gate:** every player/ally/companion→enemy hp subtraction routes through `afxHit(e,dmg)`
+  (`e.hp-=afxHit(e,dmg)`) — ward immunity and shield absorption live there and nowhere else; non-affixed
+  enemies pay one falsy check. **A new damage site must route through afxHit.** Enemy→player contact damage
+  goes through `enemyStrike(e,amt)` (`playerTakeDamage` now RETURNS the damage actually dealt) so vampiric
+  healing has one seam; hostile projectiles carry `ownerRef` = the shooting ENEMY (object ref — packScalar
+  drops it on the wire; world.js's friendly-shooter stamp is gated on `pr.friendly`, so no clash).
+- **Copies never split & carry no site tags:** `afxSplitDeath` (killEnemy) builds the two 45%-stat copies
+  from an explicit WHITELIST — type/color/size/speed/homeDf/aquatic only. poiKey/holdKey/raidTown/legion/
+  guardian/treasure/cycle/night/elite are deliberately NOT copied, so liberation/siege sweeps (SP inline and
+  the MP `_seen` sweeps) never wait on scraps, and `_splitChild:1` blocks both re-splitting and future affix
+  rolls. `dominateElite` likewise builds its ally from a fresh whitelist — dominating an affixed elite yields
+  a CLEAN thrall (name scrubbed of affix words).
+- **Ward windows are timer-bounded** (66 frames up per 300 down, ticked at the TOP of updateEnemies before
+  the stun/aggro `continue`s), so a warded quest/bounty target can never be immune-locked, even leashed,
+  stunned, or attacked from beyond aggro range.
