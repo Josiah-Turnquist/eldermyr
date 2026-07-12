@@ -88,11 +88,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // 4. run the game code + capture the symbols we need to render
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
-    'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'rarityName', 'isWinter', 'updateQuests'];   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2)
+    'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests'];   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1)
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   const G = window.__G;
+  // capture audit: surface any NAMES entry that resolved to undefined — the silent-capture failure
+  // class that hid 'log' for weeks and 'currentObjective' this release. Warn (don't throw): a few
+  // absences can be legitimate, but a missing symbol should never again fail silently.
+  { const _missing = G ? NAMES.filter((n) => G[n] === undefined) : NAMES.slice(); if (_missing.length) console.warn('[mp] NAMES symbols that captured undefined:', _missing.join(', ')); }
   if (!G || !G.startGame) { st('game failed to load (no startGame)'); return; }
 
   // 5. boot the render machinery (builds a valid state, sprites, camera, HUD)
@@ -147,7 +151,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       '<button class="mp-btn primary" id="mp-name-go">Enter Eldermyr</button>' +
       '<div class="mp-mut" id="mp-have-code" style="cursor:pointer">▸ I already have a recovery code</div>');
     const inp = c.querySelector('#mp-name-in'); setTimeout(() => inp.focus(), 30);
-    const go = () => { const nm = (inp.value || '').trim().slice(0, 18); if (!nm) { inp.focus(); return; } authPayload = { name: nm }; myName = nm; lsSet(LS_NAME, nm); closeModal(); sendAuth(); };
+    const go = () => { const nm = (inp.value || '').trim().slice(0, 18); if (!nm) { inp.focus(); return; } authPayload = { name: nm }; myName = nm; lsSet(LS_NAME, nm); closeModal(); if (ws && ws.readyState === 1) sendAuth(); else connect(); };   // fresh heroes connect HERE (no socket is opened pre-name — the server reaps unauthed sockets after 10s)
     c.querySelector('#mp-name-go').addEventListener('click', go);
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
     c.querySelector('#mp-have-code').addEventListener('click', () => showReclaim(true));
@@ -248,7 +252,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // The only guard: if the SERVER disconnects us for sitting idle too long (so an
   // abandoned tab can't stream to itself), show a Resume screen instead of silently
   // reconnecting into a kick loop. Your hero is saved.
-  let noReconnect = false;
+  let noReconnect = false, superseded = false;   // superseded → a reconnect took this hero over in another window; stop reconnecting for good
   function showAwayScreen() {
     if (noReconnect) return;
     noReconnect = true;
@@ -360,7 +364,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   function connect() {
     ws = new WebSocket(WS_URL);
     ws.onopen = () => { mpLive = true; st('● connected'); if (authPayload) sendAuth(); else showNameEntry(); };
-    ws.onclose = () => { mpLive = false; if (noReconnect) { st('○ away'); return; } st('○ reconnecting…'); setTimeout(connect, 1000); };
+    ws.onclose = () => { mpLive = false; if (superseded) { st('This hero is now playing in another window.'); return; } if (noReconnect) { st('○ away'); return; } st('○ reconnecting…'); setTimeout(connect, 1000); };
     ws.onerror = () => {};
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
@@ -401,11 +405,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
       }
       else if (m.type === 'idle-disconnect') { showAwayScreen(); }   // server dropped an idle tab; wait for a Resume click
+      else if (m.type === 'superseded') { superseded = true; noReconnect = true; mpLive = false; st('This hero is now playing in another window.'); try { ws && ws.close(); } catch (_e) {} }   // a reconnect adopted this hero → stop reconnecting (would just get superseded again)
       else if (m.type === 'chat') { addChatLine(m.name, m.text); try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
       else if (m.type === 'ping') { pings.push({ x: m.x, y: m.y, name: m.name, kind: m.kind, t: performance.now() }); if (pings.length > 16) pings.shift(); try { (m.kind === 'downed' ? (G.Sound && G.Sound.boss) : (G.Sound && G.Sound.blip)) && (m.kind === 'downed' ? G.Sound.boss() : G.Sound.blip()); } catch (_e) {} }
     };
   }
-  connect();
+  // Returning heroes (token/reclaim code) connect right away — they auth the instant the socket
+  // opens. FRESH heroes get the name dialog with NO socket: the server's 10s auth deadline would
+  // reap a socket idling unauthed while a human types, and the 1s auto-reconnect then re-rendered
+  // this dialog under their fingers (wiping the field). The submit button owns connecting instead.
+  if (authPayload) connect(); else showNameEntry();
 
   // 7. input → server (held keys @20Hz + discrete actions)
   const held = {}; let actions = [];
@@ -448,7 +457,6 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // resolves (stock id for buys; inventory index+name for a sell) since it can't take a ref.
   window.buyPotion = () => actions.push({ rpc: 'buyPotion', args: [] });
   window.buyTonic = () => actions.push({ rpc: 'buyTonic', args: [] });
-  window.buySharpen = () => actions.push({ rpc: 'buySharpen', args: [] });
   window.buyGood = (k) => actions.push({ rpc: 'buyGood', args: [k] });
   window.sellGood = (k) => actions.push({ rpc: 'sellGood', args: [k] });
   window.sellIngredient = (k) => actions.push({ rpc: 'sellIngredient', args: [k] });
@@ -585,9 +593,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
     if (k === 'c') {
       actions.push({ rpc: 'doCamp', args: [] });   // server toggles: start camping / break camp
-      const me = snap.me;
+      const me = snap && snap.me;                  // guard: [C] pressed after scene='play' but before the FIRST snapshot → snap is null (matches the 'e'/rift branches above)
       if (me && me.camping) { try { G.log && G.log('You break camp.', 'lore'); } catch (_e) {} }
-      else {
+      else if (me) {
         const safe = !(snap.enemies || []).some((e) => Math.hypot((e.x + e.w / 2) - (pred.x + me.w / 2), (e.y + e.h / 2) - (pred.y + me.h / 2)) < 210);
         try { if (safe) { G.spawnBurst && G.spawnBurst(pred.x + me.w / 2, pred.y + me.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 }); G.log && G.log('You make camp — resting… press [C] to break camp.', 'good'); } else G.log && G.log('Too dangerous to make camp — foes are near.', 'combat'); } catch (_e) {}
       }
@@ -664,6 +672,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const ctx = G.ctx; if (!ctx) return;
     const meRef = S.player;
     const invRef = S.inventory;
+    const sailRef = S.sailing, dragonRef = S.dragon;   // drawPlayer reads state.sailing/state.dragon (NOT the player obj) — override per remote hero so THEIR boat/flight renders, restore after
     S.inventory = { weapons: [], armor: [], items: [] };   // drawPlayer reads equipped gear from the SINGLETON inventory — without this, MY plate armor turned every other hero metal on my screen
     for (const op of others) {
       const sy = op.y - S.camera.y - 16;
@@ -682,6 +691,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         continue;
       }
       S.player = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, op);
+      S.sailing = !!op.sailing; S.dragon = op.mounted ? { mounted: true, tamed: true } : { mounted: false, tamed: false };   // this hero's boat/flight (flags from lightPlayer)
       try { G.drawPlayer(); } catch (e) {}
       const sx = op.x - S.camera.x + op.w / 2;
       ctx.font = '9px monospace'; ctx.textAlign = 'center';
@@ -692,9 +702,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       ctx.fillStyle = '#66cc66'; ctx.fillRect(sx - 13, sy + 2, 26 * Math.max(0, op.hp / op.maxHp), 3);
       ctx.textAlign = 'left';
     }
-    S.player = meRef; S.inventory = invRef;
+    S.player = meRef; S.inventory = invRef; S.sailing = sailRef; S.dragon = dragonRef;
   }
-  let _fpsN = 0, _fpsT = 0, statusHidden = false;
+  let _fpsN = 0, _fpsT = 0, statusHidden = false, lastReconcileErrT = 0, lastAdoptErrT = 0, lastPanelSigT = 0, lastNeedMapT = 0;
   function frame() {
     realRAF(frame);
     _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; const _on = snap ? (snap.n || (snap.players && snap.players.length) || 1) : 0; st((mpLive ? '● ' + _on + ' online · ' : '○ ') + window.__mpFps + ' fps' + (snap ? ' · ' + snap.enemies.length + ' foes' : '')); }
@@ -704,7 +714,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.canvas && !G.canvas.width && window.innerWidth > 0 && G.fitCanvas) { try { G.fitCanvas(); } catch (e) {} }
     if (!snap || !mapReady || !snap.me) return;
     // --- reconcile prediction against the newest authoritative snapshot ---
-    if (snap !== lastSnap) {
+    if (snap !== lastSnap) { try {   // wrap reconcile: one malformed/unexpected snapshot field must not kill the frame loop for good
       lastSnap = snap;
       if (!predInit) { pred.x = snap.me.x; pred.y = snap.me.y; predInit = true; }
       else {
@@ -812,38 +822,45 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       for (const pl of (snap.players || [])) { if (pl.id === myId) continue; const k = 'u' + pl.id; const s = smooth.get(k); if (s) { s.tx = pl.x; s.ty = pl.y; } else smooth.set(k, { tx: pl.x, ty: pl.y, rx: pl.x, ry: pl.y }); _live.add(k); }
       for (const c of (snap.comps || [])) if (c._cid != null) { const k = 'c' + c._cid; const s = smooth.get(k); if (s) { s.tx = c.x; s.ty = c.y; } else smooth.set(k, { tx: c.x, ty: c.y, rx: c.x, ry: c.y }); _live.add(k); }
       for (const k of smooth.keys()) if (!_live.has(k)) smooth.delete(k);
-    }
+    } catch (_re) { const _rt = performance.now(); if (_rt - lastReconcileErrT > 2000) { lastReconcileErrT = _rt; console.error('mp reconcile error (snapshot skipped, loop continues):', _re); } } }
     // --- dead-reckon my movement each frame (input feels instant) ---
     const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
     let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
     if (dx && dy) { dx *= 0.707; dy *= 0.707; }
     if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && (snap.me.downed || snap.me.camping))) {
-      let _exh = false; try { _exh = !(S.dragon && S.dragon.mounted) && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
-      const spd = (snap.me.speed || 2) * (snap.me.chillT > 0 ? 0.55 : 1) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror the server's exhaustion slow (v2.38.0)
+      const _fly = !!(snap.me.dragon && snap.me.dragon.mounted), _sail = !!snap.me.sailing;   // per-player mount/boat (server-authoritative)
+      let _exh = false; try { _exh = !_fly && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
+      const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : (snap.me.chillT > 0 ? 0.55 : 1))) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror updatePlayer: flight/sail speed + exhaustion slow (v2.38.0)
       const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
-      if (!G.canMoveTo || G.canMoveTo(nx, pred.y, w, h)) pred.x = nx;
-      if (!G.canMoveTo || G.canMoveTo(pred.x, ny, w, h)) pred.y = ny;
+      const _move = _fly ? (G.flyCanMove || null) : (_sail ? (G.canSailTo || null) : G.canMoveTo);   // fly over everything / sail on water / walk on land — match the server so prediction doesn't rubber-band
+      if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
+      if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;
     }
     // adopt authoritative state, but render MY player at the predicted position
+    let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
+    try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
     if (snap.me.inventory) S.inventory = snap.me.inventory;
     if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
     if (snap.me.lastRestDay != null) S.lastRestDay = snap.me.lastRestDay;   // per-player fatigue → correct Exhausted state/penalty
+    if (snap.me.sailing != null) S.sailing = !!snap.me.sailing;   // per-player boat: drawPlayer reads state.sailing (NOT player.sailing) for the hull + bob
+    if (snap.me.dragon) { if (S.dragon) Object.assign(S.dragon, snap.me.dragon); else S.dragon = snap.me.dragon; }   // per-player mount: merge so draw/HUD keep every dragon field they read
     // per-player map: the shared overworld OR your own private dungeon (server sends the grid on switch)
     if (snap.dgTiles && G.maps) G.maps.dungeon = snap.dgTiles;
-    if (snap.map && S.map !== snap.map) S.map = snap.map;
-    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; }
+    if (snap.map && S.map !== snap.map) { if (snap.map !== 'dungeon' || (G.maps && G.maps.dungeon)) S.map = snap.map; }   // never flip INTO the dungeon before its grid exists — renderWorld's maps.dungeon[0] would throw (frame guard below is the backstop)
+    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; S.floorMod = snap.floorMod || null; }   // floor modifier (👑/🐀/☠/🏦) → dungeon HUD tag
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];
     S.npcs = snap.npcs || [];
     S.shrines = snap.shrines || []; S.loreStones = snap.lore || []; S.pois = snap.pois || [];   // adopt the server's world features (render + [E] prompt)
+    S.allies = snap.allies || [];   // co-op allies (thralls/bound elites/patrols) — server-owned, direct adopt (renderWorld draws them)
     if (snap.holdings) { for (let i = 0; i < snap.holdings.length; i++) { if (S.holdings && S.holdings[i]) Object.assign(S.holdings[i], snap.holdings[i]); } }   // outpost status → [E] prompt + flip on capture
     if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
     S.time = snap.t; S.weather = snap.wx;
-    const others = (snap.players || []).filter((p) => p.id !== myId);
+    others = (snap.players || []).filter((p) => p.id !== myId);
     // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
     { const _sn = performance.now(), _sdt = Math.min(100, _sn - (lastSmoothT || _sn)); lastSmoothT = _sn;
       const _sk = Math.min(1, _sdt / 55), _skp = Math.min(1, _sdt / 26);   // projectiles snap faster (less lag)
@@ -852,7 +869,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       for (const op of others) { const s = smooth.get('u' + op.id); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; op.x = s.rx; op.y = s.ry; } }
       for (const c of (S.companions || [])) { const s = c._cid != null && smooth.get('c' + c._cid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; c.x = s.rx; c.y = s.ry; } }   // warband glides too (it stepped/jittered without smoothing)
     }
-    // keep an open inventory/skills panel fresh after server-applied changes
+    } catch (_ae) { const _at = performance.now(); if (_at - lastAdoptErrT > 2000) { lastAdoptErrT = _at; console.error('mp adopt/smooth error (frame degraded, loop continues):', _ae); } }
+    // keep an open inventory/skills panel fresh after server-applied changes.
+    // Throttle the (full-inventory JSON.stringify) change-signature to ~every 150ms — between
+    // recomputes the panel is treated as unchanged (may refresh up to 150ms late — acceptable).
+    { const _psNow = performance.now(); if (_psNow - lastPanelSigT >= 150) { lastPanelSigT = _psNow;
     if (G.state.scene === 'inventory' || G.state.scene === 'skills') {
       const sig = (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;
       if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
@@ -866,6 +887,17 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       const sig = 'cook|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + snap.me.gold;
       if (sig !== panelSig) { panelSig = sig; try { window.renderCook && window.renderCook(); } catch (_e) {} }
     } else if (panelSig) panelSig = '';
+    } }
+    // HARD GUARD (last line of defense): we're in the dungeon but its tile grid never arrived (dropped dgTiles,
+    // or a reconnect that landed straight inside a live dungeon — welcome only carries the overworld). renderWorld
+    // would read maps.dungeon[0] on null and throw every frame. Skip the world render and ask the server to resend
+    // the grid (throttled ~1/s); the server's transactional attach + resendMap re-sends it and we recover.
+    if (snap.map === 'dungeon' && (!G.maps || !G.maps.dungeon)) {   // key off SERVER truth (snap.map): the flip above stays gated on the overworld until the grid lands
+      st('entering the depths…');
+      const _nm = performance.now(); if (_nm - lastNeedMapT > 1000) { lastNeedMapT = _nm; try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'needmap' })); } catch (_e) {} }
+      updateDownedOverlay(snap.me);
+      return;
+    }
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
       G.updateCamera(); G.applyShake(); G.renderWorld();

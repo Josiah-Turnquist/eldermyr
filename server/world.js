@@ -32,17 +32,32 @@ const SPAWN = { x: S.player.x, y: S.player.y };
 // load-game routes bare log() through global.__onLog. We stamp each with the player who was
 // acting when it fired (S.player) so the room can route it: personal → that hero, epic → all.
 const _logbuf = [];
+// While the once-per-tick SHARED systems run (weather/war/nemesis/world-events) S.player is pinned to
+// players[0]; without this flag their log lines would be OWNED by (and reach ONLY) player 0. Set around the
+// shared-phase block so those lines are world events: no player owner (id=null) + broadcast to EVERYONE.
+let _sharedPhase = false;
 try {
   global.__onLog = function (m, c) {
     if (!m) return;
-    const p = S.player;
-    _logbuf.push({ m: String(m).slice(0, 180), c: c || '', id: p ? p.id : null });
+    const p = _sharedPhase ? null : S.player;
+    _logbuf.push({ m: String(m).slice(0, 180), c: c || '', id: p ? p.id : null, bc: _sharedPhase });
     if (_logbuf.length > 300) _logbuf.splice(0, _logbuf.length - 300);
   };
 } catch (_e) {}
+// MP death is owned by the downed/bleed-out/revive pass (goDown/_downedPass fire off hp<=0 on
+// their own) — the SP gameOver() consequences (scene='dead', nemesisGrows +2 warlord levels
+// +1 rank, recordRun) must NOT fire per knockdown. load-game reroutes the lexical gameOver
+// here; a no-op is all MP needs (playerTakeDamage already left hp at 0 for the downed pass).
+try { global.__onGameOver = () => {}; } catch (_e) {}
+// Liberation gate (see load-game): a function returning false ONLY while combat runs against a
+// partitioned enemy bucket, so killEnemy's inline liberation defers to the tick() _seen sweep.
+try { global.__libGate = null; } catch (_e) {}
 // epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
 const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
 const OW_W = G.OW_W || 248, OW_H = G.OW_H || 208;
+// The frozen-wastes band (== the game's isFrozenTile, which isn't exported): biomeMap[y][x]===1 iff
+// y<=frozenLimit(x). Pure math over OW_H + tx, so we replicate the per-player snow chill EXACTLY.
+function frozenLimit(tx) { return Math.round(OW_H * 0.17 + Math.sin(tx * 0.18) * 4 + Math.sin(tx * 0.06) * 3); }
 const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
 // Enemy density (server-owned). The game seeds ~127 foes across the whole 248x208 map and
 // caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
@@ -185,10 +200,16 @@ function packScalar(o) {
   for (const k in o) { const v = o[k], t = typeof v; if (v === null || t === 'number' || t === 'string' || t === 'boolean') r[k] = v; }
   return r;
 }
-let _nidSeq = 0, _pidSeq = 0, _cidSeq = 0;
+let _nidSeq = 0, _pidSeq = 0, _cidSeq = 0, _aidSeq = 0;
 function packComp(c) {
   if (c._cid == null) c._cid = ++_cidSeq;   // stable id so the client can SMOOTH companions across snapshots (they stepped/jittered without it)
   return packScalar(c);
+}
+function packAlly(a) {
+  if (a._aid == null) a._aid = ++_aidSeq;    // stable id (optional client smoothing)
+  const r = packScalar(a);
+  if (typeof r.name !== 'string') r.name = 'Ally';   // drawAlly does a.name.split(' ') — a nameless ally crashes the renderer
+  return r;
 }
 function packEnemy(e) {
   if (e._nid == null) e._nid = ++_nidSeq;   // stable id so the client can diff hits/deaths + smooth across snapshots
@@ -210,7 +231,7 @@ function safeClone(v, d) {
   if (t !== 'object' || d > 6) return undefined;
   if (Array.isArray(v)) return v.map((x) => { const c = safeClone(x, d + 1); return c === undefined ? null : c; });
   const r = {};
-  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === '_shopStock') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }
+  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === '_shopStock' || k === 'dodgeHits') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone
   return r;
 }
 
@@ -221,7 +242,7 @@ const RPC_OK = new Set([
   'equipWeapon', 'equipArmor', 'sellItem', 'sellAllJunk', 'drinkPotion', 'spendPoint', 'unlockAbility',
   'useWhirlwind', 'useFocus', 'castSpell', 'useUltimate', 'useSummon', 'toggleMount', 'toggleBoat', 'doCamp',
   // shop (Merchant) transactions — run on the acting player's own gold/inventory
-  'buyPotion', 'buyTonic', 'buySharpen', 'buyGood', 'sellGood', 'sellIngredient',
+  'buyPotion', 'buyTonic', 'buyGood', 'sellGood', 'sellIngredient',   // (buySharpen removed — Temper replaced it this release)
   // blacksmith — act on the acting player's own gear/gold ('repairItem' resolved specially)
   'reforgeWeapon', 'fuseWeapon', 'repairAll', 'temperWeapon',
   // hearth (cook) + warband (recruit/arm/garrison/dismiss) — panel actions on the acting hero
@@ -229,9 +250,12 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay', 'fishCd'];
-function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; if (p._shopTown != null) S.activeShopTown = p._shopTown; }
-function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; }
+const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay', 'fishCd', 'sailing', 'dragon'];
+function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = p._shopTown != null ? p._shopTown : null; }   // always assign — a null _shopTown must NOT leak the previous player's shop town into this slice
+// Mirror PP_KEYS on the way out. lastRestDay was MISSING → resting never persisted (players popped back to
+// Exhausted next slice). sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
+// water-walk+fly collision (and the mounted atk bonus) into every other player's rotation slice.
+function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; p.lastRestDay = S.lastRestDay; p.sailing = !!S.sailing; p.dragon = S.dragon; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -241,7 +265,7 @@ function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; 
 const WORLD_SLOTS = ['map', 'enemies', 'pickups', 'npcs', 'projectiles', 'dungeonLevel', 'dungeonEntrance', 'dungeonThemeData', 'floorMod'];
 function grabWorld() { const w = {}; for (const k of WORLD_SLOTS) w[k] = S[k]; w.md = G.maps.dungeon; return w; }
 function putWorld(w) { for (const k of WORLD_SLOTS) S[k] = w[k]; G.maps.dungeon = w.md; }
-function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, skin: p.skin | 0, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived }; }
+function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, skin: p.skin | 0, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived, sailing: !!p.sailing, mounted: !!(p.dragon && p.dragon.mounted) }; }
 
 class World {
   constructor() {
@@ -258,6 +282,18 @@ class World {
     this._riftSeq = 0;
     this._riftCd = 800;                // ticks until the first rift can open (~10s), then randomized
     this._threatLvl = 0;              // party level the Legion/Hunts are currently scaled to (0 = baked at boot ~lvl 1)
+    // perf instrumentation (for the user-reported "laggier over time" probe): EMA tick/snapshot ms + rolling max.
+    this._tickMsAvg = 0; this._tickMsMax = 0; this._ticks = 0; this._snapMsAvg = 0;
+    this._errAt = new Map();          // throttle key -> last console.error timestamp (30s window)
+  }
+
+  // Throttled subsystem error logger: the tick's sim-call sites used to swallow with bare `catch {}`, so a
+  // dead subsystem stayed invisible for weeks. console.error at most once per key per 30s (no spam, no interval).
+  _err(key, e) {
+    const now = Date.now(), last = this._errAt.get(key) || 0;
+    if (now - last < 30000) return;
+    this._errAt.set(key, now);
+    try { console.error('[world] ' + key + ': ' + ((e && e.message) || e)); } catch (_e2) {}
   }
 
   // Legion & Great Beasts are generated at server BOOT, when the only "player" is the level-1
@@ -275,11 +311,14 @@ class World {
         e.maxHp = newMax; e.hp = Math.max(1, Math.round(newMax * frac));
         e.atk = Math.round(h.atk * asc * (1 + df * 0.3) * (1 + Math.max(0, lvl - 5) * 0.05));
         e.xp = Math.round(h.xp * lf * dcf); e.gold = Math.round(h.gold * lf * dcf);
-      } else if (e.warlordRef) {                            // a spawned warlord enemy: scale HP/atk to the party
-        const boost = Math.max(1, (lvl + (e.warlordRef.rank || 0)) / Math.max(1, e.warlordRef.level || 1));
+      } else if (e.warlordRef) {                            // a spawned warlord enemy: scale HP/atk to the party from a CACHED base
+        // Stamp the base ONCE (like the Great-Beast branch recomputing from its template) and always derive from
+        // it — re-multiplying the LIVE maxHp on every party-level rise compounded unboundedly (100→200→300→…).
+        if (e._baseHp == null) { e._baseHp = e.maxHp; e._baseAtk = e.atk; e._baseWL = Math.max(1, e.warlordRef.level || 1); }
+        const boost = Math.max(1, (lvl + (e.warlordRef.rank || 0)) / e._baseWL);
         const frac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
-        e.maxHp = Math.round(e.maxHp * boost); e.hp = Math.max(1, Math.round(e.maxHp * frac));
-        e.atk = Math.round(e.atk * (1 + (boost - 1) * 0.6));
+        e.maxHp = Math.round(e._baseHp * boost); e.hp = Math.max(1, Math.round(e.maxHp * frac));
+        e.atk = Math.round(e._baseAtk * (1 + (boost - 1) * 0.6));
       }
     }
     if (S.legion && S.legion.warlords) {                    // level the roster so FUTURE warlord spawns are strong too
@@ -317,33 +356,33 @@ class World {
     if (!this.rift || p.map === 'dungeon') return;
     const dx = this.rift.x - p.x, dy = this.rift.y - p.y;
     if (dx * dx + dy * dy > 80 * 80) return;                          // must be standing on it
-    const projBefore = S.projectiles;
-    const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);
-    const restoreOw = () => { if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; } S.map = 'overworld'; S.projectiles = projBefore; for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; } };
-    if (this.sharedDg) {                                              // a party rift's delve is already open → JOIN it (no key)
-      if (!this.rift.party) return;                                  // a solo run isn't joinable
-      S.player = p; S.inventory = p.inventory; swapInPP(p);
-      try { G.enterDungeon(); } catch (_e) {}                        // build+stash a throwaway floor; the shared one is restored next tick
-      if (S.map === 'dungeon') {
-        if (this.dgSpawn) { p.x = this.dgSpawn.x; p.y = this.dgSpawn.y; }
-        p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
-        restoreOw();
-        _logbuf.push({ m: '✦ You dive through the rift to join the delve!', c: 'quest', id: p.id });
-      }
-      return;
-    }
-    if ((p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
-    p.inventory.keys--;
+    const joining = !!this.sharedDg;                                  // a delve already open → JOIN it (no key)
+    if (joining && !this.rift.party) return;                          // a solo run isn't joinable
+    if (!joining && (p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
     const deep = this.rift.deep, party = this.rift.party;
-    if (!party) this.rift = null;                                     // solo rift closes on breach; party rift stays open for teammates
-    S.player = p; S.inventory = p.inventory; swapInPP(p);
-    try { G.enterDungeon(); } catch (_e) {}                           // builds floor 1 + stashes the overworld into owSave
-    try { S.dungeonLevel = deep; S.maxDepth = Math.max(S.maxDepth | 0, deep); G.setupDungeonFloor(deep); } catch (_e) {}   // rebuild at the deep floor
-    if (S.map === 'dungeon') {
-      this.sharedDg = grabWorld(); this.dgSpawn = { x: p.x, y: p.y };
-      p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
-      restoreOw();
-      _logbuf.push({ m: `✦ You breach a ${party ? 'PARTY ' : ''}RIFT into the deep — Depth ${deep}! (a key is spent)${party ? ' Allies can dive in too!' : ''}`, c: 'quest', id: p.id });
+    const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // enterDungeon's setupCompanions() teleports every shared companion to the enterer
+    const owBase = grabWorld();                                       // snapshot EVERY world slot BEFORE we disturb it (map/enemies/pickups/npcs/projectiles/dungeon slots/floorMod/maps.dungeon)
+    let entered = false;
+    try {                                                            // mirror the dungeon phase: ANY failure path must restore ALL swapped slots (no dungeon fragments stranded under map==='overworld')
+      S.player = p; S.inventory = p.inventory; swapInPP(p);
+      G.enterDungeon();                                              // builds a floor + stashes the overworld into owSave (a throwaway floor when joining — the shared one is restored next tick)
+      if (!joining) { S.dungeonLevel = deep; S.maxDepth = Math.max(S.maxDepth | 0, deep); G.setupDungeonFloor(deep); }   // rebuild at the deep floor
+      if (S.map === 'dungeon') {
+        if (joining) { if (this.dgSpawn) { p.x = this.dgSpawn.x; p.y = this.dgSpawn.y; } }
+        else { this.sharedDg = grabWorld(); this.dgSpawn = { x: p.x, y: p.y }; }   // first breach → CAPTURE the deep instance
+        p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+        entered = true;
+      }
+    } catch (e) { this._err('enterRift', e); }
+    finally {
+      putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else
+      for (const [c, cx, cy] of compPos) { c.x = cx; c.y = cy; }     // companions stay topside where they were
+    }
+    if (entered) {
+      if (!joining) { p.inventory.keys--; if (!party) this.rift = null; }   // key spent + solo rift closes ONLY on a successful breach (a failed build no longer eats the key)
+      _logbuf.push(joining
+        ? { m: '✦ You dive through the rift to join the delve!', c: 'quest', id: p.id }
+        : { m: `✦ You breach a ${party ? 'PARTY ' : ''}RIFT into the deep — Depth ${deep}! (a key is spent)${party ? ' Allies can dive in too!' : ''}`, c: 'quest', id: p.id });
     }
   }
 
@@ -352,7 +391,7 @@ class World {
     if (!_logbuf.length) return;
     for (const e of _logbuf) {
       const nm = e.id && this.players.get(e.id) ? this.players.get(e.id).name : '';
-      this.feed.push({ n: ++this.feedN, m: e.m, c: e.c, id: e.id, bc: FEED_BROADCAST.test(e.m), nm });
+      this.feed.push({ n: ++this.feedN, m: e.m, c: e.c, id: e.id, bc: e.bc || FEED_BROADCAST.test(e.m), nm });   // shared-phase (e.bc) lines broadcast to all
     }
     _logbuf.length = 0;
     if (this.feed.length > 140) this.feed.splice(0, this.feed.length - 140);
@@ -376,6 +415,7 @@ class World {
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
     p.fishCd = 0;                      // per-player fishing cooldown (a shared one let players block each other's casts)
+    p.sailing = false; p.dragon = { tamed: false, mounted: false };   // per-player boat + mount (shared S.sailing/S.dragon leaked water-walk/flight across every hero's slice)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
@@ -401,6 +441,8 @@ class World {
     return {
       v: 1, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
+      dragon: p.dragon ? { tamed: !!p.dragon.tamed } : null,   // the tamed Emberwyrm is a persistent capability; mounted is transient → restored grounded
+
       // YOUR recruits travel with YOUR character (connection ids change every reconnect — never key on them)
       companions: (S.companions || []).filter((c) => c.ownerId === id).map((c) => ({
         name: c.name, cls: c.cls, level: c.level | 0, maxHp: c.maxHp, hp: c.hp, atk: c.atk, def: c.def,
@@ -454,6 +496,7 @@ class World {
         p.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, c.shop.cargo || {});
         p.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, c.shop.ingredients || {});
       }
+      if (c && c.dragon) p.dragon = { tamed: !!c.dragon.tamed, mounted: false };   // your tamed steed rejoins you (grounded)
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
       S.player = p; S.inventory = p.inventory;
       if (G.recalcStats) try { G.recalcStats(); } catch (_e) {}
@@ -482,7 +525,7 @@ class World {
     const p = this.players.get(id);
     if (!p) return;
     if (msg.held) p.held = msg.held;
-    if (msg.actions && msg.actions.length) p.actions.push(...msg.actions);
+    if (msg.actions && msg.actions.length) { p.actions.push(...msg.actions); if (p.actions.length > 16) p.actions.length = 16; }   // cap the per-tick RPC queue — a hostile client can't flood thousands of actions in one frame
     if (msg.dir) p.dir = msg.dir;
   }
 
@@ -502,7 +545,10 @@ class World {
         else if (a === 'interact' && G.tryInteract) {
           const projBefore = S.projectiles;                  // enterDungeon swaps in a fresh [] and saveOverworld does NOT stash projectiles
           const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // setupCompanions() (inside enterDungeon) teleports EVERY shared companion to the enterer
-          G.tryInteract();
+          const owBase = !inDungeon ? grabWorld() : null;    // overworld snapshot so a THROW mid-enter (slots swapped, map not yet flipped) can't strand dungeon fragments under map==='overworld'
+          let threw = false;
+          try { G.tryInteract(); } catch (_e2) { threw = true; }   // a throw mid-enter must NOT skip the world restore below (same leak shape as the dungeon phase)
+          if (!inDungeon && threw && S.map !== 'dungeon' && owBase) { putWorld(owBase); S.projectiles = projBefore; for (const [c, cx3, cy3] of compPos) { c.x = cx3; c.y = cy3; } }   // failed mid-enter → fully restore the overworld (no-op if nothing was swapped)
           if (!inDungeon && S.map === 'dungeon') {           // just ENTERED the dungeon
             if (this.sharedDg) {
               // party dungeon already live → JOIN it: discard the floor the game just built
@@ -576,7 +622,10 @@ class World {
       if (typeof G.doCamp === 'function') try { G.doCamp(); } catch (_e) {}
       const camped = S.time !== t0;                              // doCamp fast-forwards time only on success
       S.time = t0;                                               // undo it — the world's clock never jumps
-      if (camped) { p.lastRestDay = G.curDay ? G.curDay() : p.lastRestDay; p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
+      // doCamp set state.lastRestDay to the fast-forwarded (next-morning) day; recompute it against the un-skipped
+      // clock and keep S in sync with p, or writeBackPP (which now persists lastRestDay) would clobber it back to
+      // that skipped day and over-rest the hero.
+      if (camped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
@@ -656,11 +705,21 @@ class World {
   }
 
   // ---- the authoritative tick ----
-  tick() {
+  tick() {                            // timed wrapper (perf instrumentation): EMA + rolling-max the whole step
+    const _t0 = process.hrtime.bigint();
+    try { this._step(); }
+    finally {
+      const ms = Number(process.hrtime.bigint() - _t0) / 1e6;
+      this._ticks++;
+      this._tickMsAvg = this._ticks === 1 ? ms : this._tickMsAvg * 0.95 + ms * 0.05;
+      if (ms > this._tickMsMax) this._tickMsMax = ms;
+    }
+  }
+  _step() {
     if (!S.players.length) return;
     S.scene = 'play';                 // server always simulates; neutralize transient scene changes (death/dialogue/shop)
     S._partyLevel = Math.round(S.players.reduce((a, p) => a + (p.level || 1), 0) / S.players.length);   // #2: Legion/Hunts scale with the party's average level
-    if (S._partyLevel > this._threatLvl) { this._threatLvl = S._partyLevel; try { this._rescaleThreats(S._partyLevel); } catch (_e) {} }   // catch up boot-baked Legion/Hunts to the party
+    if (S._partyLevel > this._threatLvl) { this._threatLvl = S._partyLevel; try { this._rescaleThreats(S._partyLevel); } catch (e) { this._err('rescaleThreats', e); } }   // catch up boot-baked Legion/Hunts to the party
     this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
     // Quest sync: version-stamp the (shared) quest state so snapshots only carry it when it CHANGES.
@@ -675,12 +734,16 @@ class World {
     for (const p of owPre) {
       if (p.downed) continue;            // incapacitated — the downed pass (below) runs their timers
       S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
-      try { G.updatePlayer(); } catch (_e) {}
+      try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
       this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
+      if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
       if (p.map === 'dungeon') continue; // just entered — its dungeon runs next tick; skip overworld writeback
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
+      // Winter snow chill: updateWeather (shared phase) only chills players[0]; apply it to EVERY hero standing on a
+      // frozen tile during snow-weather (frozen band = y<=frozenLimit(x), i.e. the game's own isFrozenTile condition).
+      if (S.weather === 'snow' && S.time % 150 === 0) { const ftx = Math.floor((p.x + p.w / 2) / TILE), fty = Math.floor((p.y + p.h / 2) / TILE); if (fty <= frozenLimit(ftx)) p.chillT = Math.max(p.chillT || 0, 75); }
       writeBackPP(p);
     }
 
@@ -707,22 +770,54 @@ class World {
         }
       }
       const survivors = [];
+      global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
       for (const p of players) {
         S.player = p;
         S.enemies = buckets.get(p);         // this player's assigned foes target HIM
-        try { G.updateEnemies(); } catch (_e) {}
+        try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
       }
       for (const e of wanderers) { wanderHome(e); survivors.push(e); }
       S.enemies = survivors;
+      global.__libGate = null;              // recombined — the sweep's own liberate calls run for real
     }
     if (S.time % 30 === 0) unstickEnemies('overworld');   // pop wall-embedded foes out (leviathan-on-land etc.)
 
-    // remaining shared systems run once (acting player = first, cosmetic-only bias)
-    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
-    for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
-      if (G[fn]) try { G[fn](); } catch (_e) {}
+    // ALLIES (co-op): summoned thralls, dominated elites & Vigil patrols follow and fight for their OWNER.
+    // updateAllies was never called in the MP loop and state.allies was never serialized → allies stood
+    // frozen server-side, were invisible to clients, and never decayed. Partition S.allies by _owner among
+    // overworld heroes and run the REAL updateAllies per owner (it natively moves them, targets the nearest
+    // foe, decays life, and splices the dead/expired). killEnemy inside credits state.player, so set it to the
+    // owner. Allies whose owner is delving (or gone) idle topside with life frozen — companions don't delve
+    // either; an un-owned ally (shared-phase Vigil spawn) self-heals to the nearest hero. S.enemies here is the
+    // full recombined overworld list, so each ally picks its nearest foe correctly.
+    if (G.updateAllies && S.allies && S.allies.length && players.length) {
+      const aBuckets = new Map(players.map((p) => [p, []]));
+      const idleAllies = [];
+      for (const a of S.allies) {
+        if (typeof a.name !== 'string') a.name = 'Ally';       // drawAlly splits a.name — never leave it non-string
+        let o = a._owner ? this.players.get(a._owner) : null;
+        if (!o) { o = nearestPlayer(a, players); a._owner = o.id; }   // shared-phase spawn (Vigil patrol) → nearest hero
+        if (o.map === 'dungeon' || !aBuckets.has(o)) idleAllies.push(a);   // owner below ground → idle topside (frozen)
+        else aBuckets.get(o).push(a);
+      }
+      const aSurvivors = [];
+      for (const p of players) {
+        S.player = p; S.inventory = p.inventory; S.allies = aBuckets.get(p);
+        try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
+        aSurvivors.push(...S.allies);
+      }
+      S.allies = aSurvivors.concat(idleAllies);
     }
+
+    // remaining shared systems run once (acting player = first, cosmetic-only bias). Flag the block so their
+    // log lines are world events — broadcast to EVERYONE with no player owner — not personal to players[0].
+    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
+    _sharedPhase = true;
+    for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
+      if (G[fn]) try { G[fn](); } catch (e) { this._err(fn, e); }
+    }
+    _sharedPhase = false;
 
     // WARBAND: updateCompanions steps companions toward state.player — run it PER OWNER so each
     // hero's recruits follow (and fight for) THEM, not players[0]. Owner in a dungeon → they idle.
@@ -737,7 +832,7 @@ class World {
       }
       for (const [o, list] of byOwner) {
         S.player = o; S.inventory = o.inventory; S.companions = list;
-        try { G.updateCompanions(); } catch (_e) {}
+        try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
       }
       S.companions = all;
     }
@@ -756,7 +851,7 @@ class World {
         if (nearEnemyCount(p) >= localTarget(p)) continue;   // area already at its ring's target density
         S.player = p; S.inventory = p.inventory; swapInPP(p);
         S.spawnTimer = 0;                                  // force a spawn around THIS player now
-        try { G.maybeSpawnWild(); } catch (_e) {}
+        try { G.maybeSpawnWild(); } catch (e) { this._err('maybeSpawnWild', e); }
       }
     }
 
@@ -773,7 +868,7 @@ class World {
             if (pl.downed) continue;      // already down — bleed-out governs, don't pile on
             if (G.projHitsRect(pr, pl)) {
               S.player = pl; S.inventory = pl.inventory;
-              try { G.playerTakeDamage(pr.dmg); } catch (_e) {}
+              try { G.playerTakeDamage(pr.dmg); } catch (e) { this._err('playerTakeDamage', e); }
               if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
               S.projectiles.splice(i, 1);
               break;
@@ -787,7 +882,7 @@ class World {
           if (pl.downed) continue;
           if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
             S.player = pl; S.inventory = pl.inventory;
-            try { G.playerTakeDamage(3); } catch (_e) {}
+            try { G.playerTakeDamage(3); } catch (e) { this._err('playerTakeDamage', e); }
           }
         }
       }
@@ -800,74 +895,81 @@ class World {
     const dgAll = S.players.filter((p) => p.map === 'dungeon');
     if (dgAll.length && this.sharedDg) {
       const owBase = grabWorld();                          // stash the shared overworld out of S
-      putWorld(this.sharedDg);                             // the party dungeon into S
-      let lvl0 = S.dungeonLevel;
-      // per-player: movement + actions (descend / exit / vault / abilities)
-      for (const p of dgAll) {
-        if (S.map !== 'dungeon') putWorld(this.sharedDg);  // a previous player exited → bring the dungeon back for the rest
-        if (p.downed || p.map !== 'dungeon') continue;
-        S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
-        try { G.updatePlayer(); } catch (_e) {}
-        const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // descend/exit run setupCompanions() → would teleport EVERY warband to this delver
-        this._runActions(p, true);                         // interact = descend / exit / key-vault
-        for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // hits credit the shooter
-        if (S.map !== 'dungeon') {                         // exited — exitDungeon set their overworld position
-          p.map = 'overworld'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
-          for (const [c, cx2, cy2] of compPos) { if (c.ownerId !== p.id) { c.x = cx2; c.y = cy2; } }   // others' warbands stay put; the exiter's own reunite at the entrance
-        } else if (S.dungeonLevel !== lvl0) {              // descended — the whole party goes down together
-          for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // ALL warbands stay topside (companions don't delve)
-          lvl0 = S.dungeonLevel;
-          this.dgSpawn = { x: p.x, y: p.y };               // new floor's entry (setupDungeonFloor put p there)
-          for (const q of dgAll) { if (q !== p && q.map === 'dungeon') { q.x = p.x; q.y = p.y; q._mapSwitchN = (q._mapSwitchN || 0) + 1; } }
-          p._mapSwitchN = (p._mapSwitchN || 0) + 1;        // everyone (p included) gets the new grid
-        }
-        if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
-        writeBackPP(p);
-      }
-      if (S.map !== 'dungeon') putWorld(this.sharedDg);    // last action was an exit → restore for the shared passes
-      const stillIn = dgAll.filter((p) => p.map === 'dungeon');
-      if (stillIn.length) {
-        // foes partition among STANDING delvers (downed heroes are invisible to them)
-        if (S.enemies.length) {
-          const standing = stillIn.filter((p) => !p.downed);
-          const pool = standing.length ? standing : stillIn;
-          const buckets = new Map(stillIn.map((p) => [p, []]));
-          for (const e of S.enemies) buckets.get(nearestPlayer(e, pool)).push(e);
-          const survivors = [];
-          for (const p of stillIn) {
-            S.player = p; S.inventory = p.inventory;
-            S.enemies = buckets.get(p);
-            try { G.updateEnemies(); } catch (_e) {}
-            survivors.push(...S.enemies);
+      try {                                                // a throw mid-phase must NEVER skip the restore below — the whole room would live in the dungeon forever (owBase is local → overworld GC'd)
+        putWorld(this.sharedDg);                           // the party dungeon into S
+        let lvl0 = S.dungeonLevel;
+        // per-player: movement + actions (descend / exit / vault / abilities)
+        for (const p of dgAll) {
+          if (S.map !== 'dungeon') putWorld(this.sharedDg);  // a previous player exited → bring the dungeon back for the rest
+          if (p.downed || p.map !== 'dungeon') continue;
+          S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
+          try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
+          const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // descend/exit run setupCompanions() → would teleport EVERY warband to this delver
+          this._runActions(p, true);                       // interact = descend / exit / key-vault
+          for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // hits credit the shooter
+          if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall summoned mid-delve is attributed (allies stay overworld-only in MP — it idles topside)
+          if (S.map !== 'dungeon') {                       // exited — exitDungeon set their overworld position
+            p.map = 'overworld'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
+            for (const [c, cx2, cy2] of compPos) { if (c.ownerId !== p.id) { c.x = cx2; c.y = cy2; } }   // others' warbands stay put; the exiter's own reunite at the entrance
+          } else if (S.dungeonLevel !== lvl0) {            // descended — the whole party goes down together
+            for (const [c, cx2, cy2] of compPos) { c.x = cx2; c.y = cy2; }   // ALL warbands stay topside (companions don't delve)
+            lvl0 = S.dungeonLevel;
+            this.dgSpawn = { x: p.x, y: p.y };             // new floor's entry (setupDungeonFloor put p there)
+            for (const q of dgAll) { if (q !== p && q.map === 'dungeon') { q.x = p.x; q.y = p.y; q._mapSwitchN = (q._mapSwitchN || 0) + 1; } }
+            p._mapSwitchN = (p._mapSwitchN || 0) + 1;      // everyone (p included) gets the new grid
           }
-          S.enemies = survivors;
+          if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
+          writeBackPP(p);
         }
-        // projectiles once (acting player = first delver; others patched below)
-        S.player = stillIn[0]; S.inventory = stillIn[0].inventory;
-        try { G.updateProjectiles(); } catch (_e) {}
-        if (stillIn.length > 1 && G.projHitsRect && G.playerTakeDamage && S.projectiles.length) {
-          for (let i = S.projectiles.length - 1; i >= 0; i--) {
-            const pr = S.projectiles[i];
-            if (pr.friendly) continue;
-            for (let j = 1; j < stillIn.length; j++) {
-              const pl = stillIn[j];
-              if (pl.downed) continue;
-              if (G.projHitsRect(pr, pl)) {
-                S.player = pl; S.inventory = pl.inventory;
-                try { G.playerTakeDamage(pr.dmg); } catch (_e) {}
-                if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
-                S.projectiles.splice(i, 1);
-                break;
+        if (S.map !== 'dungeon') putWorld(this.sharedDg);  // last action was an exit → restore for the shared passes
+        const stillIn = dgAll.filter((p) => p.map === 'dungeon');
+        if (stillIn.length) {
+          // foes partition among STANDING delvers (downed heroes are invisible to them)
+          if (S.enemies.length) {
+            const standing = stillIn.filter((p) => !p.downed);
+            const pool = standing.length ? standing : stillIn;
+            const buckets = new Map(stillIn.map((p) => [p, []]));
+            for (const e of S.enemies) buckets.get(nearestPlayer(e, pool)).push(e);
+            const survivors = [];
+            global.__libGate = () => false;                // partitioned bucket — same inline-liberation blindness as topside (dungeon foes carry no site keys today; cheap insurance)
+            for (const p of stillIn) {
+              S.player = p; S.inventory = p.inventory;
+              S.enemies = buckets.get(p);
+              try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
+              survivors.push(...S.enemies);
+            }
+            S.enemies = survivors;
+            global.__libGate = null;
+          }
+          // projectiles once (acting player = first delver; others patched below)
+          S.player = stillIn[0]; S.inventory = stillIn[0].inventory;
+          try { G.updateProjectiles(); } catch (e) { this._err('updateProjectiles', e); }
+          if (stillIn.length > 1 && G.projHitsRect && G.playerTakeDamage && S.projectiles.length) {
+            for (let i = S.projectiles.length - 1; i >= 0; i--) {
+              const pr = S.projectiles[i];
+              if (pr.friendly) continue;
+              for (let j = 1; j < stillIn.length; j++) {
+                const pl = stillIn[j];
+                if (pl.downed) continue;
+                if (G.projHitsRect(pr, pl)) {
+                  S.player = pl; S.inventory = pl.inventory;
+                  try { G.playerTakeDamage(pr.dmg); } catch (e) { this._err('playerTakeDamage', e); }
+                  if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
+                  S.projectiles.splice(i, 1);
+                  break;
+                }
               }
             }
           }
+          if (S.time % 30 === 0) unstickEnemies('dungeon');
+          this._downedPass(stillIn);                       // downed & revive work INSIDE the dungeon too
         }
-        if (S.time % 30 === 0) unstickEnemies('dungeon');
-        this._downedPass(stillIn);                         // downed & revive work INSIDE the dungeon too
+        this.sharedDg = stillIn.filter((p) => p.map === 'dungeon').length ? grabWorld() : null;   // save the evolved floor, or dissolve when empty
+        if (!this.sharedDg) this.dgSpawn = null;
+      } finally {
+        global.__libGate = null;                           // never leak the gate out of the phase
+        putWorld(owBase);                                  // ALWAYS restore the shared overworld for everyone else
       }
-      this.sharedDg = stillIn.filter((p) => p.map === 'dungeon').length ? grabWorld() : null;   // save the evolved floor, or dissolve when empty
-      if (!this.sharedDg) this.dgSpawn = null;
-      putWorld(owBase);                                    // restore the shared overworld for everyone else
     } else if (!dgAll.length && this.sharedDg) { this.sharedDg = null; this.dgSpawn = null; }   // stragglers gone (disconnects) → dissolve
 
     // ---- DOWNED & REVIVE (overworld heroes; the dungeon phase runs its own pass) ----
@@ -877,19 +979,32 @@ class World {
     // bucket, so killEnemy's "last occupier dead?" check can miss. Sweep the FULL list here.
     // Only fires once guardians were actually PRESENT then removed (_seen gate) — never for a
     // site whose guardians simply haven't spawned, which would hand out free liberation gold.
+    global.__libGate = null;               // the sweep's liberate calls always run for real, even if a gate leaked
     if (S.map === 'overworld' && G.liberateHolding && S.holdings) {
       for (let i = 0; i < S.holdings.length; i++) {
         const hd = S.holdings[i];
         if (!hd || hd.liberated || hd.built) continue;
         if (S.enemies.some((e) => e.holdKey === i)) hd._seen = true;
-        else if (hd._seen) { S.player = players[0] || S.player; try { G.liberateHolding(i); } catch (_e) {} }
+        else if (hd._seen) { S.player = players[0] || S.player; try { G.liberateHolding(i); } catch (e) { this._err('liberateHolding', e); } }
       }
     }
     if (S.map === 'overworld' && G.clearPOI && S.pois) {
       for (const poi of S.pois) {
         if (!poi || poi.cleared) continue;
         if (S.enemies.some((e) => e.poiKey === poi.key)) poi._seen = true;
-        else if (poi._seen) { S.player = players[0] || S.player; try { G.clearPOI(poi); } catch (_e) {} }
+        else if (poi._seen) { S.player = players[0] || S.player; try { G.clearPOI(poi); } catch (e) { this._err('clearPOI', e); } }
+      }
+    }
+    // Town sieges reconcile the same way (killEnemy → checkRaidLiberation reads the bucket):
+    // liberate only once every SEEN raider (e.raidTown===i) of a besieged town is gone.
+    // townZones is reassigned at world-gen, so read it via the live getter (a capture is stale).
+    const TZ = G.getTownZones ? G.getTownZones() : null;
+    if (S.map === 'overworld' && G.liberateTown && TZ) {
+      for (let i = 0; i < TZ.length; i++) {
+        const tz = TZ[i];
+        if (!tz || !tz.besieged) continue;
+        if (S.enemies.some((e) => e.raidTown === i)) tz._seen = true;
+        else if (tz._seen) { tz._seen = false; S.player = players[0] || S.player; try { G.liberateTown(i); } catch (e) { this._err('liberateTown', e); } }   // _seen resets — a future re-siege starts clean
       }
     }
 
@@ -931,7 +1046,14 @@ class World {
   // lightly, and nearby enemies/pickups/projectiles/npcs with every field their
   // draw functions read.
   static R2 = (46 * (G.TILE || 32)) ** 2;   // interest radius (a bit past the viewport), squared
-  snapshotFor(id) {
+  snapshotFor(id) {                         // timed wrapper (perf instrumentation): EMA the serialize cost
+    const _t0 = process.hrtime.bigint();
+    const snap = this._snapshotFor(id);
+    const ms = Number(process.hrtime.bigint() - _t0) / 1e6;
+    this._snapMsAvg = this._snapMsAvg ? this._snapMsAvg * 0.95 + ms * 0.05 : ms;
+    return snap;
+  }
+  _snapshotFor(id) {
     const me = this.players.get(id);
     if (!me) return null;
     const inDg = me.map === 'dungeon' && !!this.sharedDg;   // read entities from the party dungeon or the shared overworld
@@ -953,6 +1075,8 @@ class World {
       npcs: npcs.filter(near).map(packScalar),
       // warband companions (overworld only — they idle topside while their owner delves)
       comps: inDg ? [] : (S.companions || []).filter((c) => c.alive && near(c)).map(packComp),
+      // co-op allies (thralls / bound elites / Vigil patrols) — overworld only, interest-culled like enemies
+      allies: inDg ? [] : (S.allies || []).filter(near).map(packAlly),
       // world features (overworld only) so the client can RENDER them + light the [E] prompt
       shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
       lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
@@ -960,7 +1084,7 @@ class World {
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
       rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, party: !!this.rift.party, open: !!this.sharedDg, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift (party=blue co-op)
     };
-    if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; }
+    if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; snap.floorMod = W.floorMod ? safeClone(W.floorMod) : null; }   // floor modifier (👑/🐀/☠/🏦) → client dungeon HUD tag
     // quest state rides along only when it changed since this client last got it (shared questline)
     // event feed: your own messages + epic broadcasts you haven't seen (bottom-left log)
     if ((me._feedSeen | 0) < this.feedN) {
@@ -980,14 +1104,40 @@ class World {
       snap.loreFound = (S.loreFound || []).slice();
       snap.maxDepth = S.maxDepth | 0;
     }
-    // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch
-    if ((me._mapSwitchN || 0) !== (me._sentDgN || 0)) { me._sentDgN = me._mapSwitchN || 0; if (inDg && W.md) snap.dgTiles = W.md; }
+    // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch.
+    // TRANSACTIONAL: only consume _sentDgN when a grid actually ATTACHES on a dungeon switch — otherwise the flag
+    // was burned while W.md was momentarily null (mid world-swap) or the send was dropped downstream, leaving the
+    // client with map='dungeon' + maps.dungeon=null → renderWorld's m[0] throws every frame. If no grid this
+    // snapshot, leave the flag unconsumed so the next tick retries. Exits (not inDg) carry no tiles → consume now.
+    if ((me._mapSwitchN || 0) !== (me._sentDgN || 0)) {
+      if (inDg) {
+        const md = (W && W.md) || (this.sharedDg && this.sharedDg.md) || null;   // resolve robustly across world-swaps
+        if (md) { snap.dgTiles = md; me._sentDgN = me._mapSwitchN || 0; }         // grid attached → consume the edge
+        // else: leave _sentDgN unconsumed — retry next snapshot (client frame-guards until it arrives)
+      } else { me._sentDgN = me._mapSwitchN || 0; }                              // exit needs no tiles → consume immediately
+    }
     return snap;
   }
 
   // static map + dims, sent ONCE when a client joins
   mapPayload() {
     return { tile: TILE, w: G.maps.overworld[0].length, h: G.maps.overworld.length, tiles: G.maps.overworld };
+  }
+
+  // Force a dungeon-grid re-send to a stuck client (it asked via {type:'needmap'}): rewind _sentDgN one
+  // behind _mapSwitchN so the next snapshotFor sees a rising edge and re-attaches dgTiles. Covers a dropped
+  // grid AND a reconnect that landed straight inside a live dungeon (welcome carries only the overworld).
+  resendMap(id) { const p = this.players.get(id); if (p) p._sentDgN = (p._mapSwitchN || 0) - 1; }
+
+  // Perf snapshot for the /health probe (the user-reported "gets laggier over time" investigation). Counts
+  // read cheaply from S/this. The rolling tick-max RESETS on read, so each poll reports the peak since last poll.
+  perf() {
+    const mx = this._tickMsMax; this._tickMsMax = 0;
+    return {
+      tickMsAvg: +this._tickMsAvg.toFixed(3), tickMsMax: +mx.toFixed(3), snapMsAvg: +this._snapMsAvg.toFixed(3), ticks: this._ticks,
+      enemies: S.enemies.length, allies: (S.allies || []).length, projectiles: S.projectiles.length,
+      particles: (S.particles || []).length, pickups: (S.pickups || []).length, players: S.players.length, feedLen: this.feed.length,
+    };
   }
 }
 
