@@ -609,7 +609,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.53.3';   // magic HEAT reworked into a passive ELEMENTAL AURA — elemental staves only, casting (scaled by weapon power) makes you pulsate and burn/chill/zap nearby foes; NO [V]/vent/overload (a kiting 'don't-touch-me' field); heat pill emoji dropped; ranged mark pips green→red; hub/panel overlap fixed
+const GAME_VERSION = 'v2.53.4';   // co-op: teammates now SEE each other's HEAT aura (element-colored glow, scales/pulses with their Heat, matching the self-pulsate) + dead vent-key cleanup — MP-client change; single-player unchanged from v2.53.3
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');

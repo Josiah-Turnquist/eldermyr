@@ -89,7 +89,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests'];   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1)
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb'];   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   const G = window.__G;
@@ -588,7 +588,6 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (k === 'f') actions.push({ rpc: 'castSpell', args: [] });
     if (k === 'z') actions.push({ rpc: 'useUltimate', args: [] });
     if (k === 'x') actions.push({ rpc: 'useSummon', args: [] });
-    if (k === 'v') held.v = true;   // [V] → HEAT vent (magic): streamed in the held map; the game's per-frame update triggers doVent server-side via setKeys
     if (k === '1') actions.push({ rpc: 'drinkPotion', args: [] });
     if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
     if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
@@ -606,13 +605,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const k = e.key.toLowerCase();
     if (KMAP[k]) held[KMAP[k]] = false;
     if (k === ' ' || k === 'j') held._atk = false;
-    if (k === 'v') held.v = false;
   });
   setInterval(() => {
     if (!ws || ws.readyState !== 1) return;
     const iAmDowned = snap && snap.me && snap.me.downed;
     const inMenu = chatting || iAmDowned || (G.state && G.state.scene !== 'play');   // no walk/fight while paneled, chatting, or downed
-    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d, v: !!held.v };   // v = HEAT vent (magic); server's setKeys → the game's per-frame update edge-triggers doVent
+    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
     const act = actions; actions = [];                    // always flush queued RPCs (even from menus)
     if (!inMenu && held._atk) act.push('attack');
     ws.send(JSON.stringify({ type: 'input', held: h, actions: act }));
@@ -692,6 +690,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         ctx.textAlign = 'left';
         continue;
       }
+      if (op.auraEl) {   // teammate radiating a HEAT aura (auraEl = the element, set server-side only when heat≥40) — mirror drawPlayer's self-pulsate so co-op heroes SEE each other blaze
+        const _rgb = (G.elemRgb ? G.elemRgb(op.auraEl) : '192,192,208'), _hh = Math.min(1, (op.heat || 0) / 100);   // reuse the game's element→"r,g,b"; intensity ∝ Heat (op.heat rides lightPlayer), exactly like the self-pulsate
+        const _cx = op.x - S.camera.x + op.w / 2, _cy = op.y - S.camera.y + op.h / 2, _pz = 0.5 + 0.5 * Math.sin(Date.now() / (300 - 150 * _hh)), _rad = op.w * (0.6 + 0.55 * _hh) * (0.94 + 0.1 * _pz);   // world→screen center at the SMOOTHED position; same pulse/radius formula as drawPlayer
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const _g = ctx.createRadialGradient(_cx, _cy, 0, _cx, _cy, _rad); _g.addColorStop(0, 'rgba(' + _rgb + ',' + ((0.12 + 0.34 * _hh) * (0.65 + 0.35 * _pz)).toFixed(3) + ')'); _g.addColorStop(1, 'rgba(' + _rgb + ',0)');
+        ctx.fillStyle = _g; ctx.beginPath(); ctx.arc(_cx, _cy, _rad, 0, 6.28); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = 'rgba(' + _rgb + ',' + (0.3 + 0.4 * _pz).toFixed(3) + ')'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(_cx, _cy, op.w * 0.82, 0, 6.28); ctx.stroke();   // ring drawn source-over (auraEl truthy ⟺ heat≥40, so the live-aura ring always shows, matching the self-pulsate)
+        ctx.restore();
+      }   // drawn BEFORE G.drawPlayer() → glow sits UNDER the sprite; one save/restore keeps composite/stroke state from leaking across the loop
       S.player = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, op);
       S.sailing = !!op.sailing; S.dragon = op.mounted ? { mounted: true, tamed: true } : { mounted: false, tamed: false };   // this hero's boat/flight (flags from lightPlayer)
       try { G.drawPlayer(); } catch (e) {}
