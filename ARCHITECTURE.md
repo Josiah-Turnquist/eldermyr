@@ -147,9 +147,14 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   — it *does* ride `packEnemy`/`packScalar`, harmless) and `e._markBy` = the **owning player
   OBJECT ref**. The "bonus damage from you" check is `e._markBy === po` (identity, O(1)); packScalar
   drops object-typed fields, so `_markBy` **never serializes** — do not change it to an id/string
-  (a string would leak onto the wire, and SP players have no `.id`). Enemies are shared in MP, so
-  one enemy carries exactly one owner's mark. The only entity scan these mechanics may do is the
-  **nearest-foe scan in `killEnemy`** for the kill-chain transfer (kill-rate, not frame-rate).
+  (a string would leak onto the wire, and SP players have no `.id`). For MP own-mark rendering,
+  `packEnemy` emits a SEPARATE derived scalar `_markById = _markBy.id` (leave `_markBy` an object);
+  `drawEnemy` shows a viewer's own pips via `_markBy===state.player` (SP) or `_markById===state.player.id` (MP).
+  Enemies are shared in MP, so one enemy carries exactly one owner's mark. Entity scans these
+  mechanics may do are all **kill-rate, not frame-rate**: the nearest-foe scan in `killEnemy` for
+  the kill-chain transfer, and (ranged prof ≥24 capstone) the in-radius scan for the Deadeye
+  marked-kill burst (routes damage through the one `afxHit` gate; splices the corpse before its
+  burst snapshot so nested bursts can't re-hit it).
   Everything else is O(1): Deadeye/point-blank are computed at hit-time from shooter→impact
   distance (no scan), momentum/heat decay are counters in `updateStyleResources`.
 - **Reset-on-swap is a single seam:** `updateStyleResources()` (called each frame from

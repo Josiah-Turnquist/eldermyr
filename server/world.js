@@ -217,6 +217,7 @@ function packEnemy(e) {
   if (e._nid == null) e._nid = ++_nidSeq;   // stable id so the client can diff hits/deaths + smooth across snapshots
   const r = packScalar(e);
   if (e.tele) r.tele = { t: e.tele.t, max: e.tele.max, name: e.tele.name, radius: e.tele.radius, aimX: e.tele.aimX, aimY: e.tele.aimY };
+  if (e._markBy && e._markBy.id != null) r._markById = e._markBy.id;   // Quarry Mark owner id: the OBJECT ref _markBy is dropped by packScalar (must never serialize), so pack the id → each client renders only ITS OWN marks (drawEnemy compares to state.player.id)
   return r;
 }
 function packProj(pr) {
