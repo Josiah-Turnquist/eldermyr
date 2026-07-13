@@ -137,7 +137,7 @@ Each combat style has a resource loop whose state and logic live **entirely insi
 existing combat functions**, so the loader/room inherit it for free — no new server plumbing.
 
 - **All player state is scalars on `state.player`** (melee `momentum`/`riposteT`/`_momoDecay`;
-  magic `heat`/`silenceT`/`ventT`/`ventHeat`/`_heatCool`; ranged `_lastMarkN`/`_markShowT`;
+  magic `heat`/`_heatCool`/`_auraCd`/`_auraEl`; ranged `_lastMarkN`/`_markShowT`;
   plus `_lastStyle`). These are **transient** — deliberately *not* in `snapshot()`'s whitelist,
   and `applySnapshot` zeroes them, so old saves default to 0/off. They reach MP clients with
   **zero extra wiring**: the client adopts `me` wholesale (`S.player = snap.me`), and `safeClone`
@@ -163,16 +163,24 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   equip RPCs, and load alike, so nothing else needs to know about swaps. (It runs after the first
   frame latches `_lastStyle`, which is why `updatePlayer` must run before any attack — it already
   does, both in the SP loop and the world tick's per-player phase.)
-- **Vent input `[V]`** rides the **held-map + `setKeys` path**, NOT an RPC — deliberately, so it
-  needs no `RPC_OK`/`CAPTURE`/allow-list change (no `world.js`/`load-game.js` edit). The client
-  streams `held.v` like a movement key; the server's `setKeys(p.held)` sets `keys['v']`, and
-  `updateStyleResources` (inside `updatePlayer`) edge-triggers `doVent` **once per press** via the
-  per-player `_vHeld` flag. SP and MP share this one path (SP's own keydown already sets `keys['v']`
-  generically — there is no direct keydown→`doVent` call). `doVent` only *starts* a channel
-  (`ventT`); the nova fires when the timer completes inside `updateStyleResources` (per-player
-  context, full enemy list) — identical on the overworld and in the shared dungeon phase, both of
-  which run `updatePlayer` per player. If you ever add a NON-key trigger for a new game fn the
-  server must call, that's when you'd touch `RPC_OK`+`CAPTURE` (see the capture-drift note above).
+- **Heat is a passive elemental AURA** — no key, no RPC (the old manual `[V]` vent + peg/overload/
+  silence punishment, and the `silenceT`/`ventT`/`ventHeat`/`_vHeld`/`doVent`/`ventNova` machinery,
+  were all removed). Casting an **elemental** staff builds `heat` (gated on `w.element`, scaled by
+  weapon power in `magicShot`); a plain staff never heats and never auras. Past `HEAT_AURA_MIN` (40)
+  the player radiates an aura that periodically strikes nearby foes with the staff's element. It
+  lives **inside `updateStyleResources`** — which `updatePlayer` runs per player, SP loop and world
+  tick alike, on the overworld and in the shared-dungeon phase — so the loader/room inherit it with
+  zero plumbing. The nearby-foe scan (`updateHeatAura`) is **GATED then THROTTLED, in that order:**
+  the call is gated on `w.element && heat≥40` *before* it happens (else `_auraCd` is zeroed); inside,
+  a per-player `_auraCd` counter fires the scan only every `HEAT_AURA_TICKS` (16) frames — so the
+  `[...state.enemies]` copy allocates on ~1/16 aura ticks and **never** while idle/under-threshold.
+  Aura damage routes through the one `afxHit` gate (warded/shielded elites respected) + the shared
+  `applyElementOnHit`. `_auraEl` (the element *string*, else `0`) is set/cleared **every** tick and
+  rides `lightPlayer` as `auraEl` so teammates can draw the glow — it is not a throttled value, so it
+  never sticks stale on the wire. (The `[V]` key is dead: the SP keydown no longer binds it, and the
+  MP client still streams a vestigial `held.v` that `setKeys` sets but nothing reads — harmless, but
+  a candidate for cleanup in `client/mp.html`.) If you ever add a NON-key trigger for a new game fn
+  the server must call, that's when you'd touch `RPC_OK`+`CAPTURE` (see the capture-drift note above).
 - **Perfect-dodge seam:** `playerTakeDamage` treats a hit arriving during *active roll i-frames*
   (`p.dodge>0 && p.invuln>0`) as a perfect dodge — melee keeps its pips (we `return` before the
   on-hit pip drop) and opens the riposte window. Keying on `p.dodge>0` (not just `invuln`) is what
