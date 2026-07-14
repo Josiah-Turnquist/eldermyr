@@ -643,14 +643,18 @@ class World {
       return;
     }
     if (rpc === 'doCamp') {                                       // MP camp: personal rest, NO shared-clock skip
-      const t0 = S.time;
+      const t0 = S.time, wasCamping = S.player.camping === true;
       if (typeof G.doCamp === 'function') try { G.doCamp(); } catch (_e) {}
-      const camped = S.time !== t0;                              // doCamp fast-forwards time only on success
-      S.time = t0;                                               // undo it — the world's clock never jumps
-      // doCamp set state.lastRestDay to the fast-forwarded (next-morning) day; recompute it against the un-skipped
-      // clock and keep S in sync with p, or writeBackPP (which now persists lastRestDay) would clobber it back to
-      // that skipped day and over-rest the hero.
+      const camped = S.time !== t0;                              // OVERWORLD camp fast-forwards the clock on success
+      const dgCamped = !camped && !wasCamping && S.player.camping === true;   // DUNGEON camp: no clock skip → detect the freshly-set camping flag instead (else the personal-rest writeback would silently never fire)
+      S.time = t0;                                               // undo any skip — the world's clock never jumps
+      // Overworld: doCamp set state.lastRestDay to the fast-forwarded (next-morning) day; recompute it against the
+      // un-skipped clock and keep S in sync with p, or writeBackPP (which persists lastRestDay) would clobber it back
+      // to that skipped day and over-rest the hero. Dungeon: dungeons/rifts sit OUTSIDE the day/night rest-day economy,
+      // so lastRestDay + the day math are DELIBERATELY untouched — camping/heal already ride p; only the personal
+      // fatigue flag is cleared (doCamp restored energy → no longer exhausted).
       if (camped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
+      else if (dgCamped) { p._exWas = false; }
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
