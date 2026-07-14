@@ -327,9 +327,9 @@ class World {
         e.atk = Math.round(e._baseAtk * boost);   // damage scales with the SAME boost as HP (was soft-pedalled ×0.6 → warlords were bullet-sponges that barely hit); idempotent (pure fn of lvl/rank/_baseWL)
       }
     }
-    if (S.legion && S.legion.warlords) {                    // level the roster so FUTURE warlord spawns are strong too
-      for (const w of S.legion.warlords) if ((w.level || 1) < lvl + (w.rank || 0)) w.level = lvl + (w.rank || 0);
-      if (S.legion.overlord && (S.legion.overlord.level || 1) < lvl + 5) S.legion.overlord.level = lvl + 5;
+    if (S.legion && S.legion.warlords) {                    // #2: roster LEVEL tracks the party 1:1 (was lvl+rank / lvl+5) — matches the html genLegion/respawn change so MP never re-offsets; rank/cycle toughness rides the stat curves in makeWarlordEnemy, not the level number. Raise-to-lvl keeps it monotonic & idempotent.
+      for (const w of S.legion.warlords) if ((w.level || 1) < lvl) w.level = lvl;
+      if (S.legion.overlord && (S.legion.overlord.level || 1) < lvl) S.legion.overlord.level = lvl;
     }
   }
 
