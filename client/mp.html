@@ -89,7 +89,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb'];   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova'];   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   const G = window.__G;
@@ -779,14 +779,24 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         if (feelFishN !== null && fn > feelFishN) { try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 8, { color: '#a8d8f0', speed: 1.7, up: 0.6, decay: 0.05 }); G.Sound && G.Sound.item && G.Sound.item(); } catch (_e) {} }
         feelFishN = fn;
       }
-      {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → regenerate its juice here
+      {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → REPLAY its nova here. The ult runs headlessly on the server (draws nothing), so without this replay a mage's [Z] showed nothing.
         const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
         if (feelUltCd !== null && uc > 200 && feelUltCd <= 60) {
-          try { G.addShake && G.addShake(6); } catch (_e) {}
-          try { for (let ri = 0; ri < 3; ri++) G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 20, { color: ri === 1 ? '#fff060' : '#cfe6ff', speed: 2.2 + ri * 1.3, decay: 0.035 }); } catch (_e) {}
+          // derive the caster's style/element/power straight from `me` — safeClone keeps inventory + abilityRank + _lastStyle
+          const inv = me2.inventory, wep = (inv && inv.weapons) ? inv.weapons.find((w) => w && w.equipped) : null;
+          const style = wep ? (wep.style || 'melee') : (me2._lastStyle || 'melee');
+          const el = wep ? (wep.element || null) : null;
+          const rank = (me2.abilityRank && (me2.abilityRank.ultimate | 0)) || 1;
+          const pow = 1 + 0.35 * (rank - 1);                          // mirrors useUltimate's _um (rank1 ~1.0 → rank5 ~2.4)
+          const nx = pred.x + me2.w / 2, ny = pred.y + me2.h / 2;
+          const tint = style === 'magic' ? undefined : (style === 'ranged' ? { col: '#e8d8a0', rgb: '232,216,160' } : { col: '#cfe6ff', rgb: '207,230,255' });   // magic → element/arcane (matches SP); ranged → gold; melee → steel. An elemental weapon's color always wins.
+          try {
+            if (G.ultimateNova) G.ultimateNova(nx, ny, el, pow, tint);
+            else { G.addShake && G.addShake(6); for (let ri = 0; ri < 3; ri++) G.spawnBurst && G.spawnBurst(nx, ny, 20, { color: ri === 1 ? '#fff060' : '#cfe6ff', speed: 2.2 + ri * 1.3, decay: 0.035 }); }   // fallback for a pre-capture client build
+          } catch (_e) {}
+          try { if (style === 'ranged') { G.Sound && G.Sound.shoot && G.Sound.shoot(); } else { G.Sound && G.Sound.cast && G.Sound.cast(); } } catch (_e) {}
           try { G.Sound && G.Sound.whirl && G.Sound.whirl(); } catch (_e) {}
-          try { G.Sound && G.Sound.cast && G.Sound.cast(); } catch (_e) {}
-          try { G.log && G.log('✦ Your ultimate erupts! ✦', 'good'); } catch (_e) {}
+          try { G.log && G.log(style === 'magic' ? '✦ ELEMENTAL NOVA! ✦' : (style === 'ranged' ? '⟫ ARROW STORM! ⟪' : '⚔ CLEAVING STORM! ⚔'), 'good'); } catch (_e) {}
         }
         feelUltCd = uc;
       }
