@@ -54,12 +54,12 @@ try { global.__onGameOver = () => {}; } catch (_e) {}
 try { global.__libGate = null; } catch (_e) {}
 // epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
 const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
-const OW_W = G.OW_W || 248, OW_H = G.OW_H || 208;
+const OW_W = G.OW_W || 347, OW_H = G.OW_H || 291;
 // The frozen-wastes band (== the game's isFrozenTile, which isn't exported): biomeMap[y][x]===1 iff
 // y<=frozenLimit(x). Pure math over OW_H + tx, so we replicate the per-player snow chill EXACTLY.
 function frozenLimit(tx) { return Math.round(OW_H * 0.17 + Math.sin(tx * 0.18) * 4 + Math.sin(tx * 0.06) * 3); }
 const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
-// Enemy density (server-owned). The game seeds ~127 foes across the whole 248x208 map and
+// Enemy density (server-owned). The game seeds ~127 foes across the whole 347x291 map and
 // caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
 // you; you just roam a thin, static seed. Instead we drive spawning by LOCAL density: keep
 // ~LOCAL_TARGET foes within LOCAL_R of EACH player, refilling every SPAWN_EVERY ticks if the

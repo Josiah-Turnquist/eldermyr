@@ -634,7 +634,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (!snap || !snap.players) return;
     const mm = document.getElementById('minimap'); if (!mm || mm.style.display === 'none') return;
     const x = mm.getContext('2d'); if (!x) return;
-    const W = mm.width, H = mm.height, OWW = G.OW_W || 248, OWH = G.OW_H || 208, TILE = G.TILE || 32;
+    const W = mm.width, H = mm.height, OWW = G.OW_W || 347, OWH = G.OW_H || 291, TILE = G.TILE || 32;
     const sxr = W / OWW, syr = H / OWH;
     for (const op of snap.players) {
       if (op.id === myId) continue;
@@ -656,7 +656,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       const o = G.currentObjective && G.currentObjective();
       if (!o || !Number.isFinite(o.tx) || !Number.isFinite(o.ty)) return;
       const x = mm.getContext('2d'); if (!x) return;
-      const W = mm.width, H = mm.height, OWW = G.OW_W || 248, OWH = G.OW_H || 208;
+      const W = mm.width, H = mm.height, OWW = G.OW_W || 347, OWH = G.OW_H || 291;
       const sxr = W / OWW, syr = H / OWH;
       const mx = o.tx * sxr, my = o.ty * syr, r = 3.4;
       const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260);   // sync with the game's pulsing objective ring
