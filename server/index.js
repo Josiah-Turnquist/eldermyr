@@ -26,6 +26,7 @@ const { WebSocketServer } = require('ws');
 const { setInterval, clearInterval, setTimeout, clearTimeout } = require('node:timers');
 const { World } = require('./world');
 const db = require('./db');   // persistent heroes (no-ops to ephemeral if no DATABASE_URL)
+const releases = require('./releases');   // ordered (newest-first) changelog data for the /release page
 
 const PORT = Number(process.env.PORT) || 8138;   // Railway injects PORT in prod
 // The sim runs at a fixed HZ (the accumulator keeps it real-time-accurate regardless
@@ -62,9 +63,256 @@ const STATIC = {
   '/mp.html': ['client/mp.html', 'text/html; charset=utf-8'],
   '/eldermyr-rpg.html': ['eldermyr-rpg.html', 'text/html; charset=utf-8'],
 };
+
+// Minimal HTML escaper for the server-rendered changelog (release text is author-controlled,
+// but escaping keeps the page correct if a stray < or & ever lands in a note).
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// --- /health dashboard (STATIC page) -----------------------------------------
+// A self-contained human view of the sim: it fetches /health.json every ~3s and
+// paints live cards. No external fonts/CDN/JS — everything is inline so the page
+// works offline of any network but this server. Tick time is color-coded against
+// the ~12.5ms @ 80Hz budget so lag jumps out (green <2 / amber 2–6 / red >6 ms).
+const HEALTH_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eldermyr · Server Health</title>
+<style>
+:root{
+  --bg:#130e09;--panel:#20180f;--panel2:#271d12;--line:#3c2d1d;
+  --ink:#efe3ce;--dim:#a08e73;--faint:#6c5e49;
+  --ember:#ff8a3c;--gold:#e8a94a;--good:#5ec97a;--warn:#e8a94a;--bad:#ff5a4d;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;color:var(--ink);padding:24px 16px 46px;
+  background:radial-gradient(1100px 560px at 50% -8%,#2c1e10 0%,#150f09 58%,var(--bg) 100%);
+  font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:840px;margin:0 auto}
+header{display:flex;align-items:center;gap:12px 14px;flex-wrap:wrap;margin-bottom:22px}
+h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.2px}
+h1 b{color:var(--ember);font-weight:650}
+.sub{color:var(--dim);font:600 11px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.spacer{flex:1 1 auto}
+.status{display:inline-flex;align-items:center;gap:8px;font:700 12px/1 var(--mono);letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);background:var(--panel);border:1px solid var(--line);
+  padding:8px 12px;border-radius:999px}
+.status .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);transition:.3s}
+.status.on{color:var(--ink)} .status.on .dot{background:var(--good);box-shadow:0 0 11px 1px rgba(94,201,122,.6)}
+.status.off{color:var(--bad);border-color:#5a2a24} .status.off .dot{background:var(--bad)}
+a.link{color:var(--gold);text-decoration:none;font:600 13px/1 var(--mono);
+  border:1px solid var(--line);background:var(--panel);padding:9px 13px;border-radius:9px;white-space:nowrap}
+a.link:hover{border-color:var(--gold)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:13px}
+.card{position:relative;overflow:hidden;background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:13px;padding:15px 16px}
+.card .k{font:700 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.card .v{margin-top:10px;font:700 31px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.card .v .u{font-size:14px;color:var(--dim);font-weight:600;margin-left:3px}
+.card .s{margin-top:9px;font:600 12px/1.35 var(--mono);color:var(--faint);font-variant-numeric:tabular-nums}
+.hero{grid-column:1/-1}
+.hero .v{font-size:46px}
+.meter{height:7px;border-radius:5px;background:#2b2015;margin-top:14px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;border-radius:5px;transition:width .45s ease,background .3s}
+.budget{margin-top:8px;font:600 11px/1 var(--mono);color:var(--faint);letter-spacing:.03em}
+.good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.mgood{background:linear-gradient(90deg,#357a49,var(--good))}
+.mwarn{background:linear-gradient(90deg,#8a6a25,var(--warn))}
+.mbad{background:linear-gradient(90deg,#8a2f28,var(--bad))}
+.section{margin-top:22px}
+.section .h{font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 2px 11px}
+.ents{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:11px}
+.ent{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:12px 8px;text-align:center}
+.ent .n{font:700 22px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--gold)}
+.ent .l{margin-top:6px;font:700 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+footer{margin-top:24px;text-align:center;color:var(--faint);
+  font:600 12px/1.5 var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.03em}
+body.stale .card,body.stale .ent{opacity:.5;transition:opacity .3s}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><b>Realms of Eldermyr</b> — Server Health</h1>
+      <div class="sub">live sim dashboard</div>
+    </div>
+    <div class="spacer"></div>
+    <div id="status" class="status"><span class="dot"></span><span id="status-t">connecting</span></div>
+    <a class="link" href="/">Enter the realm →</a>
+  </header>
+
+  <div class="grid">
+    <div class="card hero">
+      <div class="k">Tick time — sim step</div>
+      <div class="v"><span id="tick">–</span><span class="u">ms avg</span></div>
+      <div class="meter"><i id="tick-bar"></i></div>
+      <div class="budget">peak <span id="tickmax">–</span> ms · budget ~12.5 ms · 80 Hz</div>
+    </div>
+
+    <div class="card">
+      <div class="k">Snapshot build</div>
+      <div class="v"><span id="snap">–</span><span class="u">ms</span></div>
+      <div class="s">state sent to clients</div>
+    </div>
+    <div class="card">
+      <div class="k">Players online</div>
+      <div class="v" id="players">–</div>
+      <div class="s" id="players-sub">–</div>
+    </div>
+    <div class="card">
+      <div class="k">Memory</div>
+      <div class="v"><span id="rss">–</span><span class="u">MB</span></div>
+      <div class="s">resident set size</div>
+    </div>
+    <div class="card">
+      <div class="k">Uptime</div>
+      <div class="v" id="uptime" style="font-size:25px">–</div>
+      <div class="s"><span id="ticks">–</span> sim ticks</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="h">Entities in the world</div>
+    <div class="ents">
+      <div class="ent"><div class="n" id="e-enemies">–</div><div class="l">Enemies</div></div>
+      <div class="ent"><div class="n" id="e-allies">–</div><div class="l">Allies</div></div>
+      <div class="ent"><div class="n" id="e-proj">–</div><div class="l">Projectiles</div></div>
+      <div class="ent"><div class="n" id="e-part">–</div><div class="l">Particles</div></div>
+      <div class="ent"><div class="n" id="e-pick">–</div><div class="l">Pickups</div></div>
+    </div>
+  </div>
+
+  <footer id="foot">awaiting first reading…</footer>
+</div>
+
+<script>
+(function(){
+  var $=function(id){ return document.getElementById(id); };
+  var lastOk=0;
+  function fmt(n,d){ n=Number(n); if(!isFinite(n)) return '–'; return n.toFixed(d==null?0:d); }
+  function tickCls(v){ return v<2 ? 'good' : (v<=6 ? 'warn' : 'bad'); }
+  function human(s){ s=Math.max(0,Math.floor(Number(s)||0));
+    var d=Math.floor(s/86400); s-=d*86400; var h=Math.floor(s/3600); s-=h*3600; var m=Math.floor(s/60); s-=m*60;
+    if(d) return d+'d '+h+'h '+m+'m'; if(h) return h+'h '+m+'m'; if(m) return m+'m '+s+'s'; return s+'s'; }
+  function setStatus(cls,txt){ $('status').className='status '+cls; $('status-t').textContent=txt; }
+  function paint(d){
+    document.body.classList.remove('stale');
+    var t=Number(d.tickMsAvg)||0, cls=tickCls(t);
+    var te=$('tick'); te.textContent=fmt(t,2); te.className=cls;
+    var bar=$('tick-bar'); bar.style.width=Math.min(100,(t/12.5)*100)+'%';
+    bar.className=(cls==='good'?'mgood':cls==='warn'?'mwarn':'mbad');
+    $('tickmax').textContent=fmt(d.tickMsMax,2);
+    $('snap').textContent=fmt(d.snapMsAvg,2);
+    var pl=Number(d.players)||0;
+    $('players').textContent=pl;
+    $('players-sub').textContent = pl>0 ? 'adventurers afield' : 'world idle';
+    $('rss').textContent=fmt(d.rssMB,0);
+    $('uptime').textContent=human(d.uptime);
+    $('ticks').textContent=fmt(d.ticks,0);
+    $('e-enemies').textContent=fmt(d.enemies,0);
+    $('e-allies').textContent=fmt(d.allies,0);
+    $('e-proj').textContent=fmt(d.projectiles,0);
+    $('e-part').textContent=fmt(d.particles,0);
+    $('e-pick').textContent=fmt(d.pickups,0);
+    setStatus(pl>0?'on':'', pl>0 ? ('online · '+pl) : 'idle');
+    lastOk=Date.now();
+  }
+  function poll(){
+    fetch('/health.json',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(paint)
+      .catch(function(){ document.body.classList.add('stale'); setStatus('off','offline'); });
+  }
+  function ago(){
+    if(!lastOk) return;
+    var s=Math.round((Date.now()-lastOk)/1000);
+    $('foot').textContent='refreshed '+s+'s ago · auto-updates every 3s · tick peak resets each poll';
+  }
+  poll(); setInterval(poll,3000); setInterval(ago,1000);
+})();
+</script>
+</body>
+</html>`;
+
+// --- /release changelog (SERVER-RENDERED from releases.js) --------------------
+// Server-rendered so it needs no client JS and works with scripts disabled. Same
+// Eldermyr theme as the dashboard. Rebuilt once at boot from the static data.
+function renderReleases(list) {
+  const items = (list || []).map((r) => {
+    const notes = (r.notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
+    const date = r.date ? `<time>${esc(r.date)}</time>` : '';
+    return `<article class="rel">
+      <div class="rel-head"><span class="ver">${esc(r.version)}</span><h2>${esc(r.title)}</h2>${date}</div>
+      <ul>${notes}</ul>
+    </article>`;
+  }).join('\n');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eldermyr · Release Notes</title>
+<style>
+:root{
+  --bg:#130e09;--panel:#20180f;--panel2:#271d12;--line:#3c2d1d;
+  --ink:#efe3ce;--dim:#a08e73;--faint:#6c5e49;
+  --ember:#ff8a3c;--gold:#e8a94a;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;color:var(--ink);padding:24px 16px 56px;
+  background:radial-gradient(1100px 560px at 50% -8%,#2c1e10 0%,#150f09 58%,var(--bg) 100%);
+  font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:760px;margin:0 auto}
+header{display:flex;align-items:center;gap:12px 14px;flex-wrap:wrap;margin-bottom:8px}
+h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.2px}
+h1 b{color:var(--ember);font-weight:650}
+.spacer{flex:1 1 auto}
+a.link{color:var(--gold);text-decoration:none;font:600 13px/1 var(--mono);
+  border:1px solid var(--line);background:var(--panel);padding:9px 13px;border-radius:9px;white-space:nowrap}
+a.link:hover{border-color:var(--gold)}
+.intro{color:var(--dim);font:600 12px/1.5 var(--mono);letter-spacing:.05em;text-transform:uppercase;margin:0 2px 20px}
+.rel{border:1px solid var(--line);border-radius:13px;padding:16px 18px;margin-bottom:14px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel))}
+.rel-head{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:11px}
+.ver{font:700 12px/1 var(--mono);letter-spacing:.02em;color:#180f07;white-space:nowrap;
+  background:linear-gradient(180deg,var(--gold),var(--ember));padding:5px 9px;border-radius:7px}
+.rel-head h2{margin:0;font-size:17px;font-weight:650;color:var(--ink);flex:1 1 auto}
+.rel-head time{font:600 12px/1 var(--mono);color:var(--faint)}
+.rel ul{margin:0;padding-left:19px}
+.rel li{margin:6px 0;color:var(--dim)}
+.rel li::marker{color:var(--ember)}
+footer{margin-top:26px;text-align:center;color:var(--faint);font:600 12px/1.5 var(--mono);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><b>Realms of Eldermyr</b> — Release Notes</h1>
+    <div class="spacer"></div>
+    <a class="link" href="/">Enter the realm →</a>
+  </header>
+  <p class="intro">The chronicle of the realm — newest first</p>
+  ${items}
+  <footer>Onward, adventurer. · <a class="link" href="/health" style="padding:6px 10px">server health →</a></footer>
+</div>
+</body>
+</html>`;
+}
+const RELEASES_HTML = renderReleases(releases);   // static data → build the page once at boot
+
 const httpServer = http.createServer((req, res) => {
   const u = (req.url || '/').split('?')[0];
-  if (u === '/health') {   // liveness + perf probe ("gets laggier over time"): world timers + RSS(MB) + uptime as JSON
+  const get = req.method === 'GET' || req.method === 'HEAD';
+  if (get && u === '/health.json') {   // machine-readable perf probe (curl / deploy checks): the EXACT legacy payload — world timers + RSS(MB) + uptime as JSON
     try {
       const body = JSON.stringify(Object.assign(
         { ok: true, uptime: +process.uptime().toFixed(1), rssMB: Math.round(process.memoryUsage().rss / 1048576) },
@@ -72,6 +320,12 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(body);
     } catch (_e) { res.writeHead(200); res.end('ok'); }
     return;
+  }
+  if (get && u === '/health') {   // human dashboard: fetches /health.json and auto-refreshes (~3s)
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(HEALTH_HTML); return;
+  }
+  if (get && (u === '/release' || u === '/releases')) {   // public changelog, server-rendered from releases.js
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(RELEASES_HTML); return;
   }
   const hit = STATIC[u];
   if (hit) {
