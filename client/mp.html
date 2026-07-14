@@ -401,6 +401,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         else if (r.kind === 'panel') {
           if (r.panel === 'cook') openCookMP();
           else if (r.panel === 'hunts') { G.state.huntsSlain = r.huntsSlain || []; if (G.state.scene === 'hunts') { try { window.renderHunts && window.renderHunts(); } catch (_e) {} } else openHuntsMP(); }
+          else if (r.panel === 'trophy') { G.state.pinnacleSlain = r.pinnacleSlain || []; G.state.uniquesFound = r.uniquesFound || []; if (G.state.scene === 'trophy') { try { window.renderTrophy && window.renderTrophy(); } catch (_e) {} } else openTrophyMP(); }   // adopt the SHARED pinnacle progress, then render the Trophy Wall (mirrors hunts)
           else if (r.panel === 'companions') { G.state.companions = r.companions || []; if (G.state.scene === 'companions') { try { window.renderCompanions && window.renderCompanions(); } catch (_e) {} } else openCompanionsMP(); }
         }
       }
@@ -433,6 +434,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else if (sc === 'dialogue') closeDialogueMP();
       else if (sc === 'cook') closeCookMP();
       else if (sc === 'hunts') closeHuntsMP();
+      else if (sc === 'trophy') closeTrophyMP();
       else if (sc === 'companions') closeCompanionsMP();
       else if (sc === 'map') { window.closeFullMap ? window.closeFullMap() : (function () { const el = document.getElementById('fullmap'); if (el) el.style.display = 'none'; G.state.scene = 'play'; })(); }   // [Esc] closes the enlarged map
       else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
@@ -508,9 +510,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   function closeCookMP() { closePanelMP('cook', 'cook'); }
   function openHuntsMP() { openPanelMP('hunts', 'hunts', window.renderHunts); }
   function closeHuntsMP() { closePanelMP('hunts', 'hunts'); }
+  function openTrophyMP() { const h = document.getElementById('hunts'); if (h) h.style.display = 'none'; openPanelMP('trophy', 'trophy', window.renderTrophy); }   // hide the Hunt Master panel if we arrived via its "View Trophy Wall" button (mirrors SP openTrophy)
+  function closeTrophyMP() { closePanelMP('trophy', 'trophy'); }
   function openCompanionsMP() { openPanelMP('companions', 'companions', window.renderCompanions); }
   function closeCompanionsMP() { closePanelMP('companions', 'companions'); }
   window.closeCook = closeCookMP; window.closeHunts = closeHuntsMP; window.closeCompanions = closeCompanionsMP;
+  window.closeTrophy = closeTrophyMP; window.openTrophy = () => requestInteract('trophy');   // the Trophy Wall button (inline onclick) round-trips for fresh SHARED progress; the hub tab still uses the game's lexical openTrophy (local state, like the Hunts tab)
   // hearth (cook) + warband actions → server RPCs (own hero / the shared warband); warband actions
   // re-request the panel so the roster reflects the server after the change.
   window.cook = (key) => actions.push({ rpc: 'cook', args: [key] });
@@ -565,6 +570,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene === 'smith') { if (k === 'e') { closeSmithMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the smith
     if (G.state.scene === 'cook') { if (k === 'e') { closeCookMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hearth
     if (G.state.scene === 'hunts') { if (k === 'e') { closeHuntsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hunts
+    if (G.state.scene === 'trophy') { if (k === 'e') { closeTrophyMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the Trophy Wall
     if (G.state.scene === 'companions') { if (k === 'e') { closeCompanionsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the warband
     // gameplay keys only while actually playing (menu open = no walking/fighting)
     if (G.state.scene !== 'play') return;

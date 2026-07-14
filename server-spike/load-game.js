@@ -122,6 +122,8 @@ const CAPTURE = [
   'projParams', 'canDominate', 'dominate',   // combat-depth arc: proj speed + elite domination (tests)
   'makeElite', 'rollEliteAffixes', 'afxHit', 'enemyStrike', 'statusDamage', 'tryDropLoot',   // elite affixes (Pillar 3): spawn/drive/verify affixed elites headlessly
   'makeGreatBeast', 'makeWildEnemy', 'distFactor',   // world-scaling tests (#2/#16)
+  'maybePinnacleBosses', 'PINNACLE_BOSSES', 'makePinnacleBoss', 'dropPinnacleReward',   // Pillar 2 pinnacle bosses: the room drives maybePinnacleBosses() from the shared phase; the table/generator/reward are captured for tests + future rescale
+
   'enterDungeon', 'setupDungeonFloor',   // ephemeral deep-dungeon rifts (#14)
   'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
   'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)

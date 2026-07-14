@@ -107,6 +107,7 @@ function wanderHome(e) {
     const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
     if (h && h.lair) { hx = h.lair.tx * TILE + 16; hy = h.lair.ty * TILE + 16; }
   }
+  else if (e.isPinnacle && e._lairTx != null) { hx = e._lairTx * TILE + 16; hy = e._lairTy * TILE + 16; }   // pinnacle bosses drift back to their STAMPED lair (King's shipwreck isle / Shepherd's frozen wastes), never the nearest sea/wall edge — Stage A stamped _lairTx/_lairTy in makePinnacleBoss
   if (hx === undefined) {
     const W = OW_W * TILE, H = OW_H * TILE, dl = ecx, dr = W - ecx, dt = ecy, db = H - ecy, m = Math.min(dl, dr, dt, db);
     hx = m === dl ? 0 : (m === dr ? W : ecx);
@@ -676,6 +677,7 @@ class World {
   // (shop/smith keep their own dedicated messages; this covers everyone else.)
   resolveInteract(id, npcId) {
     const p = this.players.get(id); if (!p) return null;
+    if (npcId === 'trophy') return { kind: 'panel', panel: 'trophy', pinnacleSlain: [...(S.pinnacleSlain || [])], uniquesFound: [...(S.uniquesFound || [])] };   // Trophy Wall = a menu CODEX of SHARED world progress (pinnacleSlain/uniquesFound are world state, not PP keys) — no world NPC to stand at, so resolve it BEFORE the NPC-proximity guard; mirrors the 'hunts' panel payload
     const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
     let npc = null, bd = Infinity;
     for (const n of (S.npcs || [])) { if (n.id !== npcId) continue; const d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; npc = n; } }
@@ -797,7 +799,7 @@ class World {
       const survivors = [];
       global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
       for (const p of players) {
-        S.player = p;
+        S.player = p; S.inventory = p.inventory;   // keep the bag in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one
         S.enemies = buckets.get(p);         // this player's assigned foes target HIM
         try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
@@ -839,9 +841,9 @@ class World {
     // log lines are world events — broadcast to EVERYONE with no player owner — not personal to players[0].
     if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }
     _sharedPhase = true;
-    for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence']) {
+    for (const fn of ['updateProjectiles', 'updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence', 'maybePinnacleBosses']) {
       if (G[fn]) try { G[fn](); } catch (e) { this._err(fn, e); }
-    }
+    }   // maybePinnacleBosses: fixed-lair spawn/night-gate/despawn (Drowned King always broods; Pale Shepherd rises at night) — a once-per-tick shared system like updateEvents (self-throttled via state._pinCheckT); its cycle-respawn rides onNewDay→maybeRespawnPinnacle off G.updateTime()
     _sharedPhase = false;
 
     // WARBAND: updateCompanions steps companions toward state.player — run it PER OWNER so each
@@ -909,6 +911,32 @@ class World {
           if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
             S.player = pl; S.inventory = pl.inventory;
             try { G.playerTakeDamage(3); } catch (e) { this._err('playerTakeDamage', e); }
+          }
+        }
+      }
+    }
+
+    // Party-wide PINNACLE hazard: pinnacleHazard (inside updateEnemies) only drowns/darks the boss's ONE
+    // bucketed (nearest) hero — so the shrinking ring threatens ONLY the duelist. Menace the REST of the party
+    // too: any other engaged hero outside the ring (but still within leash of the lair) takes the same
+    // throttled drowning (King) / killing-dark (Shepherd) + chill. Mirrors the fire-to-all-players loop; only
+    // READS the live arenaR (already shrunk this tick by the partition's pinnacleHazard — never shrinks here).
+    if (players.length > 1 && G.playerTakeDamage && S.map === 'overworld' && S.time % 42 === 0) {
+      const PIN_LEASH = 980;   // mirrors the game's PIN_LEASH — beyond it the boss wanders home & stops hazarding, so distant/town heroes stay safe
+      let eligible = null;     // DEFER the filter-alloc until a pinnacle boss is actually FOUND → the common (no-boss) tick does one bare scan with NO per-tick allocation
+      for (const e of S.enemies) {
+        if (!e.isPinnacle || !e.arenaR) continue;
+        if (!eligible) { eligible = players.filter((p) => !p.downed && !inTown(p)); if (!eligible.length) break; }
+        const lx = (e._lairTx != null ? e._lairTx : Math.floor((e.x + e.w / 2) / TILE)) * TILE + 16;
+        const ly = (e._lairTy != null ? e._lairTy : Math.floor((e.y + e.h / 2) / TILE)) * TILE + 16;
+        const owner = nearestPlayer(e, eligible);   // the bucketed hero — pinnacleHazard already hit them this tick; don't double-dip
+        for (const pl of eligible) {
+          if (pl === owner) continue;
+          const pdl = Math.hypot((pl.x + pl.w / 2) - lx, (pl.y + pl.h / 2) - ly);
+          if (pdl > e.arenaR && pdl <= PIN_LEASH) {
+            S.player = pl; S.inventory = pl.inventory;
+            try { G.playerTakeDamage(Math.max(4, Math.round(e.atk * 0.4))); } catch (er) { this._err('pinHazard', er); }
+            pl.chillT = Math.max(pl.chillT || 0, 80);
           }
         }
       }
