@@ -609,7 +609,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.54.1';   // quest fix: completed/satisfied quests are now retired instead of lingering — a leveled hero no longer sees 'Speak to the Elder', and holding keys clears the dungeon-key prompt (boss-dropped keys now count); persists across save/reload + MP
+const GAME_VERSION = 'v2.55.0';   // THE WIDENING II: overworld enlarged 248×208 → 347×291 (×1.4/side, ~2× area) — every town/POI/holding/lair/arena re-anchored, so the steep difficulty gradient now spans more land (a ramp, not a cliff) and there's more world to roam. Old saves load fine (spawn at town). Aspect preserved → no minimap distortion.
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -636,7 +636,7 @@ window.addEventListener('resize', fitCanvas);
 
 const T = { GRASS:0, TREE:1, WATER:2, MOUNTAIN:3, PATH:4, SAND:5, HOUSE:6, DUNGEON_ENTRANCE:7, FLOWER:8, BRIDGE:9, D_FLOOR:10, D_WALL:11, D_PIT:12, D_EXIT:13, D_DOOR:14, D_TORCH:15, D_DESCEND:16 };
 const SOLID = new Set([T.TREE, T.WATER, T.MOUNTAIN, T.HOUSE, T.D_WALL, T.D_PIT]);
-const OW_W = 248, OW_H = 208;
+const OW_W = 347, OW_H = 291;
 // Concentric difficulty rings, measured outward from the realm's heart (distFactor: 0=home, 1=corner).
 // The Vale is a safe lowland to learn in; the Marches escalate; the Frontier is deadly. Warlords stalk
 // only the mid-outer lands (>= WL_MIN_DF) — the Heartland and home town are sanctuary by design.
@@ -680,7 +680,7 @@ const RAR_PREFIX = ['Worn','Fine','Runed','Ancient','Mythic'];
 
 let state = {
   scene: 'title', map: 'overworld',
-  player: { x: 16*TILE, y: 11*TILE, w: 22, h: 22, speed: 1.6, atkHaste: 0, dir: 'down',
+  player: { x: 22*TILE, y: 15*TILE, w: 22, h: 22, speed: 1.6, atkHaste: 0, dir: 'down',
     hp: 30, maxHp: 30, xp: 0, xpNext: 32, level: 1, atk: 6, def: 2, gold: 0,
     energy: 100, maxEnergy: 100, skillPoints: 0, bonusAtk: 0, bonusDef: 0,
     stamina: 100, maxStamina: 100, dodge: 0, dodgeCd: 0, dvx: 0, dvy: 0,
@@ -696,7 +696,7 @@ let state = {
     _lastStyle: null },                             // last equipped weapon-style (swap-reset seam)
   inventory: { weapons: [{name:'Rusty Sword', atk:3, style:'melee', rarity:0, reqLevel:1, reqProf:1, dur:50, durMax:50, equipped:true}], armor: [{name:'Cloth Tunic', def:0, rarity:0, reqLevel:1, dur:50, durMax:50, equipped:true}], items: [{name:'Potion', qty:2}], keys: 0 },
   enemies: [], npcs: [], pickups: [], projectiles: [],
-  owSave: null, dungeonLevel: 0, maxDepth: 0, dungeonEntrance: {tx:120,ty:140},
+  owSave: null, dungeonLevel: 0, maxDepth: 0, dungeonEntrance: {tx:168,ty:196},
   spawnTimer: 120, maxWildEnemies: 46, tonics: 0, sharpenLevel: 0, shopPurchased: [], visitedTowns: [], shrines: [], pois: [], holdings: [], companions: [], loreFound: [], bounty: null, factions: { vigil:0, wilds:0, dread:0 }, allies: [], hasBoat: false, sailing: false, wayfind: true, ingredients: { herb:0, berry:0, mushroom:0, fish:0 }, fishCd: 0, cargo: { furs:0, grain:0, spice:0, ore:0 }, activeShopTown: -1,
   quests: { main:{name:'Slay the Mountain Kraken',done:false,started:false,hidden:true}, talk:{name:'Speak to the Elder',done:false}, key:{name:'Find the Dungeon Key',done:false,hidden:true}, slay:{name:'Slay 5 monsters',done:false,count:0,target:5}, frozen:{name:'Plunder the Frozen Cache',done:false,hidden:true}, dragon:{name:'Tame the Emberwyrm (Lv 20)',done:false,hidden:true}, legion:{started:false,stage:'none',camps:0,sealstones:0,villages:0,seatRegion:-1} },
   flags: { enteredDungeon:false, gotKey:false, enteredFrozen:false, krakenDead:false }, camera: { x:0, y:0 },
@@ -846,23 +846,23 @@ function generateOverworld(){
   for(let i=0;i<Math.round(AREA/900);i++) cluster(3+Math.floor(Math.random()*(OW_W-6)),3+Math.floor(Math.random()*(OW_H-6)),1+Math.floor(Math.random()*2),T.WATER,0.85);
   for(let i=0;i<Math.round(AREA/1700);i++) cluster(3+Math.floor(Math.random()*(OW_W-6)),3+Math.floor(Math.random()*(OW_H-6)),2+Math.floor(Math.random()*3),T.MOUNTAIN,0.75);
   for(let i=0;i<Math.round(AREA/44);i++){ const x=1+Math.floor(Math.random()*(OW_W-2)),y=1+Math.floor(Math.random()*(OW_H-2)); if(m[y][x]===T.GRASS) m[y][x]=T.FLOWER; }
-  townZones=[{x:108,y:91,w:16,h:13,name:'Eldermyr'},{x:89,y:34,w:13,h:10,name:'Northwatch'},{x:157,y:98,w:13,h:10,name:'Eastgate'},{x:169,y:34,w:12,h:9,name:'Frostspire'},{x:186,y:153,w:13,h:10,name:'Southreach'},{x:33,y:110,w:12,h:10,name:'Westhaven'}];
+  townZones=[{x:151,y:127,w:16,h:13,name:'Eldermyr'},{x:125,y:48,w:13,h:10,name:'Northwatch'},{x:220,y:137,w:13,h:10,name:'Eastgate'},{x:237,y:48,w:12,h:9,name:'Frostspire'},{x:260,y:214,w:13,h:10,name:'Southreach'},{x:46,y:154,w:12,h:10,name:'Westhaven'}];
   for(const tz of townZones){ for(let y=tz.y-1;y<tz.y+tz.h+1;y++) for(let x=tz.x-1;x<tz.x+tz.w+1;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; m[y][x]=T.GRASS; } const midRow=tz.y+Math.floor(tz.h/2); for(let x=tz.x;x<tz.x+tz.w;x++) m[midRow][x]=T.PATH; for(let x=tz.x+1;x<tz.x+tz.w-1;x+=3) m[tz.y+1][x]=T.HOUSE; for(let x=tz.x+2;x<tz.x+tz.w-1;x+=3) m[tz.y+tz.h-2][x]=T.HOUSE; if(tz.h>=11){ m[midRow-3][tz.x+1]=T.HOUSE; m[midRow+3][tz.x+tz.w-2]=T.HOUSE; } }
   function walk(t){ return (t===T.WATER)?T.BRIDGE:(SOLID.has(t)?T.PATH:t); }
   function carvePath(ax,ay,bx,by){ let x=ax,y=ay; while(x!==bx){ m[y][x]=walk(m[y][x]); x+=x<bx?1:-1; } while(y!==by){ m[y][x]=walk(m[y][x]); y+=y<by?1:-1; } m[y][x]=walk(m[y][x]); }
   const c0=townCenter(townZones[0]); for(let i=1;i<townZones.length;i++){ const ci=townCenter(townZones[i]); carvePath(c0.x,c0.y,ci.x,ci.y); }
-  let dx=120,dy=140; m[dy][dx]=T.DUNGEON_ENTRANCE; m[dy-1][dx]=walk(m[dy-1][dx]); m[dy][dx-1]=walk(m[dy][dx-1]); m[dy][dx+1]=walk(m[dy][dx+1]); carvePath(c0.x,c0.y,dx,dy-1);
+  let dx=168,dy=196; m[dy][dx]=T.DUNGEON_ENTRANCE; m[dy-1][dx]=walk(m[dy-1][dx]); m[dy][dx-1]=walk(m[dy][dx-1]); m[dy][dx+1]=walk(m[dy][dx+1]); carvePath(c0.x,c0.y,dx,dy-1);
   state.dungeonEntrance={tx:dx,ty:dy};
   for(const h of HOLD_SITES){ for(let y=h.ty-3;y<=h.ty+3;y++) for(let x=h.tx-3;x<=h.tx+3;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; if(SOLID.has(m[y][x])) m[y][x]=T.GRASS; } carvePath(c0.x,c0.y,h.tx,h.ty); }
-  carvePath(c0.x,c0.y,58,146); // the harbor road — the Shipwright must never be sealed off by a wood
+  carvePath(c0.x,c0.y,81,204); // the harbor road — the Shipwright must never be sealed off by a wood
   biomeMap=[]; houseTiles=[]; const lavaThresh=(OW_W+OW_H)*0.76; for(let y=0;y<OW_H;y++){ const row=[]; for(let x=0;x<OW_W;x++){ row.push(y<=frozenLimit(x)?1:((x+y)>lavaThresh+Math.round(Math.sin(x*0.25)*3)?2:0)); if(m[y][x]===T.HOUSE) houseTiles.push({x,y}); } biomeMap.push(row); }
   // dragon lair (Emberwaste, reachable on foot) + peak-ringed kraken arena (fly-only)
-  state.dragonLair={tx:200,ty:168}; for(let y=164;y<=172;y++) for(let x=196;x<=204;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; if(SOLID.has(m[y][x])) m[y][x]=T.GRASS; } carvePath(c0.x,c0.y,200,168);
-  const kx=44,ky=164; state.krakenArena={tx:kx,ty:ky}; for(let y=ky-6;y<=ky+6;y++) for(let x=kx-6;x<=kx+6;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; const d=Math.max(Math.abs(x-kx),Math.abs(y-ky)); if(d<=4) m[y][x]=T.GRASS; else if(d===5) m[y][x]=T.MOUNTAIN; }
+  state.dragonLair={tx:280,ty:235}; const dl=state.dragonLair; for(let y=dl.ty-4;y<=dl.ty+4;y++) for(let x=dl.tx-4;x<=dl.tx+4;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; if(SOLID.has(m[y][x])) m[y][x]=T.GRASS; } carvePath(c0.x,c0.y,280,235);
+  const kx=62,ky=230; state.krakenArena={tx:kx,ty:ky}; for(let y=ky-6;y<=ky+6;y++) for(let x=kx-6;x<=kx+6;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; const d=Math.max(Math.abs(x-kx),Math.abs(y-ky)); if(d<=4) m[y][x]=T.GRASS; else if(d===5) m[y][x]=T.MOUNTAIN; }
   // --- The Sundered Sea: a boat-only ocean (SW wilderness) with islands holding sea content ---
-  state.ocean={x0:62,y0:130,x1:94,y1:168}; for(let y=130;y<=168;y++) for(let x=62;x<=94;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; m[y][x]=T.WATER; if(biomeMap[y]) biomeMap[y][x]=0; }
+  state.ocean={x0:87,y0:182,x1:132,y1:235}; const o=state.ocean; for(let y=o.y0;y<=o.y1;y++) for(let x=o.x0;x<=o.x1;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; m[y][x]=T.WATER; if(biomeMap[y]) biomeMap[y][x]=0; }
   // proper ISLES now — big enough to be real boss arenas and treasure grounds
-  state.islands=[{x:74,y:142},{x:86,y:158}]; for(const is of state.islands){ for(let y=is.y-5;y<=is.y+5;y++) for(let x=is.x-5;x<=is.x+5;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; if(Math.hypot(x-is.x,y-is.y)<=4.3){ m[y][x]=T.GRASS; if(biomeMap[y]) biomeMap[y][x]=0; } } }
+  state.islands=[{x:104,y:199},{x:120,y:221}]; for(const is of state.islands){ for(let y=is.y-5;y<=is.y+5;y++) for(let x=is.x-5;x<=is.x+5;x++){ if(x<1||y<1||x>=OW_W-1||y>=OW_H-1) continue; if(Math.hypot(x-is.x,y-is.y)<=4.3){ m[y][x]=T.GRASS; if(biomeMap[y]) biomeMap[y][x]=0; } } }
   maps.overworld=m;
 }
 function findOpenTile(mapName,tx,ty){ const m=maps[mapName]; if(!m) return {tx,ty}; for(let r=0;r<=12;r++){ for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){ if(Math.max(Math.abs(dx),Math.abs(dy))!==r) continue; const nx=tx+dx,ny=ty+dy; if(ny<0||nx<0||ny>=m.length||nx>=m[0].length) continue; if(!SOLID.has(m[ny][nx])) return {tx:nx,ty:ny}; } } return {tx,ty}; }
@@ -1005,7 +1005,7 @@ function drawPOI(poi){ const sx=poi.x-state.camera.x, sy=poi.y-state.camera.y; i
 // ================= HOLDINGS — reclaim & hold frontier outposts =================
 // Fixed Marches sites you can liberate from the Legion and rebuild into your own outposts (fast-travel +
 // a Quartermaster vendor + daily tribute), then defend from sieges. Ownership persists in state.holdings.
-const HOLD_SITES=[ {tx:76,ty:60,name:'Hawthorn Vale'}, {tx:192,ty:80,name:'Ironford'}, {tx:110,ty:176,name:'Mossbridge'} ];
+const HOLD_SITES=[ {tx:106,ty:84,name:'Hawthorn Vale'}, {tx:269,ty:112,name:'Ironford'}, {tx:154,ty:246,name:'Mossbridge'} ];
 function initHoldings(){ state.holdings=HOLD_SITES.map(()=>({liberated:false,built:false,level:1,besieged:false})); }
 function ensureHoldings(){ if(!state.holdings||state.holdings.length!==HOLD_SITES.length) initHoldings(); }
 function holdNear(tx,ty,r){ r=r||2; for(let i=0;i<HOLD_SITES.length;i++){ const h=HOLD_SITES[i]; if(Math.abs(h.tx-tx)<=r&&Math.abs(h.ty-ty)<=r) return i; } return -1; }
@@ -1150,7 +1150,7 @@ function setupOverworld(){
   for(let i=1;i<townZones.length;i++){ const c=townCenter(townZones[i]); const sk=placeNPC(c.x-4,c.y-2,'Shopkeeper','#f0b050',["Finest wares in "+townZones[i].name+"!"],'shop'); sk.shopTown=townInfo(i); sk.stock=genShopStock(sk.shopTown); placeNPC(c.x+4,c.y-2,'Blacksmith','#e0a060',["Need something mended?"],'smith'); placeNPC(c.x,c.y+3,'Hearth','#e08850',["A warm hearth — cook a meal from what you've foraged & fished."],'hearth'); }
   placeNPC(c0.x+2,c0.y+4,'Hearth','#e08850',["A warm hearth. Cook what you've gathered into hearty meals [E]."],'hearth');
   placeNPC(c0.x,c0.y+6,'Sellsword Captain','#90c0ff',["Looking to raise a warband? Knights, rangers, and mages for hire.","Companions fight at your side and grow as you do — and recover when you rest. [E] to recruit."],'recruit');
-  placeNPC(58,146,'Shipwright','#5a9cff',["The Sundered Sea to the east hides islands few dare reach.","A stout boat is yours for 250 gold — then press [B] by the water to sail."],'shipwright');
+  placeNPC(81,204,'Shipwright','#5a9cff',["The Sundered Sea to the east hides islands few dare reach.","A stout boat is yours for 250 gold — then press [B] by the water to sail."],'shipwright');
   state.pickups=[]; const kt=findWildTileNear(c0.x,c0.y,22); if(kt) state.pickups.push(makePickup(kt.tx,kt.ty,'key',1));
   let t;
   if((t=findWildTileNear(c0.x,c0.y,26))) state.pickups.push(makePickup(t.tx,t.ty,'chest',{weapon:normItem({name:'Iron Sword',atk:5,style:'melee',cd:22},true)}));
@@ -1990,7 +1990,7 @@ function renderWorld(){ const m=maps[state.map],camX=state.camera.x,camY=state.c
   drawParticles(camX,camY); drawArcs(camX,camY);
   if(state.map==='overworld'){ drawSeasonTint(); drawMoodTint(); }
   if(state.map==='overworld'){ drawLighting(camX,camY); drawWeather(); }
-  if(state.map==='overworld'){ ctx.font='10px monospace'; ctx.textAlign='center'; for(const tz of townZones){ const wx=(tz.x+tz.w/2)*TILE-camX,wy=(tz.y-1)*TILE-camY; if(wx>-60&&wx<VIEW_W+60&&wy>-10&&wy<VIEW_H){ const sg=tz.besieged; const lbl=(sg?'⚔ ':'⌂ ')+tz.name; ctx.fillStyle=sg?'rgba(80,12,12,0.72)':'rgba(0,0,0,0.5)'; ctx.fillRect(wx-lbl.length*3.2-6,wy-10,lbl.length*6.4+12,13); ctx.fillStyle=sg?'#ff8080':'#f0e0a0'; ctx.fillText(lbl,wx,wy); } } { const fx=88*TILE-camX, fy=24*TILE-camY; if(fx>-90&&fx<VIEW_W+90&&fy>-10&&fy<VIEW_H){ ctx.fillStyle='rgba(20,32,52,0.5)'; ctx.fillRect(fx-54,fy-10,108,13); ctx.fillStyle='#bfe0ff'; ctx.fillText('❄ Frozen Wastes',fx,fy); } } { const lx=196*TILE-camX, ly=160*TILE-camY; if(lx>-90&&lx<VIEW_W+90&&ly>-10&&ly<VIEW_H){ ctx.fillStyle='rgba(50,20,10,0.55)'; ctx.fillRect(lx-52,ly-10,104,13); ctx.fillStyle='#ff9050'; ctx.fillText('🔥 The Emberwaste',lx,ly); } } if(state.krakenArena&&!state.flags.krakenDead){ const kx=state.krakenArena.tx*TILE-camX, ky=(state.krakenArena.ty-5)*TILE-camY; if(kx>-100&&kx<VIEW_W+100&&ky>-10&&ky<VIEW_H){ ctx.fillStyle='rgba(20,20,40,0.55)'; ctx.fillRect(kx-58,ky-10,116,13); ctx.fillStyle='#a0b0e0'; ctx.fillText('Kraken Roost',kx,ky); } } ctx.textAlign='left'; }
+  if(state.map==='overworld'){ ctx.font='10px monospace'; ctx.textAlign='center'; for(const tz of townZones){ const wx=(tz.x+tz.w/2)*TILE-camX,wy=(tz.y-1)*TILE-camY; if(wx>-60&&wx<VIEW_W+60&&wy>-10&&wy<VIEW_H){ const sg=tz.besieged; const lbl=(sg?'⚔ ':'⌂ ')+tz.name; ctx.fillStyle=sg?'rgba(80,12,12,0.72)':'rgba(0,0,0,0.5)'; ctx.fillRect(wx-lbl.length*3.2-6,wy-10,lbl.length*6.4+12,13); ctx.fillStyle=sg?'#ff8080':'#f0e0a0'; ctx.fillText(lbl,wx,wy); } } { const fx=123*TILE-camX, fy=34*TILE-camY; if(fx>-90&&fx<VIEW_W+90&&fy>-10&&fy<VIEW_H){ ctx.fillStyle='rgba(20,32,52,0.5)'; ctx.fillRect(fx-54,fy-10,108,13); ctx.fillStyle='#bfe0ff'; ctx.fillText('❄ Frozen Wastes',fx,fy); } } { const lx=274*TILE-camX, ly=224*TILE-camY; if(lx>-90&&lx<VIEW_W+90&&ly>-10&&ly<VIEW_H){ ctx.fillStyle='rgba(50,20,10,0.55)'; ctx.fillRect(lx-52,ly-10,104,13); ctx.fillStyle='#ff9050'; ctx.fillText('🔥 The Emberwaste',lx,ly); } } if(state.krakenArena&&!state.flags.krakenDead){ const kx=state.krakenArena.tx*TILE-camX, ky=(state.krakenArena.ty-5)*TILE-camY; if(kx>-100&&kx<VIEW_W+100&&ky>-10&&ky<VIEW_H){ ctx.fillStyle='rgba(20,20,40,0.55)'; ctx.fillRect(kx-58,ky-10,116,13); ctx.fillStyle='#a0b0e0'; ctx.fillText('Kraken Roost',kx,ky); } } ctx.textAlign='left'; }
   if(state.scene==='play'&&nearInteractable()){ const sx=state.player.x-camX+state.player.w/2,sy=state.player.y-camY-16,b=Math.sin(Date.now()/200)*2; ctx.fillStyle='#fff'; ctx.font='bold 11px monospace'; ctx.textAlign='center'; ctx.fillText('[E]',sx,sy+b); ctx.textAlign='left'; }
   if(state.map==='dungeon'){ const p=state.player,px=p.x-camX+p.w/2,py=p.y-camY+p.h/2; const grad=ctx.createRadialGradient(px,py,40,px,py,260); grad.addColorStop(0,'rgba(0,0,0,0)'); grad.addColorStop(1,'rgba(0,0,0,0.85)'); ctx.fillStyle=grad; ctx.fillRect(0,0,VIEW_W,VIEW_H); }
   if(hurtFlash>0){ const vg=ctx.createRadialGradient(VIEW_W/2,VIEW_H/2,VIEW_H*0.32,VIEW_W/2,VIEW_H/2,VIEW_H*0.72); vg.addColorStop(0,'rgba(170,0,0,0)'); vg.addColorStop(1,'rgba(170,0,0,'+(hurtFlash*0.5).toFixed(3)+')'); ctx.fillStyle=vg; ctx.fillRect(0,0,VIEW_W,VIEW_H); }
@@ -2007,10 +2007,10 @@ function makeWildDragon(tx,ty){ const e=makeBoss(tx,ty); e.type='dragon'; e.isWi
 function makeKraken(tx,ty){ const e=makeBoss(tx,ty); e.type='kraken'; e.isKraken=true; e.isFinalBoss=true; e.name='The Mountain Kraken'; e.w=62; e.h=58; e.x=tx*TILE-15; e.y=ty*TILE-13; e.color='#5566aa'; const asc=1+(state.ascension||0)*0.2; e.maxHp=Math.round(1500*asc); e.hp=e.maxHp; e.atk=Math.round(34*asc); e.def=12; e.xp=2500; e.gold=2500; e.caster=true; e.specials=['slam','nova','summon','charge']; e.specialCd=130; return e; }
 // ================= THE GREAT HUNTS — legendary roaming world-beasts =================
 const GREAT_HUNTS=[
-  {key:'frosttitan',name:'The Frost Titan',color:'#bfe9ff',element:'frost',where:'the Frozen Wastes (far north)',lair:{tx:124,ty:12},hp:900,atk:26,def:9,xp:900,gold:900,specials:['slam','nova','charge'],reward:{weapon:{name:'Titan’s Maul',atk:30,style:'melee',cd:24,rarity:4,element:'frost',affixes:[{t:'crit',v:3,label:'+15% Crit'},{t:'berserk',v:1,label:'Berserker'}]}}},
-  {key:'stormroc',name:'The Storm Roc',color:'#ffe24a',element:'shock',where:'the high wilds (northeast)',lair:{tx:192,ty:60},hp:820,atk:24,def:7,xp:850,gold:850,specials:['charge','nova','summon'],reward:{weapon:{name:'Stormcaller Bow',atk:26,style:'ranged',cd:24,rarity:4,element:'shock',affixes:[{t:'crit',v:3,label:'+15% Crit'},{t:'lifesteal',v:2,label:'+6% Lifesteal'}]}}},
-  {key:'emberhorn',name:'Emberhorn the Scorched',color:'#ff7838',element:'fire',where:'the Emberwaste (far southeast)',lair:{tx:192,ty:172},hp:1000,atk:30,def:10,xp:1000,gold:1000,specials:['slam','charge','nova'],reward:{armor:{name:'Scaled Aegis of Cinders',def:24,rarity:4,affixes:[{t:'evasion',v:3,label:'+9% Evade'},{t:'lifesteal',v:2,label:'+6% Lifesteal'}]}}},
-  {key:'leviathan',name:'The Tide Leviathan',color:'#2ad0c0',element:'frost',island:true,where:'an isle in the Sundered Sea (sail to reach it)',lair:{tx:74,ty:142},hp:1100,atk:28,def:9,xp:1100,gold:1200,specials:['slam','nova','summon','charge'],reward:{weapon:{name:'Leviathan’s Trident',atk:32,style:'magic',rarity:4,element:'frost',affixes:[{t:'crit',v:2,label:'+10% Crit'},{t:'lifesteal',v:3,label:'+9% Lifesteal'}]}}},
+  {key:'frosttitan',name:'The Frost Titan',color:'#bfe9ff',element:'frost',where:'the Frozen Wastes (far north)',lair:{tx:174,ty:17},hp:900,atk:26,def:9,xp:900,gold:900,specials:['slam','nova','charge'],reward:{weapon:{name:'Titan’s Maul',atk:30,style:'melee',cd:24,rarity:4,element:'frost',affixes:[{t:'crit',v:3,label:'+15% Crit'},{t:'berserk',v:1,label:'Berserker'}]}}},
+  {key:'stormroc',name:'The Storm Roc',color:'#ffe24a',element:'shock',where:'the high wilds (northeast)',lair:{tx:269,ty:84},hp:820,atk:24,def:7,xp:850,gold:850,specials:['charge','nova','summon'],reward:{weapon:{name:'Stormcaller Bow',atk:26,style:'ranged',cd:24,rarity:4,element:'shock',affixes:[{t:'crit',v:3,label:'+15% Crit'},{t:'lifesteal',v:2,label:'+6% Lifesteal'}]}}},
+  {key:'emberhorn',name:'Emberhorn the Scorched',color:'#ff7838',element:'fire',where:'the Emberwaste (far southeast)',lair:{tx:269,ty:241},hp:1000,atk:30,def:10,xp:1000,gold:1000,specials:['slam','charge','nova'],reward:{armor:{name:'Scaled Aegis of Cinders',def:24,rarity:4,affixes:[{t:'evasion',v:3,label:'+9% Evade'},{t:'lifesteal',v:2,label:'+6% Lifesteal'}]}}},
+  {key:'leviathan',name:'The Tide Leviathan',color:'#2ad0c0',element:'frost',island:true,where:'an isle in the Sundered Sea (sail to reach it)',lair:{tx:104,ty:199},hp:1100,atk:28,def:9,xp:1100,gold:1200,specials:['slam','nova','summon','charge'],reward:{weapon:{name:'Leviathan’s Trident',atk:32,style:'magic',rarity:4,element:'frost',affixes:[{t:'crit',v:2,label:'+10% Crit'},{t:'lifesteal',v:3,label:'+9% Lifesteal'}]}}},
 ];
 function partyLvl(){ return Math.max(state.player.level||1, state._partyLevel||0); }
 function partyN(){ return Math.max(1, state._partyN||1); }   // #1: server populates _partyN (player count); SP default 1 keeps values identical
