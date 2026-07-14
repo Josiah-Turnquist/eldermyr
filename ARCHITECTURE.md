@@ -219,3 +219,41 @@ existing combat functions**, so the loader/room inherit it for free — no new s
 - **Ward windows are timer-bounded** (66 frames up per 300 down, ticked at the TOP of updateEnemies before
   the stun/aggro `continue`s), so a warded quest/bounty target can never be immune-locked, even leashed,
   stunned, or attacked from beyond aggro range.
+
+## Pinnacle bosses & chase uniques (Pillar 2: Drowned King / Pale Shepherd)
+
+- **All per-fight boss state is SCALARS on the enemy** (`isPinnacle`, `pinKey`, `arenaR`, `_nextKill`, `_hazT`,
+  `_lairTx`/`_lairTy`, `cycle`; adds carry `_orderIdx`/`_rezN` numbers). They ride packEnemy → snapshot → the
+  client's wholesale adoption with **zero mp.html changes**, exactly like affixes/marks. The ONE object field,
+  `_pinRef` (an add → its boss), is **deliberately dropped by packScalar and never serialized**: the ordered-kill
+  resurrect that reads it (`killEnemy`, O(1) — the boss's `_nextKill` cursor vs the add's `_orderIdx`, capped by
+  `_rezN`, gated on `_pinRef.hp>0` so a dead boss's court dies clean, no sibling scan) runs SERVER-AUTHORITATIVELY.
+  No client code reads `_pinRef`. Pinnacle bosses ARE `isBoss` (they partition/wander/aggro like any boss) but NOT
+  `isFinalBoss`/`isKraken` (killEnemy never calls `victory()`).
+- **World progress is shared state, not PP keys:** `pinnacleSlain`/`pinnacleCycle`/`pinnacleRespawnDay`/
+  `uniquesFound` live on `state.X` (the room's shared S), persist via the game's `snapshot()` save exactly like
+  `huntsSlain`, and reach clients through the **Trophy Wall RPC** (`resolveInteract('trophy')` returns them,
+  resolved BEFORE the NPC-proximity guard — it's a codex, no world NPC to stand at). They are NOT on `me`, so NOT
+  in the periodic wire snapshot; the minimap lair markers read the client's last-adopted copy (cosmetic staleness,
+  mirrors hunts). Kill attribution (gold, the drop, the `_lastStyle`-matched first-kill unique) uses `state.player`
+  at kill time — for a projectile kill that's the shooter (`updateProjectiles` swaps it in), which is why the drop
+  reads `_lastStyle` (rides `me`) and NOT a raw `equippedWeapon()` (whose bag isn't swapped there).
+- **Unique build-effects are recalcStats-derived player flags, never gear-reads in combat.** Each equipped `.uniq`
+  item sets a scalar in recalcStats (`p.uLance`/`uFrostNova`/`uBell`/`uCloak`, cleared when broken, matching affix
+  gating). Combat code reads ONLY the flag — like `p.crit`/`p.lifesteal` these ride `me` (safeClone copies top-level
+  scalars) with **no client-adoption line**. The projectile effect (Leviathan Spine's lance) is **projectile-stamped**
+  (`pr.uLance` set in tryAttack; the free lance carries none → no recursion), not gear-read at impact. Every unique's
+  damage routes through the existing `afxHit`/`applyElementOnHit` gates — no parallel damage path. The cloak still-timer
+  (`p._stillT`) is a scalar increment in updatePlayer; ANY action clears `cloaked`/`_stillT` together (one seam,
+  mirrored in playerTakeDamage + each ability).
+- **Two shared-phase passes, both cheap:** `maybePinnacleBosses` (fixed-lair spawn / night-gate / dawn-melt / cycle
+  respawn) runs in the once-per-tick shared block, **self-throttled** by `state._pinCheckT` (real work ~1/40 frames).
+  Its dawn-melt "is anyone engaged nearby?" test must scan `state.players` (the MP roster; `[state.player]` in SP) —
+  a `players[0]`-only check would vanish the boss mid-fight for another player (the shared-phase per-player-effect
+  rule). The **party-wide arena hazard** (world.js, MP-only, 42-throttled) menaces heroes OUTSIDE the shrinking ring
+  that the bucketed duelist's per-frame `pinnacleHazard` can't reach; it only READS the live `arenaR` (never shrinks
+  it) and DEFERS its player-filter allocation until a pinnacle boss is found (no allocation / early-out on the common
+  no-boss tick).
+- **PP-loop bag sync:** the enemy-combat partition loop sets `S.inventory = p.inventory` alongside `S.player = p`
+  (every iteration, like the shared/spawn phases) so combat-time gear reads inside `updateEnemies` — melee-riposte's
+  `equippedWeapon()`, future on-hit gear checks — see the BUCKET player's bag, not a stale one from a prior phase.
