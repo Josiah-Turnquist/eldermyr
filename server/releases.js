@@ -22,6 +22,46 @@
 
 module.exports = [
   {
+    version: 'v2.56.0',
+    date: '2026-07-13',
+    title: 'Pinnacle bosses & chase relics',
+    notes: [
+      'Two apex fights you seek out on purpose: the Drowned King on a shipwreck isle (sail to it) and the Pale Shepherd in the Frozen Wastes — but only at night.',
+      "They don't just soak damage — telegraphed attacks, a shrinking safe ground, and adds that rise again if you slay them out of order.",
+      'Each guards two build-defining relics; your first kill drops the one that fits how you fight. Leviathan Spine, Tidecaller’s Aegis, Shepherd’s Bell, Gravewool Cloak.',
+      'A Trophy Wall at the Hunt Master tracks which apex terrors you’ve felled and which relics remain.',
+    ],
+  },
+  {
+    version: 'v2.55.0',
+    date: '2026-07-13',
+    title: 'A wider world',
+    notes: [
+      'The overworld grew about 1.4× on each side — roughly double the land to roam, every town, lair, and landmark re-placed.',
+      'The new difficulty curve now has room to breathe: a gentle ride out of the starter vale into a genuinely brutal frontier, instead of a sudden wall.',
+      'Old heroes load right in, no migration needed.',
+    ],
+  },
+  {
+    version: 'v2.54.0',
+    date: '2026-07-13',
+    title: 'Difficulty with a real shape',
+    notes: [
+      'Enemies near the heart of the realm are gentler for newcomers; the frontier is far deadlier for veterans — a steep-then-plateau-then-steep curve instead of a flat ramp.',
+      'Great Hunts and the Dread Legion now scale to your party’s level one-to-one.',
+      'Legendaries are rare again out in the wilds (about 5× fewer) — boss and hunt hauls stay rich.',
+      'Also: completed quests finally clear out instead of nagging you forever.',
+    ],
+  },
+  {
+    version: 'v2.53.5',
+    date: '2026-07-13',
+    title: 'Clearer skills',
+    notes: [
+      'Active abilities now show their current rank, exactly what they do at it, and what the next point buys — no more blind upgrades.',
+    ],
+  },
+  {
     version: 'v2.53.4',
     date: '2026-07-13',
     title: 'Auras you can see',
