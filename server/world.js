@@ -653,11 +653,16 @@ class World {
       S.time = t0;                                               // undo any skip — the world's clock never jumps
       // Overworld: doCamp set state.lastRestDay to the fast-forwarded (next-morning) day; recompute it against the
       // un-skipped clock and keep S in sync with p, or writeBackPP (which persists lastRestDay) would clobber it back
-      // to that skipped day and over-rest the hero. Dungeon: dungeons/rifts sit OUTSIDE the day/night rest-day economy,
-      // so lastRestDay + the day math are DELIBERATELY untouched — camping/heal already ride p; only the personal
-      // fatigue flag is cleared (doCamp restored energy → no longer exhausted).
+      // to that skipped day and over-rest the hero.
+      // Dungeon: doCamp sets state.lastRestDay to plain curDay() (no skip to undo) — but that write must be
+      // mirrored onto p HERE, exactly like the overworld branch. _runActions (our caller) swaps only
+      // S.player/S.inventory, NOT the PP_KEYS — there is no swapInPP/writeBackPP around an RPC — so
+      // state.lastRestDay during this call is NOT this hero's, doCamp's write would never reach p, and the
+      // next tick's swapInPP would overwrite the stray value anyway. Mirror it and the rest actually sticks.
+      // (v2.56.2 withheld lastRestDay underground entirely → camping healed you but left you permanently
+      // Exhausted, since isExhausted() reads ONLY lastRestDay. Game-file doCamp now records every camp.)
       if (camped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
-      else if (dgCamped) { p._exWas = false; }
+      else if (dgCamped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
