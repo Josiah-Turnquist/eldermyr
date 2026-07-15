@@ -22,6 +22,56 @@
 
 module.exports = [
   {
+    version: 'v2.57.0',
+    date: '2026-07-15',
+    title: 'Your questline is your own',
+    notes: [
+      'Quests, deepest depth and bounties are now yours alone. They used to be shared across the whole realm — so a newcomer inherited a veteran’s finished intro, and could never be told to seek the Elder because someone else already had.',
+      'They also survive properly now. A reconnect, a reload, a second window, or a quiet realm going to sleep would put a seasoned delver back on “Speak to the Elder”, and hand a Depth-45 veteran a bounty to reach Depth 3.',
+      'Slain foes credit the hero who actually felled them. Arrows and spells were quietly crediting the first player in the realm — a bow-carrying companion’s “Slay monsters” could never finish.',
+      'Long-standing heroes keep their progress: your finished intro is recognised from what you’ve already done.',
+    ],
+  },
+  {
+    version: 'v2.56.6',
+    date: '2026-07-15',
+    title: 'Combat rebalance — ricochet, aura, lifesteal',
+    notes: [
+      'Ricochet is a bounce again, not artillery. Its arrows were seeking out foes eleven tiles from the one you shot and flying clear across the room — killing things you never aimed at, often off-screen. Now it reaches about six.',
+      'The elemental aura deals half the damage over a tighter field, and it no longer sets the ground alight beneath your own feet. Cast fire directly and it still burns the world exactly as before.',
+      'Lifesteal is 1% per point (was 2.5%). Your gear’s labels were understating the change and now tell the truth.',
+    ],
+  },
+  {
+    version: 'v2.56.3–v2.56.5',
+    date: '2026-07-15',
+    title: 'Co-op repairs: a real Legion, a feed that stays, rest that counts',
+    notes: [
+      'The Dread Legion roster was a phantom. Your realm invented its own warlords at load and froze them at Lv 1 — different names from the true host, and their strengths could never be learned no matter how many you wounded. The roster is now the realm’s own, and the ??? resolve as you fight them.',
+      'The event log stopped losing lines. With the window unfocused, every entry was being dropped and never resent — you simply never saw them.',
+      'Camping in the dark now truly rests you. You could make camp underground and heal, yet stay Exhausted forever, because the rest was never written down.',
+      'Cleanup: the Legion and Standing hotkeys are gone (use the menu hub — Esc closes), and the healing draught in your HUD finally looks like a potion.',
+    ],
+  },
+  {
+    version: 'v2.56.2',
+    date: '2026-07-14',
+    title: 'Make camp underground; magic stops cheating',
+    notes: [
+      'You can make camp in dungeons and rifts — heal, recover your wind, and rouse fallen companions — so delving deep is survivable. Underground rest doesn’t drag the realm’s day forward for everyone else.',
+      'Seeker Bolt is no longer an aimbot. It used to snap every cast onto the nearest foe, straight through solid walls. Now it bends toward foes you can actually see, fires where you aimed, and a foe who dodges or ducks behind cover can be missed.',
+    ],
+  },
+  {
+    version: 'v2.56.1',
+    date: '2026-07-14',
+    title: 'The Ultimate is an actual explosion',
+    notes: [
+      'Unleashing your Ultimate [Z] now looks like one: a flash, expanding shockwave rings in your element’s colour, and a burst of debris.',
+      'It grows with your power — a single ring at first, three screen-filling waves at mastery. Allies see it too.',
+    ],
+  },
+  {
     version: 'v2.56.0',
     date: '2026-07-13',
     title: 'Pinnacle bosses & chase relics',
