@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v2.58.0',
+    date: '2026-07-15',
+    title: 'The apex fights stop bowing to you',
+    notes: [
+      'The Drowned King, the Pale Shepherd and the Emberwyrm no longer shrink to match whoever walks in. They stand at a fixed, terrible strength — the King now bears roughly three and a half times the health he used to, and hits far harder. If you felled them easily before, they will not go quietly now.',
+      'The Emberwyrm is a real fight at last. He was a pushover with a third of a pinnacle boss’s health; he now stands where that King stood — still beatable at the taming gate, but he will make you earn the sky.',
+      'A wyrm or apex terror still grows with the size of your party and with each cycle you re-slay it — only its base strength stopped chasing your level. The relics it guards still suit the hero who claims them.',
+      'Ranged: a marked kill’s burst no longer chain-detonates. One kill used to wipe a whole line of foes across the room; the burst itself is untouched — it simply stops setting off its neighbours.',
+    ],
+  },
+  {
     version: 'v2.57.0',
     date: '2026-07-15',
     title: 'Your questline is your own',

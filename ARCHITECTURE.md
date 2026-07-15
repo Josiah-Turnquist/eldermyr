@@ -220,6 +220,16 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   the kill-chain transfer, and (ranged prof ≥24 capstone) the in-radius scan for the Deadeye
   marked-kill burst (routes damage through the one `afxHit` gate; splices the corpse before its
   burst snapshot so nested bursts can't re-hit it).
+- **The Deadeye burst is NON-CHAINING, and that is load-bearing.** The burst re-marks the survivors
+  it splashes *and* `killEnemy`s the ones it kills — so each of those deaths used to detonate again,
+  and one marked kill chain-reacted across a whole room ("half the enemies just immediately die").
+  A burst victim is tagged `_burstKill` before the nested `killEnemy`, and the tag vetoes the whole
+  mark-chain block on re-entry: **one kill = at most one burst.** The tag is scoped to the call by a
+  `finally`, NOT left on the object — `killEnemy` has two paths that return with the foe ALIVE and
+  still in `state.enemies` (the wyrm's Lv-20 guard, a pinnacle add's out-of-order resurrect), and a
+  tag stranded on one of those would silently veto that foe's own burst forever *and* ride packScalar
+  onto the wire (it's a number). Keep the tag causal: it must mute only burst-caused deaths, never a
+  later player/ally/bell kill of a burst-*marked* survivor — that kill is the capstone's payoff.
   Everything else is O(1): Deadeye/point-blank are computed at hit-time from shooter→impact
   distance (no scan), momentum/heat decay are counters in `updateStyleResources`.
 - **Reset-on-swap is a single seam:** `updateStyleResources()` (called each frame from
@@ -319,6 +329,16 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   that the bucketed duelist's per-frame `pinnacleHazard` can't reach; it only READS the live `arenaR` (never shrinks
   it) and DEFERS its player-filter allocation until a pinnacle boss is found (no allocation / early-out on the common
   no-boss tick).
+- **The pinnacle bosses + their adds + the Emberwyrm are FLAT-LEVELLED** (`PIN_LEVEL`=75, `DRAGON_LEVEL`=30) —
+  they no longer read `partyLvl()` at all, because scaling *down* to the party is what let a level-19 hero solo
+  both apex terrors. Three things that look like tidy-ups will silently undo this: (1) putting them into world.js's
+  `_rescaleThreats` — it deliberately rebuilds only Great Beasts (from the real generator) and warlords (from a
+  cached base), and must never touch a fixed rung; (2) "unifying" `dropPinnacleReward` onto `PIN_LEVEL` — the
+  DROP still tracks `partyLvl()` on purpose, so the reward suits whoever killed it instead of being a level-83
+  item in a level-19 hand; (3) making the curve additive — the wyrm's was, which is why a flat level alone would
+  have been *cosmetic* (level 30 → 3,700 hp vs 3,150 before). Party-size/cycle/ascension/distance still multiply
+  on top: flat means "not chasing the party's LEVEL", not "no scaling". `e.level` is write-only (read by nothing,
+  drawn nowhere) — setting it changes nothing; the stat formulas are the only thing that matters.
 - **PP-loop bag sync:** the enemy-combat partition loop sets `S.inventory = p.inventory` alongside `S.player = p`
   (every iteration, like the shared/spawn phases) so combat-time gear reads inside `updateEnemies` — melee-riposte's
   `equippedWeapon()`, future on-hit gear checks — see the BUCKET player's bag, not a stale one from a prior phase.
