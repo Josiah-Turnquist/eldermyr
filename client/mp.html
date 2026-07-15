@@ -152,12 +152,20 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     for (const f of F) { try { G.log && G.log(f.m, f.c || 'good'); } catch (e) { edgeErr('feed', e); } }
   }
 
-  // Shared questline + bounty + Realm-stones + deepest depth → adopt, then re-render the quest box. Version-gated
+  // YOUR questline + bounty + Realm-stones + deepest depth → adopt, then re-render the quest box. Version-gated
   // by _qN server-side, so a dropped snapshot leaves the box STALE until the NEXT quest change — potentially a
-  // game-hour of wrong information on screen, not a cosmetic one-frame blip.
+  // game-hour of wrong information on screen, not a cosmetic one-frame blip. Fed by BOTH the `welcome` (join /
+  // reconnect / takeover seed) and the gated snapshot block — same payload shape, one adopt path.
   function adoptQuests(s) {
     if (!s || !s.quests) return;
     try {
+      // The bag MUST be adopted before the box paints. updateQuests hides "Find the Dungeon Key" on
+      // `q.key.done || state.inventory.keys > 0` — and this runs in ws.onmessage, while state.inventory is
+      // otherwise only assigned in the FRAME-loop reconcile. The first snapshot always carries quests
+      // (_qSeen=0), and onmessage provably precedes the first frame, so the first paint read the game's
+      // DEFAULT keys=0 bag and a 16-key hero was told to go find a key — and it stuck until _qN next moved.
+      // (reconcile re-assigns this same object moments later — idempotent, not a second source of truth.)
+      if (s.me && s.me.inventory) G.state.inventory = s.me.inventory;
       G.state.quests = s.quests;
       G.state.bounty = s.bounty || null;
       if (s.loreFound) G.state.loreFound = s.loreFound;
@@ -443,6 +451,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
         adoptLegion(m.legion);                           // …and the Dread Legion roster, the other shared-world feature we must never invent locally
+        adoptQuests(m);                                  // …and THIS hero's questline. Required on a TAKEOVER (wifi blip / reload / second tab): that path adopts the live server-side player, whose _qSeen is already caught up, so no snapshot would ever re-send quests and this brand-new page would render the game's intro defaults forever. `m` already carries quests/bounty/loreFound/maxDepth (+ no `me`, so the bag line inside no-ops — the first snapshot, milliseconds later, does that half).
         try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
         mapReady = true;
       } else if (m.type === 'state') {
@@ -945,6 +954,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
     if (snap.me.lastRestDay != null) S.lastRestDay = snap.me.lastRestDay;   // per-player fatigue → correct Exhausted state/penalty
+    if (snap.me.maxDepth != null) S.maxDepth = snap.me.maxDepth;   // per-player deepest depth: a state.X field riding `me`, so NOT auto-applied (the tonics/sailing/floorMod lesson). The quest BOX still repaints off the gated snap.maxDepth in adoptQuests — this keeps state.maxDepth itself honest between quest changes. (quests/bounty do NOT ride `me`: too big at 66 Hz, so they are gated-only — see safeClone's skip-list.)
     if (snap.me.sailing != null) S.sailing = !!snap.me.sailing;   // per-player boat: drawPlayer reads state.sailing (NOT player.sailing) for the hull + bob
     if (snap.me.dragon) { if (S.dragon) Object.assign(S.dragon, snap.me.dragon); else S.dragon = snap.me.dragon; }   // per-player mount: merge so draw/HUD keep every dragon field they read
     // per-player map: the shared overworld OR your own private dungeon (server sends the grid on switch)

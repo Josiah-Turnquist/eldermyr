@@ -404,7 +404,7 @@ wss.on('connection', (ws) => {
         try { c.send(JSON.stringify({ type: 'superseded' })); } catch (_e) {}   // tell the old tab to STOP auto-reconnecting → ends two-tab reconnect ping-pong
         try { c.terminate(); } catch (_e) {}
       }
-      if (adopt) ws.pid = adopt;                     // take over the existing live player (no addPlayer, no DB load)
+      if (adopt) { ws.pid = adopt; const ap = world.players.get(adopt); if (ap) ap._qSeen = 0; }   // take over the existing live player (no addPlayer, no DB load). Rewind _qSeen: the adopted player is caught up to _qN, but the PAGE taking over is brand new and holds nothing — so force the next snapshot to re-carry quests. (welcome's questPayload below is the primary cure; this is the belt-and-braces, mirroring resendMap's flag rewind.)
       else { ws.pid = 'p' + (++seq); world.addPlayer(ws.pid, ((acct ? acct.name : m.name) || 'Hero').toString().slice(0, 18) || 'Hero', acct && acct.character); }
       ws.authed = true;
       if (ws._authTimer) { clearTimeout(ws._authTimer); ws._authTimer = null; }   // authed in time → cancel the reaper
@@ -412,6 +412,7 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({
         type: 'welcome', id: ws.pid, name: (p && p.name) || 'Hero', hz: HZ, map: world.mapPayload(),
         legion: world.legionPayload(),                          // the SERVER's Dread Legion roster: the client never generates its own (its genLegion would bake every member at the level-1 default → the "Lv 1" phantom). Sent here as well as on change so a TAKEOVER — which adopts the live pid and its already-caught-up _lgSeen — still seeds a brand-new page.
+        ...(world.questPayload(ws.pid) || {}),                  // this hero's quest box (quests/bounty/loreFound/maxDepth) — the SAME hazard the `legion:` line above documents and cures, and it bit harder: a takeover adopts the live pid with its already-caught-up _qSeen, so NO later snapshot would carry quests and the box sat on the game's intro defaults forever ("Speak to the Elder" at level 45). Spread flat so the payload lands where the client's adoptQuests() already reads it.
         token: ws.token || undefined,                          // browser stores this to auto-login next time
         recoveryCode: (isNew && acct) ? acct.recovery : undefined,   // shown ONCE, on new-hero creation
         reclaimed: viaCode || undefined,                       // logged in via a recovery code
