@@ -129,6 +129,43 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene === 'legion' && G.renderLegion) try { G.renderLegion(); } catch (e) { console.error('renderLegion', e); }
   }
 
+  // The EVENT FEED and the QUEST STATE are the roster's siblings: EDGE-triggered payloads that ride exactly ONE
+  // snapshot each (server-side `_feedSeen` vs `feedN`, `_qSeen` vs `_qN` — both consumed the instant they attach).
+  // All three are adopted from `ws.onmessage` for the reason spelled out in its `state` branch. Keeping them as
+  // named fns side by side is deliberate: these are the client's ENTIRE one-shot surface — anything added here
+  // needs the same treatment, and anything reconciled in the frame loop instead is a silent coin flip.
+  // Errors are throttled: onmessage is the ~66 Hz hot path, so an unthrottled console.error would flood the console.
+  let lastEdgeErrT = 0;
+  function edgeErr(what, e) {
+    const t = performance.now();
+    if (t - lastEdgeErrT > 2000) { lastEdgeErrT = t; console.error('mp ' + what + ' adopt error (payload skipped, socket continues):', e); }
+  }
+
+  // Server EVENT FEED → the game's bottom-left log (kills, drops, fishing, quests + other heroes' epic broadcasts).
+  // MESSAGE ORDER holds for free: the socket delivers messages in send order, this runs synchronously inside the
+  // onmessage for each one, and each snapshot's lines are appended in array order — so the log reads exactly as the
+  // server wrote it. A dropped feed line is UNRECOVERABLE (the server already advanced _feedSeen past it), which is
+  // precisely why this cannot live in the frame loop. It must also exist NOWHERE ELSE: a second call site would
+  // double-log every line.
+  function adoptFeed(F) {
+    if (!F) return;
+    for (const f of F) { try { G.log && G.log(f.m, f.c || 'good'); } catch (e) { edgeErr('feed', e); } }
+  }
+
+  // Shared questline + bounty + Realm-stones + deepest depth → adopt, then re-render the quest box. Version-gated
+  // by _qN server-side, so a dropped snapshot leaves the box STALE until the NEXT quest change — potentially a
+  // game-hour of wrong information on screen, not a cosmetic one-frame blip.
+  function adoptQuests(s) {
+    if (!s || !s.quests) return;
+    try {
+      G.state.quests = s.quests;
+      G.state.bounty = s.bounty || null;
+      if (s.loreFound) G.state.loreFound = s.loreFound;
+      if (s.maxDepth != null) G.state.maxDepth = s.maxDepth;
+      window.updateQuests && window.updateQuests();
+    } catch (e) { edgeErr('quests', e); }
+  }
+
   // 6. connect to the authoritative server
   let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
 
@@ -409,13 +446,19 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
         mapReady = true;
       } else if (m.type === 'state') {
-        // Adopt the roster HERE, not in reconcile: `snap` keeps only the NEWEST snapshot, and reconcile runs in
-        // the FRAME loop — at 66 Hz broadcast vs a browser rendering slower (or a backgrounded tab, where rAF
-        // throttles to ~1 Hz) most snapshots are overwritten before a frame ever sees them. snap.legion is
-        // EDGE-triggered (one snapshot per change), so reconciling it was the naive one-shot ARCHITECTURE.md
-        // warns "WILL eventually be lost" — and it was: the live client sat on the stale boot roster (Lv 1) while
-        // the server had it at Lv 19. onmessage sees EVERY message, so the roster can never be dropped.
-        if (m.snap && m.snap.legion) adoptLegion(m.snap.legion);
+        // Adopt the EDGE-TRIGGERED payloads HERE, not in reconcile: `snap` keeps only the NEWEST snapshot, and
+        // reconcile runs in the FRAME loop — at 66 Hz broadcast vs a browser rendering slower (or a backgrounded
+        // tab, where rAF throttles to ~1 Hz) most snapshots are overwritten before a frame ever sees them. Fields
+        // that ride EVERY snapshot (me, enemies, pickups) don't care — the next one carries them again. These ride
+        // exactly ONE snapshot each, so reconciling them was the naive one-shot ARCHITECTURE.md warns "WILL
+        // eventually be lost":
+        //   • legion — and it WAS lost: the live client sat on the stale boot roster (Lv 1) while the server had it
+        //     at Lv 19, after passing every headless check (headless calls snapshotFor directly, never dropping one).
+        //   • feed   — the server advances _feedSeen the moment it attaches, so a dropped line is gone FOREVER.
+        //   • quests — a drop leaves the quest box STALE until the NEXT quest change.
+        // onmessage observes EVERY message, so none of them can be dropped. Equally: these must run NOWHERE ELSE —
+        // a leftover reconcile-side copy would double-log every feed line.
+        if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptQuests(m.snap); }
         snap = m.snap;
       }
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
@@ -788,7 +831,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       wasDowned = !!me2.downed;
       if (me2.tonics != null) G.state.tonics = me2.tonics | 0;              // keep the shop's Health-Tonic price live (server charges the scaled cost; the display was stale)
       if (me2.sharpenLevel != null) G.state.sharpenLevel = me2.sharpenLevel | 0;
-      if (snap.feed) { for (const f of snap.feed) { try { G.log && G.log(f.m, f.c || 'good'); } catch (_e) {} } }   // server EVENT FEED → bottom-left log (kills, drops, fishing, quests + epic broadcasts)
+      // (snap.feed is NOT read here — it is edge-triggered and adopted in ws.onmessage, which never drops a
+      //  snapshot. Re-adding it here would double-log every line.)
       {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
         const inv = me2.inventory;
         if (inv) {
@@ -834,12 +878,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
         feelUltCd = uc;
       }
-      if (snap.quests) {                                 // shared questline changed → adopt + re-render the quest box
-        S.quests = snap.quests; S.bounty = snap.bounty || null;
-        if (snap.loreFound) S.loreFound = snap.loreFound;
-        if (snap.maxDepth != null) S.maxDepth = snap.maxDepth;
-        try { window.updateQuests && window.updateQuests(); } catch (_e) {}
-      }
+      // (snap.quests/bounty/loreFound/maxDepth are NOT read here either — same edge-triggered hazard, same cure:
+      //  adopted in ws.onmessage. Reconciling them here left the quest box stale on every dropped snapshot.)
       if ((me2._dungeonBlockN || 0) > lastDungeonBlockN) {   // tried to enter a dungeon — co-op instances not ready yet
         lastDungeonBlockN = me2._dungeonBlockN || 0;
         try { G.log && G.log('The dungeon stays sealed in co-op — shared delves are coming soon.', 'quest'); } catch (_e) {}
