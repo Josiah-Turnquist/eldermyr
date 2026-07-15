@@ -280,6 +280,8 @@ class World {
     this.dgSpawn = null;               // current floor's entry point (joiners + descends spawn here)
     this._qN = 1;                      // quest-state version: bumps when quests/bounty/lore change → clients resync
     try { this._qJson = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) { this._qJson = ''; }
+    this._lgN = 1;                     // Dread Legion roster version: bumps when the shared roster changes → clients resync (same idiom as _qN)
+    try { this._lgJson = JSON.stringify(S.legion); } catch (_e) { this._lgJson = ''; }
     this.feed = [];                    // event feed: {n, m, c, id, bc} — personal to `id`, or bc=broadcast to all
     this.feedN = 0;
     this.rift = null;                  // ephemeral deep-dungeon RIFT (#14): {x,y,deep,expires,n} — 30s window, one at a time
@@ -439,6 +441,7 @@ class World {
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
     p._feedSeen = this.feedN | 0;      // join fresh — don't replay the room's whole event history
+    p._lgSeen = 0;                     // Dread Legion roster version last sent (0 → the first snapshot carries the roster, like _qSeen)
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
@@ -757,6 +760,17 @@ class World {
     if (S.time % 40 === 0) {
       let j = ''; try { j = JSON.stringify([S.quests, S.bounty, S.loreFound, S.maxDepth]); } catch (_e) {}
       if (j && j !== this._qJson) { this._qJson = j; this._qN++; }
+      // Legion sync (SAME idiom, deliberately sharing this throttle block): the Dread Legion roster is SHARED
+      // world state that never rode the wire at all, so every client fell back to its own genLegion() — baked at
+      // the level-1 default hero → a PHANTOM roster stuck at "Lv 1" whose members never saw the encounters the
+      // server records, so the nemesis "???" reveals could never resolve. Version-stamping (rather than packing it
+      // into every snapshot like holdings) is a BANDWIDTH call: the roster is ~991 B against a ~10.8 KB snapshot
+      // (+9.2%) and the broadcast runs at ~66 Hz (BCAST_MS=15) → ~64 KB/s per player, forever, for data that
+      // changes on human timescales (legionDaily / a kill / a scouted reveal / _rescaleThreats). Gated, it costs
+      // 0 bytes/tick at rest. Stringify-compare (not a state._legionRev bumped at each mutation site) because it
+      // CANNOT miss a mutation site — and because it keeps eldermyr-rpg.html byte-identical for single-player.
+      let lj = ''; try { lj = JSON.stringify(S.legion); } catch (_e) {}
+      if (lj && lj !== this._lgJson) { this._lgJson = lj; this._lgN++; }
     }
 
     // Split the party: heroes on the SHARED overworld vs. each inside their OWN private dungeon.
@@ -1189,6 +1203,15 @@ class World {
       snap.loreFound = (S.loreFound || []).slice();
       snap.maxDepth = S.maxDepth | 0;
     }
+    // Dread Legion roster — shared world state, edge-triggered exactly like the quest block above (a fresh player
+    // has no _lgSeen → 0 !== _lgN → the roster ALWAYS rides their first snapshot, so a client that joined before
+    // the roster existed can never be left holding nothing). The join `welcome` carries it too (legionPayload),
+    // which is what covers a session TAKEOVER: that path adopts the live pid — and its already-caught-up _lgSeen —
+    // for a brand-new page that has no roster at all.
+    if ((me._lgSeen | 0) !== this._lgN) {
+      me._lgSeen = this._lgN;
+      snap.legion = this.legionPayload();
+    }
     // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch.
     // TRANSACTIONAL: only consume _sentDgN when a grid actually ATTACHES on a dungeon switch — otherwise the flag
     // was burned while W.md was momentarily null (mid world-swap) or the send was dropped downstream, leaving the
@@ -1208,6 +1231,13 @@ class World {
   mapPayload() {
     return { tile: TILE, w: G.maps.overworld[0].length, h: G.maps.overworld.length, tiles: G.maps.overworld };
   }
+
+  // The shared Dread Legion roster (overlord + warlords), sent on JOIN alongside the map and thereafter only
+  // when it CHANGES (snap.legion, gated by _lgN). Every member is flat scalars — id/name/rank/level/alive/
+  // scouted/strength/weakness/grudge/kills/region (+ dominated/loyalty/posted/raidT) — so safeClone carries the
+  // whole panel, including the scouted reveal state the "???" strength/weakness lines read, with nothing
+  // object-typed to leak (unlike the ENEMY side, whose warlordRef is an object ref packScalar must drop).
+  legionPayload() { return S.legion ? safeClone(S.legion) : null; }
 
   // Force a dungeon-grid re-send to a stuck client (it asked via {type:'needmap'}): rewind _sentDgN one
   // behind _mapSwitchN so the next snapshotFor sees a rising edge and re-attaches dgTiles. Covers a dropped

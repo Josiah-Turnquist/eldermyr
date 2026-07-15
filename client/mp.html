@@ -89,7 +89,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova'];   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'renderLegion'];   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   const G = window.__G;
@@ -101,9 +101,33 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
 
   // 5. boot the render machinery (builds a valid state, sprites, camera, HUD)
   window.addEventListener = realWinAdd;                  // restore for our own listeners
+  // The Dread Legion roster is SHARED WORLD STATE the server owns — the client must never generate its own.
+  // genLegion() BAKES each member's level from partyLvl() at generation time, and startGame() (just below) runs
+  // it while this hero is still the level-1 DEFAULT — the first snapshot hasn't applied our real level yet — so
+  // every member froze at "Lv 1" FOREVER, no matter the hero's level. Worse, that roster was a PHANTOM (its own
+  // RNG names) that never saw the encounters the server records, so the nemesis "wound it to learn" ??? reveals
+  // could never resolve. Stubbing the GLOBAL kills both fabrication paths at once: the game is one classic
+  // <script> with top-level `function genLegion(){}`, so window.genLegion IS the binding that startGame() and
+  // openLegion()'s `if(!state.legion) genLegion()` fallback each resolve through the scope chain. (Reassigning
+  // G.genLegion would NOT work — G is a separate capture object. Same lexical gotcha as the server's load-game.)
+  // state.legion simply stays null until the server's roster lands (welcome, then snap.legion); renderLegion()
+  // already draws a graceful "The Legion has not yet stirred." for that sliver, and nothing else here reads it
+  // (updateQuests reads state.quests.legion — the QUEST — not the roster).
+  window.genLegion = () => {};
   try { G.startGame(); } catch (e) { console.error('startGame', e); }
   if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {}
   realWinAdd('resize', () => { if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {} });
+
+  // EXPLICIT adoption of the server's Dread Legion roster (the architecture's per-field rule: nothing on the wire
+  // applies itself). Arrives on `welcome` — so [N] shows real members from the first frame, and a takeover, which
+  // adopts the live pid's already-caught-up _lgSeen, still seeds the fresh page — and thereafter only when the
+  // roster CHANGES (snap.legion, version-gated server-side by _lgN → 0 bytes/tick at rest). Re-render if the panel
+  // happens to be OPEN so a "???" strength/weakness reveal lands live as you wound the real member.
+  function adoptLegion(L) {
+    if (!L) return;
+    G.state.legion = L;
+    if (G.state.scene === 'legion' && G.renderLegion) try { G.renderLegion(); } catch (e) { console.error('renderLegion', e); }
+  }
 
   // 6. connect to the authoritative server
   let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
@@ -381,9 +405,19 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         G.maps.overworld = m.map.tiles;                  // adopt the server's world
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
+        adoptLegion(m.legion);                           // …and the Dread Legion roster, the other shared-world feature we must never invent locally
         try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
         mapReady = true;
-      } else if (m.type === 'state') { snap = m.snap; }
+      } else if (m.type === 'state') {
+        // Adopt the roster HERE, not in reconcile: `snap` keeps only the NEWEST snapshot, and reconcile runs in
+        // the FRAME loop — at 66 Hz broadcast vs a browser rendering slower (or a backgrounded tab, where rAF
+        // throttles to ~1 Hz) most snapshots are overwritten before a frame ever sees them. snap.legion is
+        // EDGE-triggered (one snapshot per change), so reconciling it was the naive one-shot ARCHITECTURE.md
+        // warns "WILL eventually be lost" — and it was: the live client sat on the stale boot roster (Lv 1) while
+        // the server had it at Lv 19. onmessage sees EVERY message, so the roster can never be dropped.
+        if (m.snap && m.snap.legion) adoptLegion(m.snap.legion);
+        snap = m.snap;
+      }
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
       else if (m.type === 'shopData') {                  // server sent this hero's shop stock → open the panel
         const d = m.data; if (!d) return;

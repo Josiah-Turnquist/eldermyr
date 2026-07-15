@@ -411,6 +411,7 @@ wss.on('connection', (ws) => {
       const p = world.players.get(ws.pid);
       ws.send(JSON.stringify({
         type: 'welcome', id: ws.pid, name: (p && p.name) || 'Hero', hz: HZ, map: world.mapPayload(),
+        legion: world.legionPayload(),                          // the SERVER's Dread Legion roster: the client never generates its own (its genLegion would bake every member at the level-1 default → the "Lv 1" phantom). Sent here as well as on change so a TAKEOVER — which adopts the live pid and its already-caught-up _lgSeen — still seeds a brand-new page.
         token: ws.token || undefined,                          // browser stores this to auto-login next time
         recoveryCode: (isNew && acct) ? acct.recovery : undefined,   // shown ONCE, on new-hero creation
         reclaimed: viaCode || undefined,                       // logged in via a recovery code

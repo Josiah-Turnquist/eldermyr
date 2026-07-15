@@ -616,7 +616,7 @@
 //                        restores 40% HP. It now queues a slow regen (tickCampRest) that mends ~35% of
 //                        maxHp over several seconds. The "foes near" safety guard and the energy/chill/
 //                        fatigue refresh are untouched. (Time-skip stays; MP undoes the jump server-side.)
-const GAME_VERSION = 'v2.56.2';   // You can now make camp in dungeons/rifts (heal + energy + revive) so deep delving is survivable — no shared-clock skip underground, so one nap won't shove everyone's day forward in co-op. Magic's Seeker Bolt is no longer an aimbot: it picks the nearest foe you have LINE OF SIGHT to (walls block it), fires where you aimed, then bends toward the target by a capped turn rate — so a dodging/behind-cover foe can be missed.
+const GAME_VERSION = 'v2.56.3';   // MP: the Dread Legion panel [N] was showing a PHANTOM roster — the client generated its own at startGame() while the hero was still the level-1 default, so every member read "Lv 1" forever and the nemesis "???" reveals could never resolve. The roster is now server-owned: it rides the snapshot (version-gated, 0 bytes/tick at rest) and the client adopts it explicitly. v2.56.2 — You can now make camp in dungeons/rifts (heal + energy + revive) so deep delving is survivable — no shared-clock skip underground, so one nap won't shove everyone's day forward in co-op. Magic's Seeker Bolt is no longer an aimbot: it picks the nearest foe you have LINE OF SIGHT to (walls block it), fires where you aimed, then bends toward the target by a capped turn rate — so a dodging/behind-cover foe can be missed.
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
