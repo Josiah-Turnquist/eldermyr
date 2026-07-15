@@ -22,6 +22,16 @@
 
 module.exports = [
   {
+    version: 'v2.59.1',
+    date: '2026-07-15',
+    title: 'Your Emberwyrm is the same beast tamed as it was wild',
+    notes: [
+      'Last release redrew the wild Emberwyrm but not the steed you ride, so taming it turned your prize into a different, cruder animal. The steed is now built from the same wings, skull and scales &mdash; same beast, saddled.',
+      'It is not merely the wild wyrm pasted under you: you sit on its back, so its bulk trails behind your shoulders, its neck reaches up to look ahead, and the lit scales run along its haunch and a ridge up the neck instead of under the saddle.',
+      'Both the wild wyrm and the steed now take every tone from one colour, so they can never drift apart again.',
+    ],
+  },
+  {
     version: 'v2.59.0',
     date: '2026-07-15',
     title: 'Every creature redrawn &mdash; and the game got faster',
