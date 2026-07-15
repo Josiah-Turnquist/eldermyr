@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v2.59.0',
+    date: '2026-07-15',
+    title: 'Every creature redrawn &mdash; and the game got faster',
+    notes: [
+      'All eleven creatures have been redrawn: outlines so they read against grass and stone alike, real shading instead of flat fills, a highlight, and movement with weight to it. The slime was a single flat blob with two dots for eyes; Morthrax was a plain triangle. Same silhouettes &mdash; done properly.',
+      'Their colours are honest now. A Legion warlord is a red skeleton, so his bones are red rather than bone-white; the Pale Shepherd is pale, rather than wearing the same violet robe as every other boss. Elite and biome tints carry through everywhere.',
+      'And it runs faster than before. The world was drawing all ~130 creatures every single frame &mdash; only a couple of which you could actually see. It now skips the ones off your screen, so more detailed monsters cost about a third less frame time than the old flat ones did.',
+      'Charging foes and apex arenas are exempt from that skip, so a telegraphed charge or a closing arena ring still shows even when its owner is off-screen.',
+    ],
+  },
+  {
     version: 'v2.58.1',
     date: '2026-07-15',
     title: 'The Sunken Dungeon arrow finally lets go',
