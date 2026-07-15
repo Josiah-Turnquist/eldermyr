@@ -534,7 +534,13 @@ class World {
     S.player = pp; S.inventory = pi;
     if (!snap) return null;
     return {
-      v: 2, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
+      // v3: `player` now carries this hero's PERSONAL MILESTONES (enteredDungeon/gotKey/enteredFrozen).
+      // No line is needed for them here — snapshot()'s player whitelist emits them and the S.player swap
+      // above already pins them to THIS hero. That is exactly why they live on the player object rather
+      // than in a state.X slice: no PP_KEYS entry, no writeBack line, no snapshot gate, no client adopt —
+      // the four links this bug class kept slipping through. state.flags stays SHARED world facts and is
+      // deliberately still not saved (krakenDead/legionBroken describe a world that regenerates each boot).
+      v: 3, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
@@ -635,6 +641,34 @@ class World {
       if (legacy && (p.level | 0) > 1) q.main.started = true;   // a returning veteran has met the Elder → the (shared) Kraken hunt is on
       p.quests = q; p.maxDepth = mDepth; p.bounty = bnty;
       p._qJson = ''; p._qN = (p._qN | 0) + 1;          // force a re-stamp so the restored box reaches the client
+
+      // ---- personal milestones (v3) — MIGRATION, chained AFTER the v1→v2 questline block above ----
+      // Rows written before v3 carry no milestones: they lived in the SHARED state.flags, which no save
+      // has ever held (characterOf never emitted `flags`), so there is nothing to read back — synthesize
+      // from the durable per-player progress the row DOES carry. Keyed on the FIELD, not on `c.v`: a v1
+      // and a v2 row both lack it, and field-presence cannot be wrong. Skipping this re-ships the bug.
+      if (!c || !c.player || c.player.enteredDungeon === undefined) {
+        const keys = (p.inventory && p.inventory.keys) | 0;
+        // Two independent sources, because neither covers every row on its own:
+        //  · mDepth > 0 — proof, but only a v2+ row can carry it, and the v1→v2 migration has no source
+        //    for depth (it defaults to 0). So a hero who last saved on v1 gets nothing from this.
+        //  · keys >= 2 — proof within a world: setupOverworld places exactly ONE key pickup, and every
+        //    other key drops from a DUNGEON boss (killEnemy, gated on state.map==='dungeon'). This is
+        //    what catches the owner's level-45/16-key hero whichever row version he is on.
+        // (Across reboots the world regenerates its one key, so in principle a never-delving hero could
+        // hoard one per boot; the cost of that false positive is one wayfinder hint, versus re-shipping
+        // the reported bug. Neither source can be fooled into a false NEGATIVE, which is the direction
+        // that matters here.)
+        p.enteredDungeon = mDepth > 0 || keys >= 2;
+        p.gotKey = keys > 0 || !!(q.key && q.key.done);
+        // enteredFrozen has NO durable source. Default FALSE — the safe direction: a wrongly-false flag
+        // just re-plays one lore line and re-reveals an already-revealed quest (both idempotent), while a
+        // wrongly-true one would hide the Frozen Cache line from a hero who never crossed. It also self-
+        // heals on their next step into the snow. Anyone this misses on enteredDungeon self-heals the same
+        // way (their next delve sets it, and now it persists) — and currentObjective's maxDepth clause
+        // covers them the moment they descend once.
+        p.enteredFrozen = false;
+      }
 
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
       S.player = p; S.inventory = p.inventory;

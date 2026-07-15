@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v2.58.1',
+    date: '2026-07-15',
+    title: 'The Sunken Dungeon arrow finally lets go',
+    notes: [
+      'The realm kept pointing you at the Sunken Dungeon no matter how many times you had delved it. Milestones like “I have been down there”, “I have crossed into the Wastes” and “I found the key” were held for the whole realm at once, were never written down, and never even reached your screen — so the arrow returned on every single visit.',
+      'Those are yours now, and they stay yours: they survive a reload, a reconnect, and the realm going quiet. Long-standing heroes are recognised from what they have already done — if you carry dungeon keys or have delved deep, the game knows.',
+      'In co-op, guidance is finally personal: a newcomer is still shown the way while a veteran isn’t, and one hero crossing into the Frozen Wastes no longer stops everyone else’s discovery.',
+      'What belongs to the whole realm still does — the Kraken and the Legion are slain for everyone, not just for whoever struck the blow.',
+    ],
+  },
+  {
     version: 'v2.58.0',
     date: '2026-07-15',
     title: 'The apex fights stop bowing to you',
