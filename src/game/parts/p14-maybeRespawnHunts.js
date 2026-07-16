@@ -470,10 +470,19 @@ function doCamp() {
   Sound.heal();
   updateHUD();
 }
-function updateFatigue() {
+function updateFatigueFor(mp) {
+  /* The SP body, verbatim — the ONE per-hero difference is where the exhaustion EDGE MEMORY
+     lives: SP keeps the module slot __g._wasExhausted (one hero, one slot — byte-identical to
+     the pre-split fn); MP keeps it ON the acting hero (p._exWas — world.js's addPlayer seeds it
+     false and its doCamp RPC pre-arms it, exactly like the game's own __g pre-arms in doCamp/
+     doTravel/applySnapshot). Everything else reads state.player/state.inventory, so the
+     dispatcher's pin IS the per-hero context (recalcStats reads the pinned bag; log() reaches
+     the acting hero's feed; markTownVisited/facTierIdx read the pinned hero's own keys). */
   const ex = isExhausted();
-  if (ex !== __g._wasExhausted) {
-    __g._wasExhausted = ex;
+  const was = mp ? !!state.player._exWas : __g._wasExhausted;
+  if (ex !== was) {
+    if (mp) state.player._exWas = ex;
+    else __g._wasExhausted = ex;
     recalcStats();
     updateHUD();
     if (ex) {
@@ -509,6 +518,35 @@ function updateFatigue() {
         size: 2,
       });
   }
+}
+function updateFatigue() {
+  /* P2 (updateFatigue-in-MP, plan §2): the A-shape dispatcher. updateFatigue was NEVER called in
+     the MP tick — world.js replicated only the recalc EDGE per rotation, so town rest, vigil
+     regen, markTownVisited, the Exhausted/rested feed lines and the exhaustion HP drain silently
+     didn't exist for MP heroes (the LAST shared-state bug). Now world.js makes ONE call per world
+     phase and the fn loops the WORLD-SCOPED party itself (partyIn, plan risk #9 — a delver's
+     dungeon coordinates must never pass the overworld town test; the dungeon phase's own call
+     covers delvers with the town block map-gated off, exactly like SP underground). JOIN ORDER
+     (party()'s contract). Downed heroes are spared — bleed-out owns them (the hazards rule): no
+     town rest while bleeding out, no vigil regen fighting the downed pass, frozen edge memory.
+     Pin-with-restore (the updateFires idiom): each hero is pinned (player + inventory — the
+     recalc edge reads the bag) and the ambient pin is put back, so a tick in which fatigue does
+     no work leaves the room byte-identical.
+     SP: state.players is never set → the plain call below, __g edge memory — byte-identical. */
+  if (state.players && state.players.length) {
+    const _sp = state.player,
+      _si = state.inventory;
+    for (const pl of partyIn()) {
+      if (pl.downed) continue;
+      state.player = pl;
+      if (pl.inventory) state.inventory = pl.inventory;
+      updateFatigueFor(true);
+    }
+    state.player = _sp;
+    state.inventory = _si;
+    return;
+  }
+  updateFatigueFor(false);
 }
 // Regional music & ambience (v2.33.0): the overworld track follows the ring you stand in, flips to a
 // driving 'danger' theme when a boss or warlord is near, and quiet one-shots dress the world — birdsong

@@ -197,6 +197,17 @@ finally), so an RPC invoked outside a rotation slice can no longer act as a stal
   scale to the party via `state._partyLevel || state.player.level`, the `legionDaily` idiom).
   `actAs(p, fn)` (in the game, beside `party()`) pins ONLY `state.player`/`state.inventory` —
   since P2/S13 (quests, the last PP key, retired) that pin IS the whole per-hero context.
+- **Fatigue is internalized (P2 updateFatigue-in-MP):** world.js makes ONE `G.updateFatigue()`
+  call per world phase (overworld after the movement rotation, dungeon over the standing
+  delvers) and the game loops the world-scoped `partyIn()` itself — JOIN ORDER, downed heroes
+  spared, pin-with-restore (player + inventory: the recalc edge reads the bag). This is what
+  gives MP heroes town rest (`lastRestDay` tracks `curDay` in a town), tier-2 Vigil in-town
+  regen, `markTownVisited`, the personal Exhausted/rested feed lines and the exhaustion HP
+  drain — none of which ever ran server-side before (world.js replicated only the recalc
+  edge, so a hero could stand in town for three game-days and go Exhausted anyway). The
+  exhaustion EDGE MEMORY is per-hero in MP (`p._exWas`, seeded by addPlayer, pre-armed by the
+  doCamp RPC) and the module slot `__g._wasExhausted` in SP — the one asymmetry; everything
+  else in the body reads the pinned `state.player`.
 - **Projectiles are internalized (P2/S16):** world.js makes ONE `G.updateProjectiles()` call per
   world; the game itself buckets shots by SHOOTER (FIRST-SHOT order — not roster order), steps
   each bucket under that owner's pin (`state.player` + `state.inventory`, no restore — the shared
@@ -213,18 +224,33 @@ finally), so an RPC invoked outside a rotation slice can no longer act as a stal
 
 ## Snapshots & the wire
 
-`snapshotFor(id)` builds each client's view (**~66 Hz** — `BCAST_MS`=15 in index.js, decoupled
-from the 80 Hz sim; it is NOT ~10 Hz, so per-snapshot bytes are expensive): `me` via
-depth-bounded `safeClone` (skip-list includes `held`, `inventory` internals, `dodgeHits`), other
-players via `lightPlayer` (includes `sailing`/`mounted` flags), interest-culled
-enemies/allies/npcs/pickups.
+`snapshotFor(id)` builds each client's view (**20 Hz** — `BCAST_MS`=50 in index.js, decoupled
+from the 80 Hz sim; snapshot v2 cut it from 15/~66 Hz, so per-snapshot bytes are still expensive,
+just 3× less so): `me` via depth-bounded `safeClone` (skip-list includes `held`, `dodgeHits`,
+and since v2 the whole `inventory` — the bag rides the gated payload below), other players via
+`lightPlayer` (includes `sailing`/`mounted` flags), interest-culled enemies/allies/pickups at
+**34 tiles** (was 46 — the viewport half-diagonal is ~18t, so 34t keeps ~2× margin; at 20 Hz an
+entity entering the ring is on screen within one broadcast). Overworld npcs/shrines/loreStones/
+pois do NOT ride per-snapshot at all any more — they are near-static and travel in the gated
+`wf` payload (a dungeon's own inline `snap.npcs` is the one exception, so a delver's world
+can't resolve topside npcs). Measured on a real socket, standing at spawn: 601.7 KB/s/player
+before v2 → **170.6 KB/s** after (10.33 KB × ~58 Hz → ~8 KB × 19.3 Hz); `/health.json` exposes
+the live rate as `wireKBs`.
 
 **Edge-triggered extras** (sent only on change, tracked by per-player counters): the event
 feed (`_feedSeen`), quest state (`_qSeen` vs `_qN` — **both per-player**, since the questline is
 per-hero; the `S.time % 40` stamp loops over `S.players` and stringifies each `p.quests` directly —
 root `state.quests` no longer exists, P2/S13), the Dread Legion roster
-(`_lgSeen` vs `_lgN`), and the dungeon tile grid (`_sentDgN` vs `_mapSwitchN`). Anything
-edge-triggered ALSO needs a **join seed in `welcome`** (`legionPayload`/`questPayload`) — see the
+(`_lgSeen` vs `_lgN`), the dungeon tile grid (`_sentDgN` vs `_mapSwitchN`), and since snapshot v2
+the **inventory** (`me._invSeen` vs the room's `_invN` Map — versions/stringify caches live on
+the World instance keyed by player id, deliberately OFF the hashed sim state so the mp-golden
+baselines don't move; the bag is the fat tail of `me` and changes on human timescales) and the
+**world features** `wf` (npcs/shrines/loreStones/pois — `me._wfSeen` vs `_wfN`, one room-wide
+version; `featuresPayload` strips/quantizes the volatile fields — npc `temp`, shrine `sinkT`,
+shrine `cd` reduced to its readiness SIGN — so the %40 stringify only flips on real edges: a
+merchant appearing, a shrine spending/sinking, a POI clearing). Anything
+edge-triggered ALSO needs a **join seed in `welcome`** (`legionPayload`/`questPayload`/
+`inventoryPayload`/`featuresPayload`) — see the
 takeover note below. Payload builders are pure reads: consuming the `_seen` edge inside one cancels
 the takeover rewind and makes `welcome` a single point of failure. **dgTiles is transactional:** the flag is
 consumed *only when a grid actually attaches*; otherwise it retries next tick. Clients that
@@ -257,7 +283,9 @@ Postgres; ephemeral mode without `DATABASE_URL`). **Session takeover:** an auth 
 that already has a live socket supersedes the old one (`{type:'superseded'}` then terminate)
 and the new socket **adopts the live pid** — no DB reload, no duplicate hero; a superseded
 socket's close skips both save and removePlayer. **Takeover is why `welcome` seeds every
-edge-triggered payload** (`legion`, `quests`/`bounty`/`loreFound`/`maxDepth`): it hands a
+edge-triggered payload** (`legion`, `quests`/`bounty`/`loreFound`/`maxDepth`, and since
+snapshot v2 `inventory` + `wf` — the adopt path rewinds `_qSeen`/`_invSeen`/`_wfSeen` as the
+belt-and-braces): it hands a
 BRAND-NEW page a live player whose `_seen` counters are already caught up, so no later snapshot
 would ever carry them and the page renders the game's boot defaults *forever* (measured for
 quests: 0 of 400 snapshots over 5 s — a level-45 hero told to "Speak to the Elder"). Every wifi
@@ -300,6 +328,17 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
   the wire (safeClone skips the fat stock; it arrives once in `shopData`), so the wholesale
   adopt would blank an open shop panel — mp.html keeps `localShop` and re-stamps
   `activeShopTown/activeShopName/activeStock` onto `S.player` after every adopt.
+- **Snapshot v2 client shape:** `adoptInventory`/`adoptWorldFeatures` live beside
+  adoptLegion/adoptFeed/adoptQuests and are consumed in **ws.onmessage** (welcome + state
+  branches — the one-shot rule; adoptQuests keeps its own self-contained `s.inventory` line
+  because the box paint reads `state.inventory.keys` and the fn is extracted verbatim by the
+  battery's objclient). `state.inventory` is a singleton the wholesale me-adopt never touches,
+  so the last adopted bag persists — panels/sigs/loot-jingle read `G.state.inventory`, never
+  `snap.me.inventory` (gone). The `wf` lists live in the tab-local `localWF` and the reconcile
+  re-stamps `state.npcs/shrines/loreStones/pois` from it every frame on the overworld (a
+  dungeon's inline `snap.npcs` wins below ground); the npc/feature FINDERS (`nearestShopNpc`
+  etc.) read `G.state.npcs`, not the snap. Smoothing is tuned to the 50 ms gaps
+  (`_sk` /40, `_skp` /18, prediction correction 0.45/snapshot).
 - **The client must never GENERATE shared world state.** The welcome handler nukes the
   client-random features (`state.pois/shrines/loreStones = []`) and adopts the server's; the
   Dread Legion roster is the same class of data and `window.genLegion` is **stubbed to a no-op

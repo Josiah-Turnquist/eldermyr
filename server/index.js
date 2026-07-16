@@ -324,7 +324,7 @@ const httpServer = http.createServer((req, res) => {
     try {
       const body = JSON.stringify(Object.assign(
         { ok: true, uptime: +process.uptime().toFixed(1), rssMB: Math.round(process.memoryUsage().rss / 1048576) },
-        world.perf()));
+        world.perf(), wireStats()));
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(body);
     } catch (_e) { res.writeHead(200); res.end('ok'); }
     return;
@@ -412,7 +412,7 @@ wss.on('connection', (ws) => {
         try { c.send(JSON.stringify({ type: 'superseded' })); } catch (_e) {}   // tell the old tab to STOP auto-reconnecting → ends two-tab reconnect ping-pong
         try { c.terminate(); } catch (_e) {}
       }
-      if (adopt) { ws.pid = adopt; const ap = world.players.get(adopt); if (ap) ap._qSeen = 0; }   // take over the existing live player (no addPlayer, no DB load). Rewind _qSeen: the adopted player is caught up to _qN, but the PAGE taking over is brand new and holds nothing — so force the next snapshot to re-carry quests. (welcome's questPayload below is the primary cure; this is the belt-and-braces, mirroring resendMap's flag rewind.)
+      if (adopt) { ws.pid = adopt; const ap = world.players.get(adopt); if (ap) { ap._qSeen = 0; ap._invSeen = 0; ap._wfSeen = 0; } }   // take over the existing live player (no addPlayer, no DB load). Rewind _qSeen: the adopted player is caught up to _qN, but the PAGE taking over is brand new and holds nothing — so force the next snapshot to re-carry quests. (welcome's questPayload below is the primary cure; this is the belt-and-braces, mirroring resendMap's flag rewind.) Snapshot v2: the inventory + world-features gates get the same rewind for the same reason (their welcome seeds below are the primary cure).
       else { ws.pid = 'p' + (++seq); world.addPlayer(ws.pid, ((acct ? acct.name : m.name) || 'Hero').toString().slice(0, 18) || 'Hero', acct && acct.character); }
       ws.authed = true;
       if (ws._authTimer) { clearTimeout(ws._authTimer); ws._authTimer = null; }   // authed in time → cancel the reaper
@@ -420,6 +420,8 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({
         type: 'welcome', id: ws.pid, name: (p && p.name) || 'Hero', hz: HZ, map: world.mapPayload(),
         legion: world.legionPayload(),                          // the SERVER's Dread Legion roster: the client never generates its own (its genLegion would bake every member at the level-1 default → the "Lv 1" phantom). Sent here as well as on change so a TAKEOVER — which adopts the live pid and its already-caught-up _lgSeen — still seeds a brand-new page.
+        inventory: world.inventoryPayload(ws.pid),              // snapshot v2: the bag is version-gated off `me` now — seed it here for the SAME takeover reason as legion/quests (a fresh page adopting a caught-up _invSeen would render the game's default keys/potions forever). Adopted in ws.onmessage BEFORE the quest box paints (updateQuests reads state.inventory.keys).
+        wf: world.featuresPayload(),                            // snapshot v2: the overworld's npcs/shrines/loreStones/pois — near-static, version-gated (never per-snapshot); the welcome seed is what puts shops/elder/stones on a fresh or taken-over page.
         ...(world.questPayload(ws.pid) || {}),                  // this hero's quest box (quests/bounty/loreFound/maxDepth) — the SAME hazard the `legion:` line above documents and cures, and it bit harder: a takeover adopts the live pid with its already-caught-up _qSeen, so NO later snapshot would carry quests and the box sat on the game's intro defaults forever ("Speak to the Elder" at level 45). Spread flat so the payload lands where the client's adoptQuests() already reads it.
         token: ws.token || undefined,                          // browser stores this to auto-login next time
         recoveryCode: (isNew && acct) ? acct.recovery : undefined,   // shown ONCE, on new-hero creation
@@ -521,15 +523,25 @@ setInterval(async () => {
 // accumulator steps the sim as many times as real time demands (capped), so speed
 // stays correct even when the timer fires late.
 const STEP_MS = 1000 / HZ;
-const BCAST_MS = 15;                             // ~60Hz broadcast, decoupled from the sim rate
+const BCAST_MS = 50;                             // 20 Hz broadcast (snapshot v2, plan §5 — was 15/~66 Hz), decoupled from the 80 Hz sim. The client predicts its own movement and glides remote entities across the 50 ms gaps (mp.html smoothing divisors are tuned to this number); edge-triggered payloads (quests/legion/feed/dgTiles/inventory/wf) are consumed in ws.onmessage and seeded in `welcome`, so the lower rate must never starve them.
 let acc = 0, lastT = Date.now(), lastBcast = 0, simTimer = null;
+// Wire accounting (snapshot v2): cumulative outbound state-snapshot bytes + a per-poll rate in
+// /health.json (wireKBs = KB/s across ALL clients since the previous /health.json read) — the
+// measured number the 20 Hz + AOI + gating work is judged by.
+let _wireBytes = 0, _wirePollBytes = 0, _wirePollT = Date.now();
+function wireStats() {
+  const now = Date.now(), secs = Math.max(0.001, (now - _wirePollT) / 1000);
+  const kbs = (_wireBytes - _wirePollBytes) / 1024 / secs;
+  _wirePollBytes = _wireBytes; _wirePollT = now;
+  return { wireKBs: +kbs.toFixed(1), wireMBTotal: +(_wireBytes / 1048576).toFixed(2) };
+}
 function broadcast() {
   for (const ws of wss.clients) {
     if (ws.readyState !== 1 || !ws.pid) continue;
     let snap;
     try { snap = world.snapshotFor(ws.pid); }               // one bad snapshot must NOT crash the whole room
     catch (e) { console.error('snapshotFor error for', ws.pid, e && e.message); continue; }
-    if (snap) { try { ws.send(JSON.stringify({ type: 'state', snap })); } catch (_e) {} }
+    if (snap) { try { const payload = JSON.stringify({ type: 'state', snap }); _wireBytes += payload.length; ws.send(payload); } catch (_e) {} }
   }
 }
 function simStep() {

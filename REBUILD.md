@@ -505,4 +505,87 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   seam. ARCHITECTURE.md: room-rotation intro rewritten (pin-is-the-swap + actAs seam), PP_KEYS
   bullet → past-tense chronicle, iron rule 4 forbids reintroducing a state.X slice.
 - 2026-07-16: P2/S15 DONE — ENEMY-PARTITION INTERNALIZATION (plan §7 S13 sub-slice 1 "enemies"; the plan's #2-riskiest conversion): updateEnemies is the A-shape now — the SP body became `updateEnemiesFor(list)` (SP calls it with state.enemies: same body, same draws, golden 1p 8/8 on the UNTOUCHED oracle + full prove, speed/damage cascade@0 + hunt exactly @700) and the MP dispatcher moved the whole world.js partition INTO the sim verbatim: partyIn() roster in JOIN ORDER, downed-invisible pools (all-downed → foes still mill), boss town-blind bubble (`heroInSpawnTown` recomputes townCenter(townZones[0])×TILE — the exact value world.js captured as SPAWN), `wanderEnemyHome` fallback, per-bucket `state.player/state.inventory` pins with DELIBERATELY no restore (the ambient last-hero pin is hashed state the 2p baselines freeze), and bucket-order recombine (join order, mid-pass spawns swept to the acting hero's group tail, wanderers last — next tick's grouping iterates that array, so the order IS the determinism contract). THE structural win: `state.enemies` stays the FULL world roster during every pass, so killEnemy's inline last-guardian checks, healAlly, the pinnacle court check and the Quarry burst see the whole world — `__libGate` RETIRED everywhere (world.js init/sets/clears + the three load-game lexical wrappers), liberation fires INLINE at the kill credited to the KILLER's pin, and the `_seen` sweeps REMAIN as reconciliation for kill-less removals (leash despawn — probed explicitly in t2's rework). world.js: both partition blocks (ow+dg) → one `G.updateEnemies()` call each; inTown/wanderHome/isBoss/TOWN_R2/OW_W deleted (nearestPlayer stays — allies still partition world.js-side). mp-golden: 4/4 on the UNTOUCHED oracle-mp — NO re-record, identity proven by BOTH runs (pre-change 4/4 + post-change 4/4, oracle sha 221011e1…: bucket iteration/recombine/pin parity held byte-for-byte at all 124 samples) + mp-prove all green. Battery 42/42: NEW suite `enemies-mp-verify` (direct-call probes: per-foe nearest-hero targeting, regroup order via push-order inversion, ambient-pin contract, per-bucket kill credit xp/gold/slay, boss telegraph-drop + wander vs chase-the-out-of-town-hero, downed invisibility, inline last-guardian refusal + killer-paid liberation, artifact source guards, w.tick regression floor) — SEEN FAILING 12 asserts vs a pre-S15 HEAD-7ee67de worktree (own dist: B's foe frozen, A pocketing BOTH kills' credit while B got +0/+0/+0, boss ticking its telegraph instead of going home, the downed hero chased, A drawing B's site gold); t2-liberation REWORKED (killer-credit pair + sweep-reconciliation probe + gate-gone source guards) — SEEN FAILING 3 asserts vs the same tree. World self-test + typecheck green; live browser smoke (MP + SP off the same dist): join clean, enemies aggro/chase/strike through the internalized path, downed→bleed-out→respawn at town, kills → LEVEL UP + "Slay 5 monsters" quest completion live in the feed, 0 console errors across the session; SP page boots and plays with `state.players` provably unset (the MP branch is dead code in the browser). Conscious MP deltas (recorded trajectories unaffected — hashes identical): liberation/POI/siege rewards now pay the hero whose kill freed the site (was players[0] via the deferred sweep); healers/marks/boss-court checks see across bucket boundaries (co-op-correct); wanderers stay in state.enemies during passes (guarded against same-tick cross-bucket death). ARCHITECTURE.md: epilogue hook list (gate retirement chronicle), the partitioned-combat bullet rewritten as the internalized contract, bag-sync bullet repointed in-game. Remaining P2 arc: projectile internalization, updateFatigue-in-MP, snapshot v2, S16 remap drop.
+- 2026-07-16: P2/S18 DONE — SNAPSHOT V2 (plan §5 / ladder S15; wire-shape ONLY — sim hashes untouched):
+  BCAST_MS 15→50 (66→20 Hz), AOI 46t→34t (enemies/proj/pickups/allies/comps; ~2× viewport margin),
+  and TWO new version-gated payloads: `inventory` (the fat tail of `me` — safeClone skips it now;
+  per-player stringify in the %40 stamp block with versions/caches in Maps ON THE WORLD INSTANCE,
+  deliberately off the hashed sim so the baselines can't move; `me._invSeen` cursors touched lazily
+  in snapshotFor only) and `wf` (npcs/shrines/loreStones/pois — near-static, FULL lists on change +
+  join, NEVER per-snapshot; featuresPayload strips/quantizes the volatile fields: npc `temp`
+  dropped, shrine `sinkT` dropped, shrine `cd` → its readiness SIGN, which is all drawShrine reads —
+  so a cooling shrine re-sends exactly twice, not 2/s). Dungeon npcs stay inline (a delver must
+  never resolve topside npcs). NEVER-filtered edges untouched per the hidden-tab lesson:
+  quests/legion/feed/dgTiles/holdings/me/players — and the new payloads follow the FULL pattern
+  (gate + `welcome` seed via pure inventoryPayload/featuresPayload + takeover rewind of
+  _invSeen/_wfSeen beside _qSeen + ws.onmessage adoption). mp.html: adoptInventory/adoptWorldFeatures
+  in BOTH onmessage branches (bag adopted BEFORE the box paints; adoptQuests keeps a self-contained
+  `s.inventory` line — it's extracted verbatim by objclient); reconcile's me.inventory adopt deleted
+  (the singleton persists across me-adopts); npcs/features stamped per frame from tab-local localWF
+  (dungeon: inline snap.npcs wins, features blank); finders/panel-sigs/loot-jingle/ult-replay
+  repointed G.state.inventory / G.state.npcs; smoothing retuned for 50 ms gaps (_sk /55→/40,
+  _skp /26→/18, pred correction 0.25→0.45). index.js also grew a wire counter (/health.json
+  `wireKBs`/`wireMBTotal`). SIM IDENTITY proven by BOTH golden runs on byte-untouched oracles:
+  golden 1p 8/8 + full prove, mp-golden 4/4 + full mp-prove (pre-change 4/4 after the S17 re-record,
+  post-change 4/4 — NO re-record; the off-state gate design is what made that possible). MEASURED
+  BANDWIDTH (real ws socket, standing at spawn, 12 s, identical methodology): **601.7 KB/s/player
+  @58.3 Hz × 10.33 KB → 170.6 KB/s @19.3 Hz × 8.83 KB — a 3.5× cut** (at-rest snapshot 7.85 KB:
+  enemies 4.3 @34t, me 1.8 slim, pickups 1.1; the plan's ~130 estimate assumed the calibration
+  point's sparser ring — the density-driven spawner keeps 13–30 foes INSIDE 34t by design, so the
+  residual delta is enemy bytes, not un-gated payloads). Battery 44/44: v4b-fullstack EXTENDED into
+  the real-socket S15 gate (phase 1: 19.3 Hz band, welcome seeds all four gated payloads with real
+  shapes, FIRST snapshot carries all four, at-rest quiet ≤1, me slim, standing-median budget <9 KB;
+  phase 2: same-token TAKEOVER — samePid, superseded old socket, welcome re-seeds, rewound cursors
+  re-deliver over the stream) — SEEN FAILING vs the pre-change HEAD-0410003 worktree on FIVE assert
+  families (58.3 Hz, no seeds, me carries the bag, median 10.94 KB — the plan's own 10.9 baseline);
+  v4b added to the runner's FLAKY retry set (wall-clock windows on a loaded machine; hz lower bound
+  kept loose — the discriminator is the ≤30 upper bound). World self-test + typecheck green. LIVE
+  browser (the pane parks rAF between captures — which made it the PERFECT hidden-tab rig): join
+  clean, 0 console errors, wf lists live in state (24 packScalar-shaped server npcs — no `lines`,
+  proving the source — 3 shrines/9 stones/10 POIs), movement/combat/feed at 20 Hz (2 slay-quest
+  kills + gold + durability + DOWNED overlay + bleed-out → respawn-at-town with the half-gold
+  forfeit), shop panel over the wire (real stock, honest gold, correct Need-gold refusal at 10 g),
+  and THE HIDDEN-TAB PROOF: with rAF fully parked, Elder [E] → dialogue opened + quest box DOM
+  repainted from "Speak to the Elder" to the post-Elder objectives purely through ws.onmessage —
+  then a second tab took over the hero and woke up showing the CURRENT box (2/5 slays) from the
+  welcome seed while the old tab read superseded. Conscious deltas: inventory-driven UI updates
+  can lag ≤0.5 s (the %40 stamp); equip/buy still repaint on the edge. ARCHITECTURE.md: wire
+  section rewritten (20 Hz, 34t, gated inventory/wf, measured numbers, client shape bullet).
+  Remaining P2 arc: S16 remap drop (allies/companions/spawn/rotation still partition world.js-side).
+- 2026-07-16: P2/S17 DONE — UPDATEFATIGUE-IN-MP (plan §2's updateFatigue row; the LAST shared-state bug):
+  updateFatigue was NEVER called in the MP tick — world.js replicated only the recalc EDGE per rotation, so
+  town rest, vigil regen, markTownVisited, the Exhausted/rested feed lines and the exhaustion HP drain
+  silently didn't exist for MP heroes (a hero could stand in town three game-days and go Exhausted anyway;
+  the visitedTowns fix #1 was only half-landed without it). It is the A-shape now: the SP body became
+  `updateFatigueFor(mp)` (verbatim; the ONE seam is the exhaustion edge MEMORY — SP keeps `__g._wasExhausted`,
+  MP reads/writes the acting hero's `p._exWas`, which addPlayer seeds and the doCamp RPC pre-arms) and
+  `updateFatigue()` dispatches: MP loops the WORLD-SCOPED partyIn() (JOIN order, downed spared,
+  pin-with-restore so a no-work tick leaves the room byte-identical); world.js's two edge replicas DELETED →
+  ONE `G.updateFatigue()` call per phase (ow after the rotation, outside the shared-phase flag so log lines
+  stay personal; dg over stillIn). updateFatigue was already in CAPTURE (dead entry, now live) — zero
+  CAPTURE/NAMES churn, zero client edits (lastRestDay rides `me`; the pill reads it). Golden 1p 8/8 on the
+  UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt exactly @700 — the 1p harness exercises the
+  converted fn every tick). mp-golden: REAL behavior change, divergence evidence BEFORE re-record —
+  mp-overworld-combat byte-identical on BOTH seeds (no day boundary crossed: same-value town stamps + the
+  restore-pin leave zero footprint), mp-day-rollover diverges at EXACTLY tick 700 (sample 7) on both seeds,
+  and the serialized deep-diff at that sample is EXACTLY 2 leaves: {A,B}.lastRestDay 1→2 (the in-town rest
+  stamp; nothing else — no RNG shift); end-state comparison pre-vs-post: pre = BOTH heroes Exhausted-in-town
+  by day 3 (lastRestDay frozen at 1, atk-penalized + half speed — the bug live), post = both rested
+  (lastRestDay 3), positions diverge downstream of the speed effect only — then conscious re-record,
+  mp-check 4/4 + mp-prove all green. Battery 44/44: NEW suite `fatigue-mp-verify` (19 asserts: in-town stamp
+  vs stale wanderer, personal Exhausted feed line + per-hero edge + atk recalc, drain through real w.tick()s
+  + 65% floor, tier-2 vigil regen vs tier-0 bystander, per-hero town discovery + its feed line, dungeon-tag
+  excluded by partyIn (risk #9), downed spared, source guards) — SEEN FAILING 11 asserts vs a pre-change
+  HEAD-0410003 worktree (own dist; incl. F2d catching the pre-change collateral: the in-town bystander went
+  exhausted too). t3-restore's injection vector REPLACED (it sabotaged the old unguarded G.isExhausted
+  edge-check — now an instance-shadowed _downedPass throws mid-phase; same finally-restore subject) and
+  verify_fixes FIX1's future-day fixture moved out of town (in-town rest legitimately re-stamps it now) —
+  both fixture updates, subjects unchanged. World self-test + typecheck green. LIVE browser smoke (HZ=640
+  fast days; the pane throttles rAF between captures — audio keep-alive + screenshot-forced frames):
+  Exhausted pill 😴 appeared client-side after 2 stale days, hp drained 30→19 = EXACTLY the 65% floor then
+  stopped (server-observed, no combat), [C] camp → +heal to 30/30, pill gone, "You feel rested…" in the
+  real DOM log; town-standing heroes never went exhausted (the fix's own proof). Conscious MP deltas: town
+  rest/regen/discovery/drain now EXIST in MP (SP parity); an exhausted joiner's edge line fires once
+  (SP suppresses it via the applySnapshot pre-arm — informative, kept). ARCHITECTURE.md gains the
+  fatigue-internalized bullet. Remaining P2 arc: snapshot v2, S16 remap drop (allies/companions/spawn/
+  rotation still partition world.js-side).
 - 2026-07-16: P2/S16 DONE — PROJECTILE INTERNALIZATION (plan §7 S13 sub-slice "projectiles"; the plan's #3-riskiest conversion; the LAST world.js combat partition): updateProjectiles is the A-shape now — the SP body became `updateProjectilesFor()` (SP calls it on the whole pool: same body, same draws, golden 1p 8/8 on the UNTOUCHED oracle + full prove, speed/damage cascade@0 + hunt exactly @700) and the MP dispatcher moved world.js's `_projectilesByShooter` INTO the sim VERBATIM: shots bucketed by SHOOTER in FIRST-SHOT order (Map insertion, NOT roster order), per-bucket owner pins (player + INVENTORY) with deliberately no restore (the ambient last-owner pin is hashed state; the ow shared phase re-pins players[0] right after, unchanged), hostile/unowned shots last under roster[0], the PARKED-SHOTS rule moved in (a world with none of its heroes present leaves its in-flight shots waiting — the stale-pin dungeon-coordinates hazard), and bucket-order recombine (mid-pass spawns — the ricochet bounce, the Leviathan lance — land at the acting owner's bucket tail; next tick's grouping iterates that array, so the order IS the determinism contract). world.js: `_projectilesByShooter` + both call sites DELETED → ONE `G.updateProjectiles()` call per phase (ow inside the shared-phase flag + dungeon); zero CAPTURE/NAMES churn (updateProjectiles was already captured; the dispatcher is in-sim). mp-golden: 4/4 on the UNTOUCHED oracle-mp — NO re-record, identity proven by BOTH runs (pre-change 4/4 + post-change 4/4, same sha 910071a8…: first-shot bucket order, pin parity and recombine held byte-for-byte at all 124 samples) + mp-prove all green. Battery 43/43 ×2: NEW suite `projectiles-mp-verify` (direct-call probes: first-shot recombine order, the no-restore pin incl. INVENTORY, rest-pass under roster[0], parked-shots freeze, dungeon-boss key drop into the SHOOTER's bag, artifact/world.js source guards, w.tick per-shooter kill-credit floor) — SEEN FAILING 12 asserts vs a pre-S16 HEAD-0b5def1 worktree (own dist), incl. the live inventory-pin hole: pre-S16 a direct call dropped B's boss key into the AMBIENT hero's bag (A.keys 0→1, B 0→0). camp-seeker-verify's SP seeker block gained the roster tag its probes now need (an acting hero must be IN the probed world — the parked rule working as designed on direct calls; the edit is a no-op on the pre-S16 engine, proven 40/40 there). BONUS: enemies-mp-verify's ~1/4 flake KILLED (reproduced at pre-S16 HEAD — unseeded worldgen put B's blind +150t/+40t teleport targets in water/rock so probe foes couldn't step): probe arenas now scan for open pockets (openNear), probe foes leash-exempt + never aquatic — 15/15 + 10/10 green on changed/pre-change trees. World self-test + typecheck green; live browser smoke (MP + SP off the same dist): MP join clean → hostile contact → downed → bleed-out → respawn-at-town live, 0 console errors, client state.players unset; SP new-game with a bow — arrows fly/hit (+prof.ranged xp), RICOCHET bounce fires — and a fire staff — magic bolts, Heat 0→24, "Your Magic skill rose to 2!" in the real DOM; state.players provably unset (the MP branch is dead code in the browser). Conscious MP deltas: NONE on the recorded trajectories (hashes identical); the acting-context contract is now enforced in-sim (the bucket pin carries the BAG — a shooter's key drop can no longer land in a bystander's inventory on any direct-call path). ARCHITECTURE.md: the shooter-partition bullet rewritten as the internalized contract. Remaining P2 arc: updateFatigue-in-MP, snapshot v2, S16 remap drop (allies/companions/spawn/rotation still partition world.js-side — plan §7 S13's remaining sub-slices).

@@ -8,7 +8,10 @@
  * file owns is ORCHESTRATION of N players over that single-player sim:
  *
  *   - rotation model : per tick, for each player set the acting player + input,
- *                      run the per-player functions (movement, attack, fatigue).
+ *                      run the per-player functions (movement, attack).
+ *   - fatigue        : ONE G.updateFatigue() call per world phase — the game loops
+ *                      the world-scoped party itself (P2; town rest / vigil regen /
+ *                      markTownVisited / Exhausted edge+drain, per hero, downed spared).
  *   - enemy combat   : ONE G.updateEnemies() call per world — the game itself
  *                      partitions foes by nearest hero and pins each hero for
  *                      their bucket (P2/S15; state.enemies stays the full roster,
@@ -240,7 +243,7 @@ function safeClone(v, d) {
   if (t !== 'object' || d > 6) return undefined;
   if (Array.isArray(v)) return v.map((x) => { const c = safeClone(x, d + 1); return c === undefined ? null : c; });
   const r = {};
-  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === 'activeStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client's wholesale me-adopt carries it (P2/S12 — no explicit adopt line left), and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled). bounty rides the gated block only, so the client re-stamps its last adopted copy across each me-adopt (the wayfind inversion). activeStock (P2/S9, was `_shopStock`) = the open shop session's whole weapon/armor stock — the client already got it in the ONE `shopData` payload and re-stamps its local copy after every adopt, so dragging it onto `me` at 66 Hz would be pure waste (activeShopTown/activeShopName are scalars and ride fine).
+  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === 'activeStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson' || k === 'inventory') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client's wholesale me-adopt carries it (P2/S12 — no explicit adopt line left), and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled). bounty rides the gated block only, so the client re-stamps its last adopted copy across each me-adopt (the wayfind inversion). activeStock (P2/S9, was `_shopStock`) = the open shop session's whole weapon/armor stock — the client already got it in the ONE `shopData` payload and re-stamps its local copy after every adopt, so dragging it onto `me` at 66 Hz would be pure waste (activeShopTown/activeShopName are scalars and ride fine). inventory (snapshot v2, plan §5) = the FAT TAIL of `me` (~1.2 KB of weapons/armor that changes on human timescales) — it rides the VERSION-GATED `snap.inventory` payload (stringify-compared in the S.time%40 block, `_invSeen` vs this._invN, seeded in `welcome` + first snapshot + takeover-rewound), never `me` per broadcast; the client adopts it in ws.onmessage (adoptInventory + adoptQuests' own bag line — the hidden-tab rule).
   return r;
 }
 
@@ -284,6 +287,15 @@ class World {
     // per-player slice now, so a single room-wide counter would have stamped players[0]'s quests for everyone.
     this._lgN = 1;                     // Dread Legion roster version: bumps when the shared roster changes → clients resync (same stringify-compare idiom as _qN)
     try { this._lgJson = JSON.stringify(S.legion); } catch (_e) { this._lgJson = ''; }
+    // Snapshot v2 (plan §5) — the two new version-gated payloads, state OFF the hashed sim
+    // (Maps/fields on `this`, NEVER seeded onto p in addPlayer: the mp-golden baselines hash
+    // state.players, and these gates are wire bookkeeping, not sim state; the per-player
+    // `_invSeen`/`_wfSeen` cursors are touched lazily in _snapshotFor only, which the golden
+    // rig never calls).
+    this._invN = new Map();            // player id -> inventory version (bumped by the %40 stringify stamp)
+    this._invJson = new Map();         // player id -> last stringify of p.inventory
+    this._wfObj = null; this._wfJson = ''; this._wfN = 1;   // WORLD FEATURES (npcs/shrines/loreStones/pois): near-static after worldgen → join payload + edge, never per-snapshot
+    try { this._wfObj = this.featuresPayload(); this._wfJson = JSON.stringify(this._wfObj); } catch (_e) {}
     this.feed = [];                    // event feed: {n, m, c, id, bc} — personal to `id`, or bc=broadcast to all
     this.feedN = 0;
     this.rift = null;                  // ephemeral deep-dungeon RIFT (#14): {x,y,deep,expires,n} — 30s window, one at a time
@@ -469,6 +481,12 @@ class World {
     S.players.push(p);
     this.players.set(id, p);
     if (character) this._loadCharacter(p, character);   // restore a saved hero (stats + inventory only)
+    // Snapshot v2: seed this hero's inventory-gate version AFTER the load above (so the cached
+    // stringify is the LOADED bag, not the template's). Version 1 vs the lazy `me._invSeen|0 = 0`
+    // guarantees the FIRST snapshot carries the bag, exactly like _qSeen/quests. On `this`, not p —
+    // the mp-golden baselines hash state.players (see the constructor note).
+    this._invN.set(id, 1);
+    try { this._invJson.set(id, JSON.stringify(p.inventory)); } catch (_e) { this._invJson.set(id, ''); }
     return p;
   }
 
@@ -621,6 +639,7 @@ class World {
     const i = S.players.indexOf(p);
     if (i >= 0) S.players.splice(i, 1);
     this.players.delete(id);
+    this._invN.delete(id); this._invJson.delete(id);   // snapshot v2: drop the leaver's inventory-gate entries (the Maps must not grow per join/leave)
     // your warband LEAVES with you (characterOf already captured it for persistent heroes) —
     // never re-anchor recruits to another player: that's how "my warband follows someone else" happens
     if (S.companions) for (let i = S.companions.length - 1; i >= 0; i--) if (S.companions[i].ownerId === id) S.companions.splice(i, 1);
@@ -885,6 +904,24 @@ class World {
       // CANNOT miss a mutation site — and because it keeps eldermyr-rpg.html byte-identical for single-player.
       let lj = ''; try { lj = JSON.stringify(S.legion); } catch (_e) {}
       if (lj && lj !== this._lgJson) { this._lgJson = lj; this._lgN++; }
+      // Inventory sync (snapshot v2 — SAME idiom, deliberately sharing this throttle block): the bag is
+      // the fat tail of `me` (~1.2 KB) for data that changes on human timescales (a buy, a drop, a
+      // durability tick) — gated it costs 0 B/snapshot at rest instead of 1.2 KB × 20 Hz × players.
+      // One stringify per player per 40 ticks, like the quest stamp above. An edge lands ≤0.5 s late.
+      for (const p of S.players) {
+        let ij = ''; try { ij = JSON.stringify(p.inventory); } catch (_e) {}
+        if (ij && ij !== this._invJson.get(p.id)) { this._invJson.set(p.id, ij); this._invN.set(p.id, (this._invN.get(p.id) | 0) + 1); }
+      }
+      // World-features sync (snapshot v2): npcs/shrines/loreStones/pois are near-STATIC after worldgen
+      // (a wandering merchant, an outpost hearth, a shrine spending/sinking, a POI clear). They used to
+      // ride EVERY snapshot interest-culled; now the FULL lists ride one gated payload on change + the
+      // join `welcome`. The stringify compares the exact PROJECTION the client receives — volatile
+      // per-frame fields are stripped/quantized inside featuresPayload (npc `temp` countdown dropped;
+      // shrine `cd` reduced to its READINESS sign, which is all drawShrine reads), so a cooling shrine
+      // re-sends exactly twice (dormant edge, ready edge), never per stamp.
+      let wj = ''; const wf = this.featuresPayload();
+      try { wj = JSON.stringify(wf); } catch (_e) {}
+      if (wj && wj !== this._wfJson) { this._wfJson = wj; this._wfObj = wf; this._wfN++; }
     }
 
     // Split the party: heroes on the SHARED overworld vs. each inside their OWN private dungeon.
@@ -898,14 +935,28 @@ class World {
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
-      if (p.map === 'dungeon') continue;   // just entered — its dungeon runs next tick; the overworld-only work below (the exhaustion edge) is what we're skipping. (The old write-back hole here — enterDungeon's writes thrown away by the next hero's swap — is structurally gone: every per-hero key lives on p, P2/S13, and the mirror machinery is deleted, P2/S14.)
-      if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       // (P2/S3) The winter snow-chill replica died here: updateWeather itself now chills every
       // overworld hero (it loops the game's world-scoped partyIn()), so the shared phase covers all.
+      // (P2 updateFatigue-in-MP) The per-rotation exhaustion-EDGE replica (recalc on isExhausted()
+      // flip vs p._exWas) died here too: the game's own updateFatigue is the A-shape now — ONE call
+      // below the rotation loops partyIn() itself, and it does the FULL job (town rest, vigil regen,
+      // markTownVisited, the Exhausted/rested feed lines, the HP drain), not just the recalc edge.
+      // A hero who just entered the dungeon (p.map flipped above) is excluded by partyIn()'s map
+      // filter, exactly like the old `continue` here. addPlayer's p._exWas seed and the doCamp RPC's
+      // pre-arm still feed the same per-hero memory the sim reads now.
     }
 
     // SHARED WORLD — overworld heroes only (dungeon delvers run in their own phase below)
     const players = S.players.filter((p) => p.map !== 'dungeon');
+    // FATIGUE (P2 updateFatigue-in-MP): ONE call — the game's own updateFatigue loops the
+    // world-scoped partyIn() itself (JOIN ORDER, downed spared, pin-with-restore). This is what
+    // ADDS town rest / vigil regen / markTownVisited / the Exhausted feed lines / the exhaustion
+    // HP drain to MP heroes — none of it ever ran here (world.js replicated only the recalc edge).
+    // Sits where the old per-rotation edge lived: after movement/actions, before enemy combat, and
+    // OUTSIDE the shared-phase flag so its log lines stay personal to the acting hero.
+    if (players.length) {
+      try { G.updateFatigue(); } catch (e) { this._err('updateFatigue', e); }
+    }
     // ENEMY COMBAT (P2/S15): ONE call — the game's own updateEnemies partitions foes by nearest
     // hero itself (downed-invisible pools, the boss town-blind bubble, the wander-home fallback,
     // per-bucket hero pins in JOIN ORDER, bucket-order recombine — all moved in verbatim). Its
@@ -1040,11 +1091,17 @@ class World {
             }
             p._mapSwitchN = (p._mapSwitchN || 0) + 1;      // everyone (p included) gets the new grid
           }
-          if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
+          // (P2 updateFatigue-in-MP) The per-delver exhaustion-EDGE replica died here — the ONE
+          // G.updateFatigue() call below the loop covers the standing delvers (partyIn() while the
+          // dungeon is swapped in), with the town block map-gated off exactly like SP underground.
         }
         if (S.map !== 'dungeon') putWorld(this.sharedDg);  // last action was an exit → restore for the shared passes
         const stillIn = dgAll.filter((p) => p.map === 'dungeon');
         if (stillIn.length) {
+          // FATIGUE (P2 updateFatigue-in-MP): the dungeon phase's own ONE call — its partyIn()
+          // roster is exactly `stillIn` (state.map === 'dungeon' while this instance is in S), so
+          // delvers keep the exhaustion edge + HP drain (state.map gates the town block off).
+          try { G.updateFatigue(); } catch (e) { this._err('updateFatigueDg', e); }
           // ENEMY COMBAT (P2/S15): same ONE call as topside — updateEnemies partitions among the
           // STANDING delvers itself (state.map is 'dungeon' while this instance is swapped in, so
           // its partyIn() roster is exactly `stillIn`, and the boss town-blind pool is overworld-only
@@ -1162,7 +1219,7 @@ class World {
   // requesting player in full (stats/inventory for HUD + sprite), other players
   // lightly, and nearby enemies/pickups/projectiles/npcs with every field their
   // draw functions read.
-  static R2 = (46 * (G.TILE || 32)) ** 2;   // interest radius (a bit past the viewport), squared
+  static R2 = (34 * (G.TILE || 32)) ** 2;   // interest radius, squared (snapshot v2: 46t → 34t — the viewport half-diagonal is ~18t, so 34t keeps ~2× margin; at 20 Hz an entity entering the ring is visible within one broadcast, so no pop-in. Enemy/proj bytes scale ×(34/46)² ≈ 0.55)
   snapshotFor(id) {                         // timed wrapper (perf instrumentation): EMA the serialize cost
     const _t0 = process.hrtime.bigint();
     const snap = this._snapshotFor(id);
@@ -1189,15 +1246,17 @@ class World {
       enemies: enemies.filter(near).map(packEnemy),
       proj: proj.filter(near).map(packProj),
       pickups: pickups.filter((p) => !p.collected && near(p)).map((p) => safeClone(p)),
-      npcs: npcs.filter(near).map(packScalar),
+      // npcs: OVERWORLD npcs ride the version-gated `wf` payload now (snapshot v2 — near-static
+      // after worldgen, they cost ~1 KB/snapshot in town for data that changes on event timescales).
+      // Only a DUNGEON's own npcs (normally none) stay inline — the client swaps to them on
+      // snap.map==='dungeon' and back to its adopted wf lists topside.
+      npcs: inDg ? (W.npcs || []).filter(near).map(packScalar) : undefined,
       // warband companions: dungeon viewers see the delving warbands (map==='dungeon'), surfacers see the topside ones
       comps: (S.companions || []).filter((c) => c.alive && ((c.map === 'dungeon') === inDg) && near(c)).map(packComp),
       // co-op allies (thralls / bound elites / Vigil patrols) — overworld only, interest-culled like enemies
       allies: inDg ? [] : (S.allies || []).filter(near).map(packAlly),
-      // world features (overworld only) so the client can RENDER them + light the [E] prompt
-      shrines: inDg ? [] : (S.shrines || []).filter(near).map((s) => safeClone(s)),
-      lore: inDg ? [] : (S.loreStones || []).filter(near).map((s) => safeClone(s)),
-      pois: inDg ? [] : (S.pois || []).filter(near).map((s) => safeClone(s)),
+      // (snapshot v2) shrines/loreStones/pois left the per-snapshot body with the npcs — they ride
+      // the gated `wf` payload below (join `welcome` + edge on spend/sink/clear/merchant, plan §5).
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
       rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, party: !!this.rift.party, open: !!this.sharedDg, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift (party=blue co-op)
     };
@@ -1234,6 +1293,25 @@ class World {
       me._lgSeen = this._lgN;
       snap.legion = this.legionPayload();
     }
+    // YOUR inventory (snapshot v2) — version-gated exactly like the quest block above: `me` no longer
+    // carries the bag (safeClone skips it), so it rides here only when the %40 stamp saw it change.
+    // A fresh player has _invSeen 0 !== 1 (addPlayer seeds version 1), so the bag ALWAYS rides your
+    // first snapshot; `welcome` seeds it too (inventoryPayload — the takeover path, which also rewinds
+    // _invSeen in index.js). Adopted client-side in ws.onmessage (adoptInventory), never reconcile.
+    {
+      const iv = this._invN.get(id) | 0;
+      if ((me._invSeen | 0) !== iv) {
+        me._invSeen = iv;
+        snap.inventory = safeClone(me.inventory);
+      }
+    }
+    // WORLD FEATURES (snapshot v2) — npcs/shrines/loreStones/pois, one shared version for the room
+    // (_wfN, stamped in the %40 block). Fresh player: _wfSeen 0 !== _wfN ≥ 1 → always on the first
+    // snapshot; `welcome` seeds it too (featuresPayload) and index.js rewinds _wfSeen on takeover.
+    if ((me._wfSeen | 0) !== this._wfN) {
+      me._wfSeen = this._wfN;
+      snap.wf = this._wfObj || this.featuresPayload();
+    }
     // send the dungeon TILE GRID once per enter/descend (map-switch rising edge); on exit just flag the switch.
     // TRANSACTIONAL: only consume _sentDgN when a grid actually ATTACHES on a dungeon switch — otherwise the flag
     // was burned while W.md was momentarily null (mid world-swap) or the send was dropped downstream, leaving the
@@ -1260,6 +1338,31 @@ class World {
   // whole panel, including the scouted reveal state the "???" strength/weakness lines read, with nothing
   // object-typed to leak (unlike the ENEMY side, whose warlordRef is an object ref packScalar must drop).
   legionPayload() { return S.legion ? safeClone(S.legion) : null; }
+
+  // Snapshot v2 (plan §5) — the two new gated payload builders. PURE READS, like legionPayload/
+  // questPayload below: they must never consume a `_seen` edge (the takeover-rewind rule).
+  // This hero's whole bag — rides `welcome` (join/takeover seed) + the gated snap.inventory.
+  inventoryPayload(id) {
+    const p = this.players.get(id);
+    return p ? safeClone(p.inventory) : null;
+  }
+  // The OVERWORLD's near-static world features, projected to exactly what the client renders.
+  // Volatile per-frame fields are stripped/quantized HERE (the %40 gate stringifies this same
+  // projection, so a field kept here re-sends the payload every time it ticks):
+  //   npc `temp`   — the wandering merchant's despawn countdown, decremented every frame. The
+  //                  client never reads it (arrival/removal changes the array itself → edge).
+  //   shrine `cd`  — ticks down every frame while cooling; drawShrine reads only its SIGN
+  //                  (`cd <= 0`), so it is quantized to 1/0 → exactly two edges per cooldown.
+  //   shrine `sinkT` — the 60-frame sink animation counter; stripped (the spend edge repaints
+  //                  `sinking`, the splice edge removes it — the client just skips the slide).
+  featuresPayload() {
+    return {
+      npcs: (S.npcs || []).map((n) => { const r = packScalar(n); delete r.temp; return r; }),
+      shrines: (S.shrines || []).map((s) => ({ x: s.x, y: s.y, w: s.w, h: s.h, type: s.type, sinking: !!s.sinking, cd: s.cd > 0 ? 1 : 0 })),
+      lore: (S.loreStones || []).map((s) => safeClone(s)),
+      pois: (S.pois || []).map((s) => packScalar(s)),
+    };
+  }
 
   // This hero's quest box, sent on JOIN alongside the map/roster and thereafter only when it CHANGES
   // (snap.quests, gated by _qN). Shaped exactly like the snapshot's gated block, because the client feeds

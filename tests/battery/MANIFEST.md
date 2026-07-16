@@ -63,6 +63,7 @@ These are pre-existing, documented flakes in the source suites — not tree regr
 - `warband-delve` — per-owner warband delving (the entering player's own warband follows them down).
 - `camp-seeker-verify` — camping in a dungeon/rift (no shared-clock skip) + Seeker Bolt behavior.
 - `camp-exhaust-verify` — camping in a dungeon CLEARS Exhausted, per-player (v2.56.5).
+- `fatigue-mp-verify` — updateFatigue-in-MP (rebuild P2, the last shared-state bug): town rest / vigil regen / markTownVisited / Exhausted edge+drain now run per-hero through the game's own A-shape dispatcher (partyIn, downed spared, world-scoped); world.js's recalc-edge replica is gone.
 - `legion-mp-verify` — the Dread Legion roster reaches MP clients (snapshot + welcome payload).
 - `vault-slot-verify` — the Key Vault side-room rides `WORLD_SLOTS`; a dungeon player sees this floor's vault, not the overworld's stray.
 

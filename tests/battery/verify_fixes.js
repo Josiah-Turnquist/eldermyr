@@ -28,11 +28,17 @@ const B = w.addPlayer('B', 'Bo');
   // while S.player===A — the exact write shape the game uses post-S7 (doCamp/updateFatigue write p).
   // Pre-S7 this FAILS: writeBackPP copied the untouched root S.lastRestDay back OVER A's stamp
   // (seen failing against the pre-S7 tree — the stomp the retirement removes). B must stay untouched.
+  // (P2 updateFatigue-in-MP: A must probe OUT OF TOWN — in a town the game's own town-rest now
+  //  legitimately re-stamps lastRestDay to curDay each tick, which would eat this FUTURE-day
+  //  fixture. That is fatigue doing its job on the acting hero, not a cross-slice stomp.)
+  const _ax = A.x, _ay = A.y;
+  { const _tz = (G.getTownZones ? G.getTownZones() : null) || []; if (_tz[0]) { A.x = (_tz[0].x - 14) * (G.TILE || 32); A.y = (_tz[0].y - 10) * (G.TILE || 32); } }
   const origUP = G.updatePlayer;
   let restedTo = null;
   G.updatePlayer = function () { if (S.player === A) { restedTo = S.player.lastRestDay = (G.curDay ? G.curDay() : 1) + 3; } return origUP.apply(this, arguments); };
   w.tick();
   G.updatePlayer = origUP;
+  A.x = _ax; A.y = _ay;
   ok('FIX1 rest stamped during A\'s slice STICKS on A (player-native — no writeback stomp)', A.lastRestDay === restedTo && restedTo != null, 'A.lastRestDay=' + A.lastRestDay + ' expected=' + restedTo);
   ok('FIX1 B.lastRestDay untouched by A rest', B.lastRestDay !== restedTo, 'B.lastRestDay=' + B.lastRestDay);
 }

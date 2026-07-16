@@ -1,9 +1,12 @@
 const __RR = require('path').resolve(__dirname, '..', '..');
 /* t3 — FIX 3: the dungeon phase must restore the overworld even when a sim call throws.
- * A enters the real dungeon (key + entrance tile + interact). Then G.isExhausted is
- * monkeypatched to throw ONLY while the dungeon world is swapped into S (world.js calls it
- * unwrapped inside the phase) -> the tick throws mid-phase -> the finally must still put
- * the overworld back. Overworld ARRAY IDENTITY is the proof (same objects, not lookalikes). */
+ * A enters the real dungeon (key + entrance tile + interact). Then the World's OWN
+ * _downedPass (an instance-shadowed method — the one call world.js makes unwrapped inside
+ * the phase, now that the old unguarded G.isExhausted edge-check is gone: P2
+ * updateFatigue-in-MP routes fatigue through a try/caught G.updateFatigue()) is rigged to
+ * throw ONLY while the dungeon world is swapped into S -> the tick throws mid-phase -> the
+ * finally must still put the overworld back. Overworld ARRAY IDENTITY is the proof
+ * (same objects, not lookalikes). */
 'use strict';
 const { World } = require('' + __RR + '/server/world.js');
 const G = require('' + __RR + '/server-spike/load-game.js');
@@ -37,11 +40,11 @@ A1('30 mixed ticks fine', S.map === 'overworld' && A.map === 'dungeon');
 const owNpcs = S.npcs, owPickups = S.pickups, owMd = G.maps.dungeon;
 
 // --- INJECTED THROW mid-dungeon-phase (after putWorld(sharedDg), before the tail restore) ---
-const realExh = G.isExhausted;
-G.isExhausted = () => { if (S.map === 'dungeon') throw new Error('injected-boom'); return realExh(); };
+const realDowned = w._downedPass.bind(w);
+w._downedPass = (list) => { if (S.map === 'dungeon') throw new Error('injected-boom'); return realDowned(list); };
 let threw = null;
 try { w.tick(); } catch (e) { threw = String(e && e.message); }
-G.isExhausted = realExh;
+delete w._downedPass;   // back to the prototype method
 A1('tick THREW from inside the dungeon phase', threw === 'injected-boom', 'err=' + threw);
 A1('overworld STILL restored (finally ran): map', S.map === 'overworld');
 A1('overworld restored by IDENTITY: npcs/pickups arrays', S.npcs === owNpcs && S.pickups === owPickups);

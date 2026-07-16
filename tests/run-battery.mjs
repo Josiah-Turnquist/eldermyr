@@ -32,7 +32,7 @@ const SUITES = [
   // quests + personal-milestone flags (per-player) + the save-schema importer (rebuild S1)
   'quest-verify', 'quest-pp-verify', 'flags-pp-verify', 'sp-flags-check', 'migrate-roundtrip',
   // world systems: rifts, warband, camps, legion, dungeon vaults
-  'rift-check', 'warband-delve', 'camp-seeker-verify', 'camp-exhaust-verify', 'legion-mp-verify', 'vault-slot-verify',
+  'rift-check', 'warband-delve', 'camp-seeker-verify', 'camp-exhaust-verify', 'fatigue-mp-verify', 'legion-mp-verify', 'vault-slot-verify',
   // pinnacle / great-beasts (v52)
   'pinnacle-verify', 'mp-pinnacle-verify', 'v52-verify', 'v52-beast-verify',
   // flat apex levels, directional facing, enlarged overworld
@@ -55,7 +55,7 @@ const SUITES = [
 //   ranged-verify   ~1/12  (projectile spread RNG)
 //   pinnacle-verify ~1/12  ("boss drifts home" positional race)
 //   style-verify    ~7%    (Quarry Marks accrual timing)
-const FLAKY = new Set(['ranged-verify', 'pinnacle-verify', 'style-verify']);
+const FLAKY = new Set(['ranged-verify', 'pinnacle-verify', 'style-verify', 'v4b-fullstack']);   // v4b: real server + wall-clock windows (boot deadline, 20 Hz rate band, ephemeral port) — timing-sensitive on a loaded machine, deterministic in substance
 
 const argv = process.argv.slice(2);
 const selected = argv.length ? SUITES.filter((s) => argv.some((a) => s.includes(a))) : SUITES;

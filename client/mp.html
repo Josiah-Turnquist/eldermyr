@@ -167,6 +167,27 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     for (const f of F) { try { G.log && G.log(f.m, f.c || 'good'); } catch (e) { edgeErr('feed', e); } }
   }
 
+  // YOUR inventory (snapshot v2): the bag left `me` (the server gates it — safeClone skips it and it
+  // rides snap.inventory only when the %40 stamp saw it change, plus the `welcome` seed for joins and
+  // takeovers). Adopt it HERE, in ws.onmessage, for the same one-shot reason as legion/feed/quests —
+  // reconciled in the frame loop it would be a coin flip on a slow/hidden tab. state.inventory is the
+  // game's own singleton: every panel (inventory/skills/shop/smith), the HUD potion count, drawPlayer's
+  // equipped-gear read and updateQuests' key gate read it, and the frame-loop me-adopt never touches it.
+  function adoptInventory(s) {
+    if (!s || !s.inventory) return;
+    try { G.state.inventory = s.inventory; } catch (e) { edgeErr('inventory', e); }
+  }
+
+  // WORLD FEATURES (snapshot v2): the overworld's npcs/shrines/loreStones/pois — near-static, so the
+  // server sends the FULL lists once on `welcome` and then only on change (version-gated `snap.wf`),
+  // never per snapshot. Kept in a tab-local (like localShop) because the reconcile re-stamps state
+  // from it EVERY frame: on the overworld state.npcs/shrines/loreStones/pois come from here; inside a
+  // dungeon the (inline, near-culled) snap.npcs wins and the features blank — see the reconcile.
+  function adoptWorldFeatures(s) {
+    if (!s || !s.wf) return;
+    try { localWF = s.wf; } catch (e) { edgeErr('wf', e); }
+  }
+
   // YOUR questline + bounty + Realm-stones + deepest depth → adopt, then re-render the quest box. Version-gated
   // by _qN server-side, so a dropped snapshot leaves the box STALE until the NEXT quest change — potentially a
   // game-hour of wrong information on screen, not a cosmetic one-frame blip. Fed by BOTH the `welcome` (join /
@@ -175,12 +196,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (!s || !s.quests) return;
     try {
       // The bag MUST be adopted before the box paints. updateQuests hides "Find the Dungeon Key" on
-      // `q.key.done || state.inventory.keys > 0` — and this runs in ws.onmessage, while state.inventory is
-      // otherwise only assigned in the FRAME-loop reconcile. The first snapshot always carries quests
-      // (_qSeen=0), and onmessage provably precedes the first frame, so the first paint read the game's
-      // DEFAULT keys=0 bag and a 16-key hero was told to go find a key — and it stuck until _qN next moved.
-      // (reconcile re-assigns this same object moments later — idempotent, not a second source of truth.)
-      if (s.me && s.me.inventory) G.state.inventory = s.me.inventory;
+      // `q.key.done || state.inventory.keys > 0` — and this runs in ws.onmessage, while state.inventory
+      // is otherwise adopted only by adoptInventory. The first snapshot always carries BOTH quests
+      // (_qSeen=0) and the bag (_invSeen=0 — snapshot v2 gated it off `me`), and onmessage provably
+      // precedes the first frame; without this line the first paint read the game's DEFAULT keys=0 bag
+      // and a 16-key hero was told to go find a key — and it stuck until _qN next moved. Self-contained
+      // on purpose (adoptInventory is called first at both call sites, so this is idempotent — but this
+      // fn is also extracted VERBATIM by the battery's objclient harness and must carry its own gate).
+      if (s.inventory) G.state.inventory = s.inventory;
       if (G.state.player) G.state.player.quests = s.quests;   // P2/S13: the questline lives ON the player now (updateQuests/currentObjective read state.player.quests). Stamp the PLAYER, not a root ghost (risk #7); like bounty it never rides `me` (safeClone skips it), so the frame-loop reconcile carries THIS box across every wholesale me-adopt.
       if (G.state.player) G.state.player.bounty = s.bounty || null;   // P2/S12: bounty lives ON the player now (updateQuests reads state.player.bounty). Stamp the PLAYER, not a root ghost (risk #7); it never rides `me` (safeClone skips it), so the frame-loop reconcile carries THIS value across every wholesale me-adopt.
       if (s.loreFound && G.state.player) G.state.player.loreFound = s.loreFound;   // P2/S11: loreFound lives ON the player now (updateQuests reads state.player.loreFound). Stamp the PLAYER, not a root ghost (risk #7); the payload copy is per-hero and beats the frame-loop me-adopt to the repaint below, same reason as the bag line above. On `welcome` there is no snap.me yet — this seed is what covers a takeover.
@@ -466,6 +489,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         G.state.map = 'overworld';
         G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
         adoptLegion(m.legion);                           // …and the Dread Legion roster, the other shared-world feature we must never invent locally
+        adoptWorldFeatures(m);                           // …and the server's npcs/shrines/loreStones/pois (snapshot v2: they ride the gated wf payload — the empties above stay empty until this seed or the first snapshot lands)
+        adoptInventory(m);                               // …and the bag (snapshot v2: gated off `me`) — BEFORE adoptQuests, whose box paint reads state.inventory.keys; the welcome seed is what covers a takeover
         adoptQuests(m);                                  // …and THIS hero's questline. Required on a TAKEOVER (wifi blip / reload / second tab): that path adopts the live server-side player, whose _qSeen is already caught up, so no snapshot would ever re-send quests and this brand-new page would render the game's intro defaults forever. `m` already carries quests/bounty/loreFound/maxDepth (+ no `me`, so the bag line inside no-ops — the first snapshot, milliseconds later, does that half).
         try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
         mapReady = true;
@@ -482,7 +507,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         //   • quests — a drop leaves the quest box STALE until the NEXT quest change.
         // onmessage observes EVERY message, so none of them can be dropped. Equally: these must run NOWHERE ELSE —
         // a leftover reconcile-side copy would double-log every feed line.
-        if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptQuests(m.snap); }
+        //   • inventory — snapshot v2: the bag rides only when it CHANGES (gated off `me`); a dropped
+        //     edge would leave panels/HUD/key-gate stale until the next bag change.
+        //   • wf — snapshot v2: npcs/shrines/loreStones/pois ride once per change; a dropped edge
+        //     would strand shops/stones invisible until the next world event.
+        if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptWorldFeatures(m.snap); adoptInventory(m.snap); adoptQuests(m.snap); }
         snap = m.snap;
       }
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
@@ -549,10 +578,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   }
   // ---- Merchant shop (server-authoritative): open at a shop NPC, buy/sell via RPC ----
   function nearestShopNpc() {
-    if (!snap || !snap.npcs || !snap.me) return null;
+    if (!snap || !snap.me) return null;
     const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
     let best = null, bd = 66 * 66;
-    for (const n of snap.npcs) { if (n.id !== 'shop') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    for (const n of (G.state.npcs || [])) { if (n.id !== 'shop') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: npcs live in state (stamped from the gated wf lists each frame), not on every snap
     return best;
   }
   function openShopMP() { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'shop' })); } catch (_e) {} } }
@@ -579,10 +608,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.closeShop = closeShopMP;
   // ---- Blacksmith (reforge / fuse / repair): like the shop but acts on your own gear (no stock) ----
   function nearestSmithNpc() {
-    if (!snap || !snap.npcs || !snap.me) return null;
+    if (!snap || !snap.me) return null;
     const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
     let best = null, bd = 66 * 66;
-    for (const n of snap.npcs) { if (n.id !== 'smith') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    for (const n of (G.state.npcs || [])) { if (n.id !== 'smith') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: state-stamped npcs (see nearestShopNpc)
     return best;
   }
   function openSmithMP() { G.state.scene = 'smith'; const el = document.getElementById('smith'); if (el) el.style.display = 'block'; try { window.renderSmith && window.renderSmith(); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
@@ -599,10 +628,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // we present it here using the game's OWN panel renderers. Shop & smith keep their dedicated
   // handlers above; this covers the elder, guard, hearth, bounty, hunt master and sellsword.
   function nearestNpc(maxPx) {
-    if (!snap || !snap.npcs || !snap.me) return null;
+    if (!snap || !snap.me) return null;
     const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 66) * (maxPx || 66);
     let best = null, bd = r2;
-    for (const n of snap.npcs) { const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }
+    for (const n of (G.state.npcs || [])) { const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: state-stamped npcs (see nearestShopNpc)
     return best;
   }
   function requestInteract(npcId) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'interact', npcId })); } catch (_e) {} } }
@@ -649,13 +678,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (!snap || !snap.me) return null;
     const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 52) * (maxPx || 52);
     const scan = (arr, kind) => { for (const s of (arr || [])) { if ((s.x - px) ** 2 + (s.y - py) ** 2 < r2) return kind; } return null; };
-    return scan(snap.lore, 'lore') || scan(snap.shrines, 'shrine');
+    return scan(G.state.loreStones, 'lore') || scan(G.state.shrines, 'shrine');   // snapshot v2: features live in state (stamped from the gated wf lists each frame)
   }
   function interactFlavor() {
     const f = nearestFeature(56); if (!f) return;
     try { G.log && G.log(f === 'lore' ? 'You study the Realm-stone…' : 'You reach out to the shrine…', 'lore'); } catch (_e) {}
   }
   let localWayfind = true;   // [O] objective guide is a CLIENT pref (P2/S6): p.wayfind rides `me` as the SP-save default only — this local value is authoritative on this tab (re-stamped after every snapshot adopt; no RPC, plan §3.4)
+  let localWF = null;        // this tab's adopted WORLD FEATURES {npcs,shrines,lore,pois} (snapshot v2): full overworld lists from `welcome` + the gated snap.wf — the reconcile re-stamps state from it every frame on the overworld (a dungeon's inline snap.npcs wins below ground)
   let localShop = null;      // this tab's open shop session {town,name,stock} (P2/S9): the session lives ON state.player now, but the wholesale `S.player = snap.me` adopt would stomp it every snapshot — and `activeStock` is deliberately NOT on the wire (safeClone skips the fat stock; it arrives once in shopData) — so, like localWayfind, the shopData copy is re-stamped after every adopt (renderShop + the shop panel-sig refresh read state.player.active*)
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -844,7 +874,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else {
         const err = Math.hypot(snap.me.x - pred.x, snap.me.y - pred.y);
         if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
-        else { pred.x += (snap.me.x - pred.x) * 0.25; pred.y += (snap.me.y - pred.y) * 0.25; }  // smooth drift correction
+        else { pred.x += (snap.me.x - pred.x) * 0.45; pred.y += (snap.me.y - pred.y) * 0.45; }  // smooth drift correction (snapshot v2: 0.25→0.45 — corrections arrive per SNAPSHOT, now 20 Hz instead of ~66, so the per-correction pull grows to keep the same wall-clock convergence)
       }
       // ---- combat feedback (replay the game's own juice from deltas) ----
       const me2 = snap.me;
@@ -866,7 +896,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       // (snap.feed is NOT read here — it is edge-triggered and adopted in ws.onmessage, which never drops a
       //  snapshot. Re-adding it here would double-log every line.)
       {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
-        const inv = me2.inventory;
+        const inv = G.state.inventory;                   // snapshot v2: the bag is gated off `me` — read the ws.onmessage-adopted singleton (changes land ≤0.5s after the server's %40 stamp)
         if (inv) {
           const sig = new Map();
           for (const arr of [inv.weapons || [], inv.armor || []]) for (const it of arr) { if (!it || !it.name) continue; const k = it.name + '|' + (it.rarity | 0); sig.set(k, (sig.get(k) || 0) + 1); }
@@ -892,8 +922,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → REPLAY its nova here. The ult runs headlessly on the server (draws nothing), so without this replay a mage's [Z] showed nothing.
         const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
         if (feelUltCd !== null && uc > 200 && feelUltCd <= 60) {
-          // derive the caster's style/element/power straight from `me` — safeClone keeps inventory + abilityRank + _lastStyle
-          const inv = me2.inventory, wep = (inv && inv.weapons) ? inv.weapons.find((w) => w && w.equipped) : null;
+          // derive the caster's style/element/power from `me` (abilityRank/_lastStyle) + the adopted bag (snapshot v2: inventory is gated off `me`; the singleton is ≤0.5s stale — the _lastStyle fallback covers a race)
+          const inv = G.state.inventory, wep = (inv && inv.weapons) ? inv.weapons.find((w) => w && w.equipped) : null;
           const style = wep ? (wep.style || 'melee') : (me2._lastStyle || 'melee');
           const el = wep ? (wep.element || null) : null;
           const rank = (me2.abilityRank && (me2.abilityRank.ultimate | 0)) || 1;
@@ -979,7 +1009,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (localShop) { S.player.activeShopTown = localShop.town; S.player.activeShopName = localShop.name; S.player.activeStock = localShop.stock; }   // P2/S9: same inversion for the shop session — activeStock never rides `me` (safeClone skips it), so the adopt above would blank the open panel's stock; re-stamp the shopData copy (town/name ride `me` too, but the local session is authoritative on this tab)
     S.player.bounty = _pb || null;   // P2/S12: re-stamp the last adopted contract (adoptQuests stamps it in ws.onmessage — the S6 wayfind inversion, carried across the adopt instead of a second local). maxDepth needs no line: it rides `me` (~15 B), so the wholesale adopt above IS its adoption — the old explicit S.maxDepth root adopt died with the move (risk #7), and the gated copy still repaints the box on the FIRST snapshot via adoptQuests.
     if (_pq) S.player.quests = _pq;   // P2/S13: re-stamp the last adopted quest box (same carry as bounty — adoptQuests stamps state.player.quests in ws.onmessage; quests never rides `me`). Before the first payload lands this is the game's own boot literal (startGame seeded it), so updateQuests/currentObjective never see an undefined box. The old root `G.state.quests` adopt died with the move (risk #7).
-    if (snap.me.inventory) S.inventory = snap.me.inventory;
+    // (inventory adopt DELETED here in snapshot v2: the bag is GATED off `me` — it arrives via
+    //  snap.inventory/welcome and is adopted in ws.onmessage (adoptInventory), the one-shot rule.
+    //  state.inventory is a separate singleton the wholesale me-adopt above never touches, so the
+    //  last adopted bag simply persists across frames — no carry needed.)
     // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a
     //  ghost the panels could read stale, risk #7.)
@@ -999,8 +1032,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];
-    S.npcs = snap.npcs || [];
-    S.shrines = snap.shrines || []; S.loreStones = snap.lore || []; S.pois = snap.pois || [];   // adopt the server's world features (render + [E] prompt)
+    // World features (snapshot v2): on the overworld they come from the tab's adopted `wf` lists
+    // (full lists, version-gated — snap no longer carries them per broadcast); inside a dungeon the
+    // inline near-culled snap.npcs (normally empty) wins and the overworld features blank, so an
+    // [E] prompt or a drawn shop can never resolve against topside coordinates from below ground.
+    if (snap.map === 'dungeon') { S.npcs = snap.npcs || []; S.shrines = []; S.loreStones = []; S.pois = []; }
+    else if (localWF) { S.npcs = localWF.npcs || []; S.shrines = localWF.shrines || []; S.loreStones = localWF.lore || []; S.pois = localWF.pois || []; }
     S.allies = snap.allies || [];   // co-op allies (thralls/bound elites/patrols) — server-owned, direct adopt (renderWorld draws them)
     if (snap.holdings) { for (let i = 0; i < snap.holdings.length; i++) { if (S.holdings && S.holdings[i]) Object.assign(S.holdings[i], snap.holdings[i]); } }   // outpost status → [E] prompt + flip on capture
     if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
@@ -1008,7 +1045,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     others = (snap.players || []).filter((p) => p.id !== myId);
     // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
     { const _sn = performance.now(), _sdt = Math.min(100, _sn - (lastSmoothT || _sn)); lastSmoothT = _sn;
-      const _sk = Math.min(1, _sdt / 55), _skp = Math.min(1, _sdt / 26);   // projectiles snap faster (less lag)
+      const _sk = Math.min(1, _sdt / 40), _skp = Math.min(1, _sdt / 18);   // snapshot v2 retune for 50 ms gaps (was /55 and /26 at ~15 ms): an entity covers ~70% of each new 50 ms step per gap at 60 fps — continuous motion, ~1 snapshot of lag; projectiles snap harder (fast movers read as trailing otherwise)
       for (const e of S.enemies) { const s = smooth.get('e' + e._nid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; e.x = s.rx; e.y = s.ry; } }
       for (const pr of S.projectiles) { const s = smooth.get('r' + pr._pid); if (s) { s.rx += (s.tx - s.rx) * _skp; s.ry += (s.ty - s.ry) * _skp; pr.x = s.rx; pr.y = s.ry; } }
       for (const op of others) { const s = smooth.get('u' + op.id); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; op.x = s.rx; op.y = s.ry; } }
@@ -1021,13 +1058,13 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // recomputes the panel is treated as unchanged (may refresh up to 150ms late — acceptable).
     { const _psNow = performance.now(); if (_psNow - lastPanelSigT >= 150) { lastPanelSigT = _psNow;
     if (G.state.scene === 'inventory' || G.state.scene === 'skills') {
-      const sig = (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;
+      const sig = (G.state.inventory ? JSON.stringify(G.state.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;   // snapshot v2: the bag is gated off `me` — sig the adopted singleton
       if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
     } else if (G.state.scene === 'shop') {
-      const sig = 'shop|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + (((G.state.player && G.state.player.shopPurchased) || []).length);
+      const sig = 'shop|' + snap.me.gold + '|' + (G.state.inventory ? JSON.stringify(G.state.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + (((G.state.player && G.state.player.shopPurchased) || []).length);
       if (sig !== panelSig) { panelSig = sig; try { window.renderShop && window.renderShop(); } catch (_e) {} }
     } else if (G.state.scene === 'smith') {
-      const sig = 'smith|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '');
+      const sig = 'smith|' + snap.me.gold + '|' + (G.state.inventory ? JSON.stringify(G.state.inventory) : '');
       if (sig !== panelSig) { panelSig = sig; try { window.renderSmith && window.renderSmith(); } catch (_e) {} }
     } else if (G.state.scene === 'cook') {                 // hearth: reflect ingredients spent as you cook
       const sig = 'cook|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + snap.me.gold;
