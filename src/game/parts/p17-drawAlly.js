@@ -376,10 +376,12 @@ function updateCharger(e, dist, pcx, pcy) {
   }
 }
 function bossSpecials(level, color) {
-  const s = ['slam', 'charge', 'nova'];
-  if (color === '#ff6060') s.push('charge');
-  else s.push('nova');
-  if (level >= 3) s.push('summon');
+  /* P3/S4: the pick table is CONTENT.specialRoster (data); the BRANCHING stays here (the S2
+     precedent). slice() copies the registry's base array so a boss never mutates a row. */
+  const R = CONTENT.specialRoster;
+  const s = R.base.slice();
+  s.push(color === R.redColor ? R.redAdd : R.elseAdd);
+  if (level >= R.summonLevel) s.push(R.summonAdd);
   return s;
 }
 function spawnRing(x, y, color) {
@@ -400,116 +402,49 @@ function spawnRing(x, y, color) {
   }
 }
 function startBossSpecial(e, name, pcx, pcy) {
-  const wind = { slam: 46, charge: 32, nova: 34, summon: 40, pullunder: 48, raiseadds: 44 }[name] || 36;
+  // P3/S4: windup length is CONTENT.specials[name].wind (was the inline `{…}[name]` table);
+  // the `|| 36` fallback for an unknown name is preserved bit-for-bit.
+  const sp = CONTENT.specials[name];
+  const wind = (sp && sp.wind) || 36;
   e.tele = { name, t: wind, max: wind, aimX: pcx, aimY: pcy, radius: 175 };
   Sound.tone(150, 0.45, 'sawtooth', 0.13, { slideTo: 230 });
 }
 function execBossSpecial(e, name, pcx, pcy) {
-  const ecx = e.x + e.w / 2,
-    ecy = e.y + e.h / 2;
-  if (name === 'slam') {
-    const R = e.tele ? e.tele.radius : 175;
-    addShake(13);
-    Sound.tone(70, 0.5, 'sawtooth', 0.26, { slideTo: 38 });
-    Sound.noise(0.32, 0.2, { filter: 'lowpass', freq: 220 });
-    spawnRing(ecx, ecy, '#ffb050');
-    if (Math.hypot(pcx - ecx, pcy - ecy) < R) playerTakeDamage(Math.round(e.atk * 1.3));
-  } else if (name === 'charge') {
-    const ax = e.tele ? e.tele.aimX : pcx,
-      ay = e.tele ? e.tele.aimY : pcy;
-    const ang = Math.atan2(ay - ecy, ax - ecx);
-    e.dash = { vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6, t: 42 };
-    Sound.swing();
-    addShake(3);
-  } else if (name === 'nova') {
-    const n = 12;
-    Sound.cast();
-    for (let k = 0; k < n; k++) {
-      const ang = (k / n) * 6.28;
-      addProjectile(ecx, ecy, Math.cos(ang) * 3.1, Math.sin(ang) * 3.1, Math.round(e.atk * 0.7), {
-        color: '#ff70b0',
-        r: 7,
-        life: 260,
-      });
-    }
-    addShake(2);
-  } else if (name === 'summon') {
-    const lvl = state.dungeonLevel || 1;
-    for (let i = 0; i < 3; i++) {
-      const ang = (i / 3) * 6.28 + 0.5;
-      const o = findOpenTile(
-        state.map,
-        Math.floor((ecx + Math.cos(ang) * 64) / TILE),
-        Math.floor((ecy + Math.sin(ang) * 64) / TILE),
-      );
-      state.enemies.push(makeDungeonEnemy(o.tx, o.ty, Math.max(1, lvl - 1)));
-      spawnBurst(o.tx * TILE + 16, o.ty * TILE + 16, 10, { color: '#c080ff', speed: 1.6, decay: 0.04 });
-    }
-    Sound.cast();
-  } else if (name === 'pullunder') {
-    const R = e.tele ? e.tele.radius : 175;
-    addShake(11);
-    Sound.tone(88, 0.5, 'sawtooth', 0.22, { slideTo: 40 });
-    Sound.noise && Sound.noise(0.3, 0.18, { filter: 'lowpass', freq: 200 });
-    spawnRing(ecx, ecy, '#2f7fb0');
-    const n = 16;
-    for (let k = 0; k < n; k++) {
-      const ang = (k / n) * 6.28;
-      addProjectile(ecx, ecy, Math.cos(ang) * 2.8, Math.sin(ang) * 2.8, Math.round(e.atk * 0.72), {
-        color: '#5ad0e6',
-        r: 8,
-        life: 220,
-        element: 'frost',
-        ownerRef: e,
-      });
-    }
-    if (Math.hypot(pcx - ecx, pcy - ecy) < R * 0.6) {
-      state.player.chillT = Math.max(state.player.chillT || 0, 150);
-      floatDamage(state.player.x + state.player.w / 2, state.player.y - 8, 'DRAGGED UNDER', '#2f7fb0');
-    }
-  } /* PULLUNDER: slam-telegraphed radial FROST burst — projectile-based so Stage C lands it on ALL players; the frost bolts chill on hit, and a player caught in the undertow is briefly rooted (heavy chill) */
-  else if (name === 'raiseadds') {
-    if (!state.enemies.some((x) => x._pinRef === e && x.hp > 0)) {
-      const isKing = e.pinKey === 'drownedking';
-      const n = 3;
-      e._nextKill = 0;
-      for (let i = 0; i < n; i++) {
-        const ang = (i / n) * 6.28 + e.wobble;
-        let spot = null;
-        if (isKing) {
-          for (let t2 = 0; t2 < 24 && !spot; t2++) {
-            const tx = Math.floor((ecx + Math.cos(ang) * 72 + (Math.random() - 0.5) * 40) / TILE),
-              ty = Math.floor((ecy + Math.sin(ang) * 72 + (Math.random() - 0.5) * 40) / TILE);
-            if (
-              tx > 1 &&
-              ty > 1 &&
-              tx < OW_W - 1 &&
-              ty < OW_H - 1 &&
-              getTile('overworld', tx, ty) === T.WATER
-            )
-              spot = { tx, ty };
-          }
-        }
-        if (!spot)
-          spot = findOpenTile(
-            state.map,
-            Math.floor((ecx + Math.cos(ang) * 64) / TILE),
-            Math.floor((ecy + Math.sin(ang) * 64) / TILE),
-          );
-        const a = makePinnacleAdd(e, isKing, spot.tx, spot.ty, i);
-        state.enemies.push(a);
-        spawnBurst(a.x + a.w / 2, a.y + a.h / 2, 11, { color: a.color, speed: 1.9, decay: 0.045 });
-      }
-      Sound.cast && Sound.cast();
-      addShake(3);
-      log(
-        isKing
-          ? 'The Drowned King calls his drowned court — cut them down in the order they rose, or they rise again!'
-          : 'The Pale Shepherd raises his frozen flock — cull them in the order they rose, or the dead return!',
-        'combat',
-      );
-    }
-  } /* RAISEADDS: spawn N ORDERED adds (each _orderIdx 0..N-1, _pinRef=this boss; cursor _nextKill reset to 0) — aquatic 'drowned' on the water ring (King) / frozen 'flock' on land (Shepherd). Feints if the court still stands, so waves never overlap (keeps the per-wave ordering unambiguous). Adds are normal enemies → they serialize/partition free. */
+  /* P3/S4: the six effect branches are CONTENT.specials[name].exec hooks (src/content/
+     specials.ts) — moved VERBATIM (same op order, same Math.random() draws); the ambient
+     sim/audio/factory surface is threaded through the curated act-view bag built here under
+     non-banned member names (`sfx` for Sound, `enemies`/`player`/`map`/`dungeonLevel` for
+     the state slices the branches read). No registry row is ever mutated — the branch only
+     touches the instance and the LIVE world references it always did. An unknown name
+     resolves to no entry and fires nothing, exactly as the old if/else-if chain did.
+     (slam-telegraphed radial FROST pullunder still lands on ALL players via projectiles;
+     raiseadds still spawns the ORDERED court, _pinRef=this boss, cursor _nextKill reset.) */
+  const sp = CONTENT.specials[name];
+  if (!sp) return;
+  sp.exec(e, {
+    px: pcx,
+    py: pcy,
+    map: state.map,
+    dungeonLevel: state.dungeonLevel,
+    enemies: state.enemies,
+    player: state.player,
+    sfx: Sound,
+    TILE,
+    OW_W,
+    OW_H,
+    T,
+    addShake,
+    playerTakeDamage,
+    spawnRing,
+    spawnBurst,
+    addProjectile,
+    findOpenTile,
+    makeDungeonEnemy,
+    makePinnacleAdd,
+    getTile,
+    floatDamage,
+    log,
+  });
 }
 function updateBoss(e, dist, pcx, pcy) {
   const ecx = e.x + e.w / 2,

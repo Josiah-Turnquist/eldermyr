@@ -1,8 +1,4 @@
-const SHOP_ARMOR = [
-  { id: 'chain_mail', name: 'Chain Mail', def: 5, cost: 90, rarity: 0, reqLevel: 2 },
-  { id: 'plate_armor', name: 'Plate Armor', def: 8, cost: 220, rarity: 1, reqLevel: 5 },
-  { id: 'guardian_plate', name: 'Guardian Plate', def: 13, cost: 460, rarity: 2, reqLevel: 8 },
-];
+const SHOP_ARMOR = CONTENT.gear.shopArmor; // P3/S6: positional alias → src/content/gear.ts
 function tonicCost() {
   const t = state.player.tonics | 0; // per-hero (P2/S5): the price ramps on YOUR tonic count
   return 50 + t * t * 10 + t * 40;

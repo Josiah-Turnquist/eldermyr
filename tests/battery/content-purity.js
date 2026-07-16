@@ -276,6 +276,43 @@ ok('5i. every entry carries a draw hook; FACING derives to exactly {charger,drag
   && JSON.stringify(Object.keys(C.facing || {}).sort()) === JSON.stringify(['charger', 'dragon', 'serpent'])
   && Object.keys(C.enemies).filter((k) => C.enemies[k].faces).sort().join(',') === Object.keys(C.facing).sort().join(',')
   && C.faceDz === 6);
+// S5: the apex-boss DATA registry + the CAPTURE'd aliases (GREAT_HUNTS/PINNACLE_BOSSES) reading
+// through it. The behavioural through-ness is proven LIVE by the golden `prove` hunt control
+// (perturbing GREAT_HUNTS → makeGreatBeast → divergence exactly @700); these pin the shape/values.
+ok('5j. CONTENT.apex holds the 4 Great Hunts + 2 pinnacles + dragon/pin tuning',
+  !!C && C.apex && C.apex.hunts.length === 4 && C.apex.pinnacles.length === 2 && C.apex.dragonLevel === 30 && C.apex.dragonColor === '#e85020' && C.apex.pinLevel === 75 && C.apex.pinArenaStart === 360 && C.apex.pinArenaMin === 100 && C.apex.pinArenaShrink === 0.05 && C.apex.pinLeash === 980);
+ok('5k. Great Hunt rows carry the shipped values (frosttitan 900hp, leviathan is an isle, Titan’s Maul reward)',
+  !!C && C.apex.hunts[0].key === 'frosttitan' && C.apex.hunts[0].hp === 900 && C.apex.hunts[0].reward.weapon.name === 'Titan’s Maul' && C.apex.hunts[3].key === 'leviathan' && C.apex.hunts[3].island === true, C && C.apex.hunts[0].hp);
+ok('5l. pinnacle rows carry the shipped values (drownedking 2600hp + its style-unique drop)',
+  !!C && C.apex.pinnacles[0].key === 'drownedking' && C.apex.pinnacles[0].hp === 2600 && C.apex.pinnacles[0].drops.styleUniq === 'leviathanspine' && C.apex.pinnacles[1].key === 'paleshepherd' && C.apex.pinnacles[1].night === true);
+ok('5m. the game reads apex THROUGH the registry (CAPTURE\'d GREAT_HUNTS/PINNACLE_BOSSES aliases === CONTENT.apex)',
+  !!(NS && C) && NS.GREAT_HUNTS === C.apex.hunts && NS.PINNACLE_BOSSES === C.apex.pinnacles);
+// S6: the gear DATA registry (rarity/shop/uniques/mastery/pattern + gen pools + affixPool). The
+// through-ness is proven LIVE by golden (loot generation stays byte-identical — genWeapon/rollAffixes
+// read these), so these pin the shape/values; the symbols are not CAPTURE'd (no namespace alias).
+ok('5n. CONTENT.gear holds the loot tables (5 rarities · 13 shop weapons · 3 shop armor · 4 uniques · 3 pattern weapons)',
+  !!C && C.gear && C.gear.rarities.length === 5 && C.gear.shopWeapons.length === 13 && C.gear.shopArmor.length === 3 && Object.keys(C.gear.uniques).length === 4 && C.gear.patternWeapons.length === 3 && C.gear.styleNames.melee.length === 4);
+ok('5o. gear rows carry the shipped values (legendary mult 2.05, Steel Sword 80g, mastery [10,18,24], leviathanspine ×1.2)',
+  !!C && C.gear.rarities[4].id === 'legendary' && C.gear.rarities[4].mult === 2.05 && C.gear.shopWeapons[1].name === 'Steel Sword' && C.gear.shopWeapons[1].cost === 80 && JSON.stringify(C.gear.masteryLvls) === JSON.stringify([10, 18, 24]) && C.gear.uniques.leviathanspine.atkMul === 1.2, C && C.gear.shopWeapons[1] && C.gear.shopWeapons[1].cost);
+ok('5p. affixPool is a pure rIdx-scaled helper (weapon r4 → crit +15% / lifesteal +3% / berserk; armor → evasion/lifesteal/crit)',
+  !!C && typeof C.gear.affixPool === 'function' && (() => {
+    const w = C.gear.affixPool(4, true), a = C.gear.affixPool(4, false);
+    return w.length === 3 && w[0].t === 'crit' && w[0].label === '+15% Crit' && w[1].t === 'lifesteal' && w[1].label === '+3% Lifesteal' && w[2].t === 'berserk' && a[0].t === 'evasion' && a.length === 3;
+  })());
+// S7: the elite-affix DATA + per-key apply hooks. Behaviour is proven by affix-verify (a shielded
+// elite seeds its shield pool through the hook, live); these pin the shape + the apply seeding
+// (elite affixes only fire at partyLvl>=15, so the golden windows never exercise them — §5t is the
+// guard for the extracted apply logic the oracles cannot see).
+ok('5r. CONTENT.affixes holds the 4 elite affixes + the ordered key pool',
+  !!C && C.affixes && JSON.stringify(C.affixes.keys) === JSON.stringify(['shielded', 'vampiric', 'splitting', 'warded']) && ['shielded', 'vampiric', 'splitting', 'warded'].every((k) => C.affixes.defs[k] && typeof C.affixes.defs[k].flag === 'string'));
+ok('5s. affix defs carry the shipped flags/labels/prefixes (afxShield/SHIELDED/"Shielded ", afxVamp, afxWard)',
+  !!C && C.affixes.defs.shielded.flag === 'afxShield' && C.affixes.defs.shielded.label === 'SHIELDED' && C.affixes.defs.shielded.pre === 'Shielded ' && C.affixes.defs.vampiric.flag === 'afxVamp' && C.affixes.defs.splitting.flag === 'afxSplit' && C.affixes.defs.warded.flag === 'afxWard');
+ok('5t. shielded.apply seeds a 25%-maxHp shield pool; warded.apply arms the ward window; vampiric/splitting have none',
+  !!C && typeof C.affixes.defs.shielded.apply === 'function' && (() => {
+    const e = { maxHp: 400 }; C.affixes.defs.shielded.apply(e);
+    const w = {}; C.affixes.defs.warded.apply(w);
+    return e.shieldMax === 100 && e.shieldHp === 100 && e.shieldRegenT === 0 && w.wardT === 0 && w.wardCd === 180 && !C.affixes.defs.vampiric.apply && !C.affixes.defs.splitting.apply;
+  })());
 
 // ---- §6 mutation canary: 3k ticks, then live CONTENT vs a fresh chunk re-eval ------------
 const w = new World();

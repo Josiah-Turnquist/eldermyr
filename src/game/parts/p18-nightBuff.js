@@ -12,13 +12,10 @@ function nightBuff(e) {
 // so affixed elites ride snapshots to clients with zero extra wiring, and old saves default them off.
 // ELITE-ONLY invariant: rollEliteAffixes refuses bosses/nemesis/hunts/dragons/named/dread/warlords.
 // Split copies NEVER split again (_splitChild) and are built from a WHITELIST — no site/quest/Legion tags.
-const AFX_DEFS = {
-  shielded: { flag: 'afxShield', label: 'SHIELDED', pre: 'Shielded ' },
-  vampiric: { flag: 'afxVamp', label: 'VAMPIRIC', pre: 'Vampiric ' },
-  splitting: { flag: 'afxSplit', label: 'SPLITTING', pre: 'Splitting ' },
-  warded: { flag: 'afxWard', label: 'WARDED', pre: 'Warded ' },
-};
-const AFX_KEYS = ['shielded', 'vampiric', 'splitting', 'warded'];
+// P3/S7: the affix DEFS + the per-key seeding (apply hooks) live in src/content/affixes.ts.
+// These are positional aliases; rollEliteAffixes below calls `d.apply(e)` for the seeding.
+const AFX_DEFS = CONTENT.affixes.defs;
+const AFX_KEYS = CONTENT.affixes.keys;
 function afxCount(maxAfx) {
   if (maxAfx !== undefined) return Math.max(0, Math.min(maxAfx, AFX_KEYS.length));
   const pl = partyLvl();
@@ -47,14 +44,7 @@ function rollEliteAffixes(e, maxAfx) {
     e[d.flag] = 1;
     tag = d.label + (tag ? ' ' : '') + tag;
     e.name = d.pre + (e.name || 'Foe');
-    if (key === 'shielded') {
-      e.shieldMax = Math.max(1, Math.round(e.maxHp * 0.25));
-      e.shieldHp = e.shieldMax;
-      e.shieldRegenT = 0;
-    } else if (key === 'warded') {
-      e.wardT = 0;
-      e.wardCd = 180;
-    }
+    if (d.apply) d.apply(e); // P3/S7: per-key seeding (shielded shield-pool / warded window) → the affix's apply hook
     e.xp = Math.round(e.xp * 1.3);
     e.gold = Math.round(e.gold * 1.3);
   } // reward: +30% xp & gold per affix (drop-quality bump lives in tryDropLoot)

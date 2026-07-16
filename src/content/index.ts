@@ -15,6 +15,10 @@
 import { ELEMENTS } from './elements';
 import { ENEMIES, FACE_DZ, FACING, WILD_SPAWN } from './enemies';
 import { DUNGEONS } from './dungeons';
+import { BOSS_ROSTER, SPECIALS } from './specials';
+import { APEX } from './apex';
+import { GEAR } from './gear';
+import { AFFIXES } from './affixes';
 
 const CONTENT = {
   elements: ELEMENTS,
@@ -27,6 +31,23 @@ const CONTENT = {
   dungeons: DUNGEONS,
   facing: FACING,
   faceDz: FACE_DZ,
+  // P3/S4: CONTENT.specials is the bare name→entry map so the dispatch sites resolve
+  // CONTENT.specials[name] (startBossSpecial `.wind`, execBossSpecial `.exec`, the p20
+  // telegraph `.drawTele`); bossSpecials' pick table rides a sibling key.
+  specials: SPECIALS,
+  specialRoster: BOSS_ROSTER,
+  // P3/S5: the apex-boss DATA (Great Hunts + pinnacles + dragon/pin tuning). The p22
+  // factories keep positional aliases (`const GREAT_HUNTS = CONTENT.apex.hunts;` etc.) and
+  // consume these rows unchanged — spawn data here, scaling curves in the factory.
+  apex: APEX,
+  // P3/S6: the gear DATA (rarity/name tables, shop stock, uniques, pattern weapons, mastery,
+  // gen pools + the affixPool helper). The p01/p02/p08/p09/p22 loot factories keep positional
+  // aliases (`const RARITIES = CONTENT.gear.rarities;` etc.) and consume them unchanged.
+  gear: GEAR,
+  // P3/S7: the elite-affix DATA + per-key apply hooks (AFX_DEFS/AFX_KEYS, p18). p18 keeps
+  // positional aliases; rollEliteAffixes calls defs[key].apply(e) for the per-key seeding,
+  // afxHit (the hot path) stays in-part.
+  affixes: AFFIXES,
 };
 
 export type Content = typeof CONTENT;

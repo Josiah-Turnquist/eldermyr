@@ -109,26 +109,16 @@ const SaveStore = {
 };
 __g.autosaveStarted = false;
 
-const RARITIES = [
-  { id: 'common', name: 'Common', color: '#c8c8d0', mult: 1.0, dur: 50 },
-  { id: 'uncommon', name: 'Uncommon', color: '#70e060', mult: 1.18, dur: 65 },
-  { id: 'rare', name: 'Rare', color: '#5090ff', mult: 1.4, dur: 85 },
-  { id: 'epic', name: 'Epic', color: '#c060ff', mult: 1.7, dur: 110 },
-  { id: 'legendary', name: 'Legendary', color: '#f0a020', mult: 2.05, dur: 150 },
-];
+const RARITIES = CONTENT.gear.rarities; // P3/S6: positional alias → src/content/gear.ts
 function rarityName(i) {
   return (RARITIES[i] || RARITIES[0]).name;
 }
 function rarityColor(i) {
   return (RARITIES[i] || RARITIES[0]).color;
 }
-const STYLE_NAMES = {
-  melee: ['Dagger', 'Sword', 'Blade', 'Greatsword'],
-  ranged: ['Sling', 'Shortbow', 'Longbow', 'Warbow'],
-  magic: ['Wand', 'Staff', 'Rod', 'Scepter'],
-};
-const ARMOR_NAMES = ['Tunic', 'Mail', 'Plate', 'Aegis'];
-const RAR_PREFIX = ['Worn', 'Fine', 'Runed', 'Ancient', 'Mythic'];
+const STYLE_NAMES = CONTENT.gear.styleNames; // P3/S6: positional aliases → src/content/gear.ts
+const ARMOR_NAMES = CONTENT.gear.armorNames;
+const RAR_PREFIX = CONTENT.gear.rarPrefix;
 
 let state = {
   scene: 'title',

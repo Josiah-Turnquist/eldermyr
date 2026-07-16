@@ -70,72 +70,19 @@ function drawEnemy(e) {
     _ek.draw(_DV, e);
   }
   if (e.isBoss && e.tele) {
-    const fr = 1 - e.tele.t / e.tele.max,
-      cx = sx + e.w / 2,
-      cy = sy + e.h / 2,
-      nm = e.tele.name;
-    if (nm === 'slam') {
-      ctx.strokeStyle = `rgba(255,150,50,${0.4 + 0.5 * fr})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, e.tele.radius * fr, 0, 6.28);
-      ctx.stroke();
-      ctx.fillStyle = `rgba(255,120,30,${0.12 * fr})`;
-      ctx.beginPath();
-      ctx.arc(cx, cy, e.tele.radius * fr, 0, 6.28);
-      ctx.fill();
-    } else if (nm === 'charge') {
-      const a = Math.atan2(e.tele.aimY - (e.y + e.h / 2), e.tele.aimX - (e.x + e.w / 2));
-      ctx.strokeStyle = `rgba(255,80,80,${0.5 + 0.4 * fr})`;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(a) * 200 * fr, cy + Math.sin(a) * 200 * fr);
-      ctx.stroke();
-    } else if (nm === 'nova') {
-      ctx.strokeStyle = `rgba(255,110,180,${0.4 + 0.5 * fr})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, e.w * 0.7 + fr * 34, 0, 6.28);
-      ctx.stroke();
-    } else if (nm === 'summon') {
-      ctx.fillStyle = `rgba(192,128,255,${0.3 * fr})`;
-      ctx.beginPath();
-      ctx.arc(cx, cy, e.w * 0.85, 0, 6.28);
-      ctx.fill();
-    } else if (nm === 'pullunder') {
-      const rr = e.tele.radius * (1 - fr * 0.7);
-      ctx.strokeStyle = `rgba(60,150,205,${0.45 + 0.5 * fr})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, rr, 0, 6.28);
-      ctx.stroke();
-      ctx.fillStyle = `rgba(47,127,176,${0.14 * fr})`;
-      ctx.beginPath();
-      ctx.arc(cx, cy, rr, 0, 6.28);
-      ctx.fill();
-      for (let s = 0; s < 6; s++) {
-        const a = (s / 6) * 6.28 + fr * 3.4;
-        ctx.strokeStyle = `rgba(120,210,235,${0.5 * fr})`;
-        ctx.beginPath();
-        ctx.arc(cx, cy, rr, a, a + 0.5);
-        ctx.stroke();
-      }
-    } /* undertow: a closing whirlpool ring */
-    else if (nm === 'raiseadds') {
-      ctx.fillStyle = `rgba(150,190,225,${0.28 * fr})`;
-      ctx.beginPath();
-      ctx.arc(cx, cy, e.w * 0.95, 0, 6.28);
-      ctx.fill();
-      ctx.strokeStyle = `rgba(190,215,240,${0.4 + 0.5 * fr})`;
-      ctx.lineWidth = 2;
-      for (let s = 0; s < 3; s++) {
-        const a = (s / 3) * 6.28 + e.wobble;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + Math.cos(a) * e.w * 0.9 * fr, cy + Math.sin(a) * e.w * 0.9 * fr);
-        ctx.stroke();
-      }
+    /* P3/S4: the six telegraph branches (slam/charge/nova/summon/pullunder/raiseadds — the
+       undertow whirlpool ring and the raised-court rays included) are
+       CONTENT.specials[name].drawTele hooks (src/content/specials.ts) — moved VERBATIM
+       through the S3 DrawView surface (_DV, its g2d/sx/sy re-stamped for the boss). The
+       dispatch, the arena ring, the frost/lava tints and the hp/elite/quarry/name chrome
+       below all stay in-part. A name with no drawTele simply paints nothing (was the
+       fall-through of the old if/else-if chain). */
+    const sp = CONTENT.specials[e.tele.name];
+    if (sp && sp.drawTele) {
+      _DV.g2d = ctx;
+      _DV.sx = sx;
+      _DV.sy = sy;
+      sp.drawTele(_DV, e);
     }
   }
   if (e.isPinnacle && e.arenaR) {

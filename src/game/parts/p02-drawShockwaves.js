@@ -124,27 +124,8 @@ function normItem(it, isWeapon) {
   return it;
 }
 // Style Mastery — proficiency Lv 5/10/15 unlock a signature perk per weapon style (v2.30.0)
-const MASTERY = {
-  melee: [
-    ['Cleave', 'wider, longer swings'],
-    ['Momentum', 'melee kills refund 14 stamina'],
-    ["Executioner's Edge", '+25% melee damage vs foes below 30% HP'],
-  ],
-  ranged: [
-    ['Ricochet', 'arrows bounce to a second target (60% dmg)'],
-    ['Steady Draw', 'faster arrows, +1 pierce'],
-    [
-      'Double Nock',
-      '12% free 2nd arrow — and marked KILLS erupt in a Deadeye burst: AoE (scales with Marks) that spreads Marks to nearby foes',
-    ],
-  ],
-  magic: [
-    ['Seeker Bolt', 'your casts bend toward the nearest foe — one true bolt'],
-    ['Attunement', 'spells cost 20% less'],
-    ['Overload', 'bolts splash 40% damage around the mark'],
-  ],
-};
-const MASTERY_LVLS = [10, 18, 24]; // hard-earned: prof caps at 25, so tier 3 is a true endgame mastery (v2.34.2)
+const MASTERY = CONTENT.gear.mastery; // P3/S6: positional alias → src/content/gear.ts
+const MASTERY_LVLS = CONTENT.gear.masteryLvls; // P3/S6: alias — [10,18,24]; hard-earned, prof caps at 25 (v2.34.2)
 function masteryLvl(style) {
   const pr = state.player.prof[style];
   return pr ? pr.lvl : 0;
@@ -200,17 +181,9 @@ function rollRarity(level, boss) {
 // Build-defining combat affixes on rarer gear (Runed+). Weapons lean offensive, armor defensive.
 function rollAffixes(rIdx, isWeapon) {
   if (rIdx < 2 || Math.random() > 0.34 + rIdx * 0.14) return null;
-  const offense = [
-    { t: 'crit', v: rIdx - 1, label: `+${(rIdx - 1) * 5}% Crit` },
-    { t: 'lifesteal', v: Math.max(1, rIdx - 1), label: `+${Math.max(1, rIdx - 1)}% Lifesteal` },
-    { t: 'berserk', v: 1, label: 'Berserker' },
-  ];
-  const defense = [
-    { t: 'evasion', v: rIdx - 1, label: `+${(rIdx - 1) * 3}% Evade` },
-    { t: 'lifesteal', v: 1, label: '+1% Lifesteal' },
-    { t: 'crit', v: 1, label: '+5% Crit' },
-  ];
-  const pool = isWeapon ? offense : defense;
+  // P3/S6: the offense/defense pool DEFINITIONS live in src/content/gear.ts (affixPool, pure —
+  // no RNG). The pick + the second-affix roll stay here, so the draw order is byte-identical.
+  const pool = CONTENT.gear.affixPool(rIdx, isWeapon);
   const pick = pool[Math.floor(Math.random() * pool.length)];
   const out = [pick];
   if (rIdx >= 4 && Math.random() < 0.5) {
@@ -233,7 +206,7 @@ function uniqHtml(it) {
     : '';
 } // shows a pinnacle unique's build-changing effect in its inventory row
 function genWeapon(level, rIdx) {
-  const style = ['melee', 'ranged', 'magic'][Math.floor(Math.random() * 3)];
+  const style = CONTENT.gear.genStyles[Math.floor(Math.random() * 3)]; // P3/S6: gen pool → gear.ts
   const R = RARITIES[rIdx];
   const atk = Math.max(1, Math.round((3 + level * 0.9) * R.mult));
   const tier = Math.min(3, Math.floor(rIdx * 0.7 + Math.random() * 1.4));
@@ -258,7 +231,7 @@ function genWeapon(level, rIdx) {
   const af = rollAffixes(rIdx, true);
   if (af) it.affixes = af;
   if (Math.random() < 0.16 + rIdx * 0.13) {
-    const els = ['fire', 'frost', 'poison', 'shock'];
+    const els = CONTENT.gear.genElements; // P3/S6: gen pool → gear.ts
     it.element = els[Math.floor(Math.random() * 4)];
     it.name = it.name + ' of ' + ELEMENTS[it.element].name;
   }
@@ -290,41 +263,9 @@ function genArmor(level, rIdx) {
 // Absent w.pattern = exactly the current single-bolt behavior. Multi-bolt is weaker per bolt (twin ~60%, tri ~45%);
 // the lance is one slow, hard-piercing shot. Preserved by every weapon-copy path (normItem/reforge/fuse/temper/save)
 // since those mutate fields in place and never rebuild the item object.
-const PATTERN_WEAPONS = [
-  {
-    name: 'Twinfang Rod',
-    atk: 24,
-    style: 'magic',
-    rarity: 4,
-    element: 'shock',
-    pattern: 'twin',
-    reqLevel: 16,
-    reqProf: 12,
-    affixes: [{ t: 'crit', v: 2, label: '+10% Crit' }],
-  },
-  {
-    name: 'Prismscatter Staff',
-    atk: 22,
-    style: 'magic',
-    rarity: 4,
-    element: 'fire',
-    pattern: 'trifan',
-    reqLevel: 16,
-    reqProf: 12,
-    affixes: [{ t: 'lifesteal', v: 2, label: '+2% Lifesteal' }],
-  },
-  {
-    name: 'Voidpiercer Rod',
-    atk: 28,
-    style: 'magic',
-    rarity: 4,
-    element: 'frost',
-    pattern: 'lance',
-    reqLevel: 18,
-    reqProf: 14,
-    affixes: [{ t: 'crit', v: 3, label: '+15% Crit' }],
-  },
-];
+// P3/S6: PATTERN_WEAPONS DATA → src/content/gear.ts (CONTENT.gear.patternWeapons). This is its
+// positional alias; rollPatternWeapon JSON-deep-copies a row, so the registry is never mutated.
+const PATTERN_WEAPONS = CONTENT.gear.patternWeapons;
 function rollPatternWeapon() {
   const t = PATTERN_WEAPONS[Math.floor(Math.random() * PATTERN_WEAPONS.length)];
   const w = JSON.parse(JSON.stringify(t));

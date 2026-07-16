@@ -107,12 +107,13 @@ function updateQuests() {
 // Multiplicative is what makes the number mean something. 9,350/126 lands it right about where the Drowned King
 // stood when he was soloable at 19 — a real fight at the Lv-20 taming gate, and comfortably below the new 75 rung.
 // The Lv-20 gate and the 15% subdue threshold are untouched: this still gates the MOUNT, it just earns it now.
-const DRAGON_LEVEL = 30;
+const DRAGON_LEVEL = CONTENT.apex.dragonLevel; // P3/S5: positional alias → src/content/apex.ts
 /* THE ONE SOURCE OF THE WYRM'S COLOUR. Read by makeWildDragon (below) for the wild Emberwyrm's `e.color`,
    and by drawPlayer's mounted-steed block for the tamed one. Both used to hardcode their own tones — which is
    exactly how taming the wyrm handed you a differently-coloured animal. Every other tone on both is DERIVED
-   from this via shade(), so there is nothing left to keep in sync: recolour here, recolour both. */
-const DRAGON_COLOR = '#e85020';
+   from this via shade(), so there is nothing left to keep in sync: recolour here, recolour both.
+   P3/S5: the value now lives in src/content/apex.ts (still the ONE source); this is its positional alias. */
+const DRAGON_COLOR = CONTENT.apex.dragonColor;
 function makeWildDragon(tx, ty) {
   const e = makeBoss(tx, ty);
   e.type = 'dragon';
@@ -162,117 +163,12 @@ function makeKraken(tx, ty) {
   return e;
 }
 // ================= THE GREAT HUNTS — legendary roaming world-beasts =================
-const GREAT_HUNTS = [
-  {
-    key: 'frosttitan',
-    name: 'The Frost Titan',
-    color: '#bfe9ff',
-    element: 'frost',
-    where: 'the Frozen Wastes (far north)',
-    lair: { tx: 174, ty: 17 },
-    hp: 900,
-    atk: 26,
-    def: 9,
-    xp: 900,
-    gold: 900,
-    specials: ['slam', 'nova', 'charge'],
-    reward: {
-      weapon: {
-        name: 'Titan’s Maul',
-        atk: 30,
-        style: 'melee',
-        cd: 24,
-        rarity: 4,
-        element: 'frost',
-        affixes: [
-          { t: 'crit', v: 3, label: '+15% Crit' },
-          { t: 'berserk', v: 1, label: 'Berserker' },
-        ],
-      },
-    },
-  },
-  {
-    key: 'stormroc',
-    name: 'The Storm Roc',
-    color: '#ffe24a',
-    element: 'shock',
-    where: 'the high wilds (northeast)',
-    lair: { tx: 269, ty: 84 },
-    hp: 820,
-    atk: 24,
-    def: 7,
-    xp: 850,
-    gold: 850,
-    specials: ['charge', 'nova', 'summon'],
-    reward: {
-      weapon: {
-        name: 'Stormcaller Bow',
-        atk: 26,
-        style: 'ranged',
-        cd: 24,
-        rarity: 4,
-        element: 'shock',
-        affixes: [
-          { t: 'crit', v: 3, label: '+15% Crit' },
-          { t: 'lifesteal', v: 2, label: '+2% Lifesteal' },
-        ],
-      },
-    },
-  },
-  {
-    key: 'emberhorn',
-    name: 'Emberhorn the Scorched',
-    color: '#ff7838',
-    element: 'fire',
-    where: 'the Emberwaste (far southeast)',
-    lair: { tx: 269, ty: 241 },
-    hp: 1000,
-    atk: 30,
-    def: 10,
-    xp: 1000,
-    gold: 1000,
-    specials: ['slam', 'charge', 'nova'],
-    reward: {
-      armor: {
-        name: 'Scaled Aegis of Cinders',
-        def: 24,
-        rarity: 4,
-        affixes: [
-          { t: 'evasion', v: 3, label: '+9% Evade' },
-          { t: 'lifesteal', v: 2, label: '+2% Lifesteal' },
-        ],
-      },
-    },
-  },
-  {
-    key: 'leviathan',
-    name: 'The Tide Leviathan',
-    color: '#2ad0c0',
-    element: 'frost',
-    island: true,
-    where: 'an isle in the Sundered Sea (sail to reach it)',
-    lair: { tx: 104, ty: 199 },
-    hp: 1100,
-    atk: 28,
-    def: 9,
-    xp: 1100,
-    gold: 1200,
-    specials: ['slam', 'nova', 'summon', 'charge'],
-    reward: {
-      weapon: {
-        name: 'Leviathan’s Trident',
-        atk: 32,
-        style: 'magic',
-        rarity: 4,
-        element: 'frost',
-        affixes: [
-          { t: 'crit', v: 2, label: '+10% Crit' },
-          { t: 'lifesteal', v: 3, label: '+3% Lifesteal' },
-        ],
-      },
-    },
-  },
-];
+// P3/S5: the Great Hunts DATA now lives in src/content/apex.ts (CONTENT.apex.hunts). This is
+// its positional alias at the old declaration line — GREAT_HUNTS is CAPTURE'd (the server
+// grabs it; world.js reads G.GREAT_HUNTS), so the binding must stay; makeGreatBeast /
+// dropGreatBeastReward / setupOverworld / maybeRespawnHunts / the shop + Hunt Master all
+// consume this array unchanged (same values, same order — golden-identical).
+const GREAT_HUNTS = CONTENT.apex.hunts;
 function partyLvl() {
   return Math.max(state.player.level || 1, state._partyLevel || 0);
 }
@@ -379,52 +275,24 @@ function dropGreatBeastReward(e) {
 // object ref which packScalar drops on the wire) — so a later MP stage serializes the fight for free; deliberately NO
 // arrays/objects for per-boss fight-state. NOT isFinalBoss / NOT isKraken (killEnemy never calls victory()); it IS isBoss.
 // drops.* keys are carried as DATA only — Stage B implements the named uniques from them.
-const PIN_ARENA_START = 360,
-  PIN_ARENA_MIN = 100,
-  PIN_ARENA_SHRINK = 0.05,
-  PIN_LEASH = 980;
+const PIN_ARENA_START = CONTENT.apex.pinArenaStart, // P3/S5: positional aliases → src/content/apex.ts
+  PIN_ARENA_MIN = CONTENT.apex.pinArenaMin,
+  PIN_ARENA_SHRINK = CONTENT.apex.pinArenaShrink,
+  PIN_LEASH = CONTENT.apex.pinLeash;
 // The pinnacle bosses are a FIXED RUNG, not a mirror. They used to bake partyLvl() into their hp/atk/xp/gold,
 // so they scaled DOWN to whoever showed up and a level-19 hero could solo both apex terrors with zero problem —
 // the fight was never harder than you, so it was never a fight. PIN_LEVEL is what they are, always: you come to
 // them, not the other way round. It drives ONLY the level factor; party-size/cycle/ascension/distance still
 // multiply on top (a 4-stack still gets a fatter King), and rewards ride the same lf — fixed difficulty, fixed
 // (and now much richer) payout. The DROP's item level deliberately still tracks partyLvl() — see dropPinnacleReward.
-const PIN_LEVEL = 75;
+const PIN_LEVEL = CONTENT.apex.pinLevel; // P3/S5: positional alias → src/content/apex.ts
 // ===== PINNACLE CHASE UNIQUES (Pillar 2) — each is a real weapon/armor object shaped like genWeapon/genArmor
 // output (so equip/sell/reforge/fuse/temper/inventory all work), carrying a `uniq` tag (persists via normal
 // inventory serialization; the smith paths mutate in place and never strip it) + a one-line uniqDesc. The ONE
 // build-changing effect is read from a recalcStats-derived p.u* scalar in combat code — never a stat stick. =====
-const UNIQUES = {
-  leviathanspine: {
-    slot: 'weapon',
-    style: 'ranged',
-    element: 'frost',
-    name: 'Leviathan Spine',
-    atkMul: 1.2,
-    cd: 24,
-    uniqDesc: 'Every 3rd hit on a Marked target looses a free frost lance.',
-  },
-  tidecalleraegis: {
-    slot: 'armor',
-    name: "Tidecaller's Aegis",
-    defMul: 1.22,
-    uniqDesc: 'A perfect dodge releases a frost nova.',
-  },
-  shepherdsbell: {
-    slot: 'weapon',
-    style: 'magic',
-    element: 'frost',
-    name: "Shepherd's Bell",
-    atkMul: 1.1,
-    uniqDesc: '+1 thrall cap; your thralls detonate when they expire.',
-  },
-  gravewoolcloak: {
-    slot: 'armor',
-    name: 'Gravewool Cloak',
-    defMul: 1.15,
-    uniqDesc: 'Stand still ~1.5s to cloak until you act.',
-  },
-};
+// P3/S6: UNIQUES DATA (the 4 pinnacle-chase relics) → src/content/gear.ts (CONTENT.gear.uniques).
+// Positional alias; makeUnique reads UNIQUES[key] and shapes a real weapon/armor object.
+const UNIQUES = CONTENT.gear.uniques;
 function makeUnique(key, level) {
   const U = UNIQUES[key];
   if (!U) return null;
@@ -465,40 +333,10 @@ function makeUnique(key, level) {
     bonus: { stat: 'def', amount: 4, label: '+4 DEF' },
   };
 }
-const PINNACLE_BOSSES = [
-  {
-    key: 'drownedking',
-    name: 'The Drowned King',
-    color: '#2f7fb0',
-    type: 'kraken',
-    island: true,
-    where: 'a shipwreck in the Sundered Sea',
-    hp: 2600,
-    atk: 44,
-    def: 14,
-    xp: 3200,
-    gold: 3400,
-    night: false,
-    specials: ['pullunder', 'raiseadds', 'nova', 'charge'],
-    drops: { style: 'ranged', styleUniq: 'leviathanspine', universalUniq: 'tidecalleraegis' },
-  },
-  {
-    key: 'paleshepherd',
-    name: 'The Pale Shepherd',
-    color: '#d6e6f2',
-    type: 'boss',
-    island: false,
-    where: 'the Frozen Wastes, by night',
-    hp: 2400,
-    atk: 46,
-    def: 13,
-    xp: 3000,
-    gold: 3200,
-    night: true,
-    specials: ['raiseadds', 'nova', 'charge'],
-    drops: { style: 'summon', styleUniq: 'shepherdsbell', universalUniq: 'gravewoolcloak' },
-  },
-];
+// P3/S5: the pinnacle DATA now lives in src/content/apex.ts (CONTENT.apex.pinnacles). This is
+// its positional alias — PINNACLE_BOSSES is CAPTURE'd; makePinnacleBoss / pinnacleLair /
+// dropPinnacleReward / the shop consume this array unchanged (same values, same order).
+const PINNACLE_BOSSES = CONTENT.apex.pinnacles;
 function pinnacleLair(pb) {
   if (pb.key === 'drownedking')
     return (
