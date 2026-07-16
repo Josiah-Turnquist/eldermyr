@@ -473,3 +473,34 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   scratch artifact with the split textually reverted; battery 41/41, vtune-verify +
   legion-mp-verify green, world self-test + typecheck green. ARCHITECTURE.md gains the
   day-tick World/Hero bullet.
+- 2026-07-16: P2/S14 DONE — RPC runAs + MACHINERY DELETION (the swap cleanup S13 left): PP_KEYS/
+  swapInPP/writeBackPP definitions AND all 12+5 call sites deleted from world.js (−32/+37 lines;
+  every `S.player = p; S.inventory = p.inventory` pin stays verbatim — the pin IS the swap);
+  `_runRpc` wraps its whole dispatch and `resolveInteract` replaces its hand-rolled pin/restore
+  with the GAME's own `actAs(p, …)` (plan §1's runAs; CAPTURE +actAs, dist namespace rebuilt —
+  no game-file edit), so an RPC/interact handler now CARRIES its acting context instead of
+  trusting the caller's pin (the §1 trap). doCamp mirror (dissolved S7) + _shopTown bridge (dead
+  S9) verified-gone, not re-deleted; _projectilesByShooter's no-restore pin + characterOf/
+  _loadCharacter pins + grabWorld/putWorld untouched per plan. Gates: golden 1p 8/8 on the
+  UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt exactly @700); mp-golden 4/4 on the
+  UNTOUCHED oracle-mp — NO re-record, identity proven by BOTH runs (pre-change 4/4 + post-change
+  4/4, same sha 910071a8…) + mp-prove all green; battery 41/41 + typecheck + world self-test.
+  NEW verify_fixes FIX9 (risk #5 rpc-2p, 5 asserts): THE DISCRIMINATOR — `_runRpc(buyPotion, B)`
+  under a deliberately-wrong ambient pin pays B (his gold −15, his potion +1), bystander
+  untouched, pin restored; same-tick 2p buys via the real setInput path; source guard (no
+  machinery text, ≥2 G.actAs sites) — SEEN FAILING 4 asserts vs the pre-S14 HEAD-55298e0
+  worktree (own dist): there the AMBIENT hero paid (R1 485 g + stolen potion, R2 untouched) —
+  the trap demonstrated live. Live 2-session checklist (shop/smith/camp) on the local server:
+  browser actor + a second real ws session (the pane fronts one tab; its hidden tabs throttle
+  rAF/timers — audio-unlock + reading the page's own socket made the actor drivable): Elder [E]
+  → dialogue + talk.done/legion-camps through actAs'd resolveInteract with live quest-box
+  repaint; shop panel over the wire (stock + gold-gated buttons off p.active*) → REAL Buy click
+  → gold 30→15/potions 2→3 on the actor only; smith repairItem (kind/idx/name resolution)
+  correctly REFUSED at 15 g vs 100 g cost with zero side effects (paid repair rides the same
+  headless-proven path — deviation noted: gold farming under a throttled tab made a paid repair
+  impractical); [C] camp → lastRestDay 1→7 (stamped to real curDay), instant rest heal,
+  Exhausted cleared, room clock never jumped (tick continuity held); bystander ws hero FROZEN
+  across all of it (gold 0/potions 2/dur 50/camping false over 100k+ snapshots). Conscious MP
+  deltas: NONE behavioral (the machinery was inert since S13) — S14 adds only the enforcement
+  seam. ARCHITECTURE.md: room-rotation intro rewritten (pin-is-the-swap + actAs seam), PP_KEYS
+  bullet → past-tense chronicle, iron rule 4 forbids reintroducing a state.X slice.

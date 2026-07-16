@@ -140,6 +140,7 @@ const CAPTURE = [
   // NPC interactions (co-op [E] resolver): dialogue lines, instant actions, and panel-action RPCs
   'elderLines', 'openBounty', 'buyBoat', 'cook',
   'aliasSharedQuests',   // P2/S13: the sim's room-shared quest seam — world.js re-attaches main/frozen/legion through it on every join/load
+  'actAs',   // P2/S14: THE acting-context seam (plan §1's runAs) — world.js runs every RPC/interact handler under actAs(p, …), which pins ONLY state.player/state.inventory and restores both in a finally
 
   'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ];

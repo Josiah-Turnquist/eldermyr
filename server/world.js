@@ -19,8 +19,10 @@
  * (quests/maxDepth/bounty — v2.57.0; they read per-player state, so one shared box could
  * never be right for two heroes at once, and being shared+unpersisted it also reset to the
  * intro on every scale-to-zero) + reputation/lore (factions/loreFound — P2/S11, same
- * argument). Since P2/S13 every one of those keys lives ON the player object (PP_KEYS is
- * empty). SHARED across the party = territory, the world itself — plus the three quests
+ * argument). Since P2/S13 every one of those keys lives ON the player object, so the
+ * S.player/S.inventory pin IS the whole per-player swap — the old PP_KEYS swap/write-back
+ * machinery is DELETED (P2/S14; RPC/interact paths run under the game's own actAs).
+ * SHARED across the party = territory, the world itself — plus the three quests
  * that track WORLD OBJECTS (main/frozen/legion), aliased by reference into every player's
  * quests through the game's own aliasSharedQuests (see the QUESTS block below).
  */
@@ -277,15 +279,11 @@ const RPC_OK = new Set([
   // hearth (cook) + warband (recruit/arm/garrison/dismiss) — panel actions on the acting hero
   'cook', 'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ]);
-// The per-player town-economy globals the game reads/writes: swap the acting player's in
-// before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = [];   // EMPTY since P2/S13 (quests, the last key, lives ON state.player like everything else — S5 tonics/sharpenLevel, S7 shopPurchased/cargo/fishCd/lastRestDay, S8 ingredients, S10 sailing/dragon, S12 maxDepth/bounty). The S.player pin IS the whole swap now; this machinery and its call sites are inert and die in S14 (plan §7) together with the RPC runAs conversion.
-function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // inert since P2/S13 (zero keys) — deleted in S14
-// Inert since P2/S13: nothing is left to mirror (the game writes every per-hero key on p directly).
-// (History, why this existed: lastRestDay was MISSING from this mirror for weeks → resting never
-// persisted; `state.maxDepth = Math.max(...)` and `state.bounty = rollBounty()` were number/wholesale-
-// replace writes that never reached p by reference. Every key has since moved onto the player.)
-function writeBackPP(_p) {}   // deleted in S14 with its call sites
+// (P2/S14) The PP_KEYS swap/write-back machinery lived here and is DELETED: every per-player
+// key was retired onto state.player key-by-key (S5–S13; ARCHITECTURE.md carries the chronicle),
+// so `S.player = p; S.inventory = p.inventory` IS the whole swap. RPC/interact paths run under
+// the game's own actAs(p, fn) — the one acting-context seam (pins exactly those two slots,
+// restores in a finally). New per-player state is a PLAYER FIELD, never a state.X slice.
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -404,7 +402,7 @@ class World {
     const owBase = grabWorld();                                       // snapshot EVERY world slot BEFORE we disturb it (map/enemies/pickups/npcs/projectiles/dungeon slots/floorMod/maps.dungeon)
     let entered = false;
     try {                                                            // mirror the dungeon phase: ANY failure path must restore ALL swapped slots (no dungeon fragments stranded under map==='overworld')
-      S.player = p; S.inventory = p.inventory; swapInPP(p);
+      S.player = p; S.inventory = p.inventory;
       G.enterDungeon();                                              // builds a floor + stashes the overworld into owSave (a throwaway floor when joining — the shared one is restored next tick)
       if (!joining) { S.dungeonLevel = deep; p.maxDepth = Math.max(p.maxDepth | 0, deep); G.setupDungeonFloor(deep); }   // rebuild at the deep floor (the depth record is the breacher's own — P2/S12)
       if (S.map === 'dungeon') {
@@ -415,8 +413,7 @@ class World {
       }
     } catch (e) { this._err('enterRift', e); }
     finally {
-      putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else
-      writeBackPP(p);                                                // inert since P2/S13 (the game writes p.quests directly — nothing left to mirror); the call stays until S14 deletes the machinery. (The old bug this line fixed — the breach's `Math.max(…, deep)` depth bump discarded by the next hero's swap — can't recur since P2/S12: maxDepth is written on p directly.)
+      putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else. (The breach's depth bump is written on p directly — P2/S12 — so no write-back is needed here; the machinery that once mirrored it is deleted, P2/S14.)
       // per-owner delving: the BREACHER's own alive, un-posted warband dives WITH them (keep the setupCompanions
       // teleport, re-seat near p on the deep floor, tag map='dungeon'); everyone else stays topside where they were.
       // A failed breach (entered=false) dives nobody — restore all.
@@ -440,7 +437,7 @@ class World {
   // so that per-projectile re-pin IS the full acting context — killEnemy's `state.player.quests.slay.count++`
   // and bountyProgress() land on the shooter by construction. The owner BUCKETS stay: they fix the
   // projectile STEP ORDER per owner (the determinism the 2p baselines freeze) until the next slice
-  // internalizes the loops; the swapInPP call below is inert (S14 deletes it).
+  // internalizes the loops; the pin below (player + inventory) is the whole acting context (P2/S14).
   // Hostile + unowned shots ride one final pass under pool[0] — (P2/S3) their player-hit test loops the
   // game's world-scoped partyIn() itself, so every hero of the swapped-in world is a target (the old
   // players[1..N] patches are gone). Every projectile is stepped exactly once:
@@ -462,7 +459,7 @@ class World {
     }
     const out = [];
     const runAs = (p, list) => {
-      S.player = p; S.inventory = p.inventory; swapInPP(p);
+      S.player = p; S.inventory = p.inventory;   // deliberately NO restore: the shared phase re-pins players[0] right after this partition (and the end-of-phase pin is part of the hashed state the 2p baselines freeze)
       S.projectiles = list;
       try { G.updateProjectiles(); } catch (e) { this._err('updateProjectiles', e); }
       out.push(...S.projectiles);
@@ -748,6 +745,14 @@ class World {
 
   _runRpc(a, p) {
     const rpc = a.rpc, args = Array.isArray(a.args) ? a.args : [];
+    // (P2/S14) EVERY RPC runs under the game's actAs(p, …) — plan §1's runAs shape (pins ONLY
+    // state.player/state.inventory, the two slots that remain; restores both in a finally).
+    // The tick's rotation already pins p before _runActions, so inside the tick this is a no-op
+    // pin — but nothing ENFORCED it: an RPC invoked outside a rotation slice used to run against
+    // whatever hero the previous phase left pinned (the §1 trap). Now the handler carries its own
+    // acting context. The special cases below are ORCHESTRATION, not context: id→object
+    // resolution, the scene pin, the warband roster splice, the shared-clock freeze.
+    G.actAs(p, () => {
     if (rpc === 'sellAllJunk') {                                 // the game gates this on scene==='shop' — but the server pins scene='play' every tick
       const sc = S.scene; S.scene = 'shop';
       try { if (typeof G.sellAllJunk === 'function') G.sellAllJunk(); } catch (_e) {}
@@ -805,6 +810,7 @@ class World {
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);
+    });
   }
 
   // Nearest shop the player is standing at → its stock + this hero's purchase history.
@@ -837,28 +843,31 @@ class World {
     let npc = null, bd = Infinity;
     for (const n of (S.npcs || [])) { if (n.id !== npcId) continue; const d = (n.x - cx) ** 2 + (n.y - cy) ** 2; if (d < bd) { bd = d; npc = n; } }
     if (!npc || bd > (130 * 130)) return null;                 // must actually be standing at that NPC
-    const pp = S.player, pi = S.inventory;
-    S.player = p; S.inventory = p.inventory; swapInPP(p);       // act as this hero
+    // (P2/S14) act as this hero through the GAME's own actAs — the one acting-context seam
+    // (plan §1's runAs shape: pins state.player/state.inventory, restores both in a finally;
+    // since S13 that pin IS the whole per-hero swap, so the hand-rolled pin + swapInPP/
+    // writeBackPP pair that lived here is gone).
     let res = null;
     try {
-      if (npcId === 'hearth') res = { kind: 'panel', panel: 'cook' };                                   // client already has ingredients (snap.me)
-      else if (npcId === 'hunts') res = { kind: 'panel', panel: 'hunts', huntsSlain: (S.huntsSlain || []).slice() };
-      else if (npcId === 'recruit') res = { kind: 'panel', panel: 'companions', companions: (S.companions || []).filter((c) => c.ownerId === p.id).map((c) => safeClone(c)) };   // YOUR warband only (roster + indexes must match the per-owner RPCs)
-      else if (npcId === 'bounty') res = this._doInstant(p, 'openBounty');
-      else if (npcId === 'shipwright') res = this._doInstant(p, 'buyBoat');
-      else {                                                    // elder / guard / any talker → dialogue
-        const lines = (npcId === 'elder' && typeof G.elderLines === 'function') ? G.elderLines() : (Array.isArray(npc.lines) ? npc.lines.slice() : ['…']);
-        if (npcId === 'elder' && p.quests) {                   // the elder advances the questline — the ACTING hero's own box (P2/S13; talk/key are personal, main/legion write the room's shared objects through the alias, exactly as before)
-          const q = p.quests;
-          if (q.talk) q.talk.done = true;
-          if (q.main) q.main.started = true;
-          if (q.key) q.key.hidden = false;
-          if (q.legion && !q.legion.started) { q.legion.started = true; q.legion.stage = 'camps'; }
+      G.actAs(p, () => {
+        if (npcId === 'hearth') res = { kind: 'panel', panel: 'cook' };                                   // client already has ingredients (snap.me)
+        else if (npcId === 'hunts') res = { kind: 'panel', panel: 'hunts', huntsSlain: (S.huntsSlain || []).slice() };
+        else if (npcId === 'recruit') res = { kind: 'panel', panel: 'companions', companions: (S.companions || []).filter((c) => c.ownerId === p.id).map((c) => safeClone(c)) };   // YOUR warband only (roster + indexes must match the per-owner RPCs)
+        else if (npcId === 'bounty') res = this._doInstant(p, 'openBounty');
+        else if (npcId === 'shipwright') res = this._doInstant(p, 'buyBoat');
+        else {                                                    // elder / guard / any talker → dialogue
+          const lines = (npcId === 'elder' && typeof G.elderLines === 'function') ? G.elderLines() : (Array.isArray(npc.lines) ? npc.lines.slice() : ['…']);
+          if (npcId === 'elder' && p.quests) {                   // the elder advances the questline — the ACTING hero's own box (P2/S13; talk/key are personal, main/legion write the room's shared objects through the alias, exactly as before)
+            const q = p.quests;
+            if (q.talk) q.talk.done = true;
+            if (q.main) q.main.started = true;
+            if (q.key) q.key.hidden = false;
+            if (q.legion && !q.legion.started) { q.legion.started = true; q.legion.stage = 'camps'; }
+          }
+          res = { kind: 'dialogue', speaker: npc.name || '', lines: Array.isArray(lines) ? lines : ['…'] };
         }
-        res = { kind: 'dialogue', speaker: npc.name || '', lines: Array.isArray(lines) ? lines : ['…'] };
-      }
+      });
     } catch (_e) {}
-    writeBackPP(p); S.player = pp; S.inventory = pi;
     return res;
   }
 
@@ -935,17 +944,16 @@ class World {
     // PER-PLAYER (overworld): movement, discrete actions, fatigue.
     for (const p of owPre) {
       if (p.downed) continue;            // incapacitated — the downed pass (below) runs their timers
-      S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
+      S.player = p; S.inventory = p.inventory; setKeys(p.held);
       try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
       this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
-      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is INERT since P2/S13 (the game writes p.quests directly; S14 deletes the call) — the original hole it plugged, enterDungeon's writes thrown away by the next hero's swap, is structurally gone. The overworld-only work below (the exhaustion edge) is what we're skipping.
+      if (p.map === 'dungeon') continue;   // just entered — its dungeon runs next tick; the overworld-only work below (the exhaustion edge) is what we're skipping. (The old write-back hole here — enterDungeon's writes thrown away by the next hero's swap — is structurally gone: every per-hero key lives on p, P2/S13, and the mirror machinery is deleted, P2/S14.)
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       // (P2/S3) The winter snow-chill replica died here: updateWeather itself now chills every
       // overworld hero (it loops the game's world-scoped partyIn()), so the shared phase covers all.
-      writeBackPP(p);
     }
 
     // SHARED WORLD — overworld heroes only (dungeon delvers run in their own phase below)
@@ -973,7 +981,7 @@ class World {
       const survivors = [];
       global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p);   // keep the bag in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy's quest credit (state.player.quests.slay), bountyProgress(), gold and a boss-drop key all ride the PINNED state.player (quests player-native since P2/S13, bounty since S12), so without this pin every kill in this bucket credits whichever hero the previous phase happened to leave behind (swapInPP is inert — S14 deletes it)
+        S.player = p; S.inventory = p.inventory;   // keep the bag in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy's quest credit (state.player.quests.slay), bountyProgress(), gold and a boss-drop key all ride the PINNED state.player (quests player-native since P2/S13, bounty since S12), so without this pin every kill in this bucket credits whichever hero the previous phase happened to leave behind
         S.enemies = buckets.get(p);         // this player's assigned foes target HIM
         try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
@@ -1004,7 +1012,7 @@ class World {
       }
       const aSurvivors = [];
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p); S.allies = aBuckets.get(p);   // the pin: updateAllies → killEnemy credits state.player — quest/bounty writes land on the pinned OWNER's own box (player-native since P2/S13/S12; swapInPP inert)
+        S.player = p; S.inventory = p.inventory; S.allies = aBuckets.get(p);   // the pin: updateAllies → killEnemy credits state.player — quest/bounty writes land on the pinned OWNER's own box (player-native since P2/S13/S12)
         try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
         aSurvivors.push(...S.allies);
       }
@@ -1015,7 +1023,7 @@ class World {
     // log lines are world events — broadcast to EVERYONE with no player owner — not personal to players[0].
     _sharedPhase = true;
     this._projectilesByShooter(players);   // stays inside the shared-phase flag (unchanged feed attribution), but each bucket runs with its SHOOTER's PP slice swapped in — see _projectilesByShooter
-    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; swapInPP(players[0]); }   // re-pin players[0] for the rest of the shared systems (the partition above left the last shooter swapped in)
+    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; }   // re-pin players[0] for the rest of the shared systems (the partition above left the last shooter swapped in)
     for (const fn of ['updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence', 'maybePinnacleBosses']) {
       if (G[fn]) try { G[fn](); } catch (e) { this._err(fn, e); }
     }   // maybePinnacleBosses: fixed-lair spawn/night-gate/despawn (Drowned King always broods; Pale Shepherd rises at night) — a once-per-tick shared system like updateEvents (self-throttled via state._pinCheckT); its cycle-respawn rides onNewDay→maybeRespawnPinnacle off G.updateTime()
@@ -1033,7 +1041,7 @@ class World {
         byOwner.get(o).push(c);
       }
       for (const [o, list] of byOwner) {
-        S.player = o; S.inventory = o.inventory; swapInPP(o); S.companions = list;   // the pin: a companion kill routes through killEnemy → quests.slay/bountyProgress land on the pinned OWNER's own box (player-native since P2/S13/S12; swapInPP inert)
+        S.player = o; S.inventory = o.inventory; S.companions = list;   // the pin: a companion kill routes through killEnemy → quests.slay/bountyProgress land on the pinned OWNER's own box (player-native since P2/S13/S12)
         try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
       }
       S.companions = all;
@@ -1051,7 +1059,7 @@ class World {
         if (p._spawnT > 0) continue;
         p._spawnT = SPAWN_EVERY;
         if (nearEnemyCount(p) >= localTarget(p)) continue;   // area already at its ring's target density
-        S.player = p; S.inventory = p.inventory; swapInPP(p);
+        S.player = p; S.inventory = p.inventory;
         S.spawnTimer = 0;                                  // force a spawn around THIS player now
         try { G.maybeSpawnWild(); } catch (e) { this._err('maybeSpawnWild', e); }
       }
@@ -1076,7 +1084,7 @@ class World {
         for (const p of dgAll) {
           if (S.map !== 'dungeon') putWorld(this.sharedDg);  // a previous player exited → bring the dungeon back for the rest
           if (p.downed || p.map !== 'dungeon') continue;
-          S.player = p; S.inventory = p.inventory; swapInPP(p); setKeys(p.held);
+          S.player = p; S.inventory = p.inventory; setKeys(p.held);
           try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
           const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // descend/exit run setupCompanions() → would teleport EVERY warband to this delver
           this._runActions(p, true);                       // interact = descend / exit / key-vault
@@ -1101,7 +1109,6 @@ class World {
             p._mapSwitchN = (p._mapSwitchN || 0) + 1;      // everyone (p included) gets the new grid
           }
           if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
-          writeBackPP(p);
         }
         if (S.map !== 'dungeon') putWorld(this.sharedDg);  // last action was an exit → restore for the shared passes
         const stillIn = dgAll.filter((p) => p.map === 'dungeon');
@@ -1115,7 +1122,7 @@ class World {
             const survivors = [];
             global.__libGate = () => false;                // partitioned bucket — same inline-liberation blindness as topside (dungeon foes carry no site keys today; cheap insurance)
             for (const p of stillIn) {
-              S.player = p; S.inventory = p.inventory; swapInPP(p);   // the pin — a dungeon boss's key drop sets state.inventory.keys++ AND state.player.quests.key.done; both ride the KILLER's pin (mirrors the overworld partition; swapInPP inert since P2/S13)
+              S.player = p; S.inventory = p.inventory;   // the pin — a dungeon boss's key drop sets state.inventory.keys++ AND state.player.quests.key.done; both ride the KILLER's pin (mirrors the overworld partition)
               S.enemies = buckets.get(p);
               try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
               survivors.push(...S.enemies);
@@ -1132,7 +1139,7 @@ class World {
               if (dp.downed) continue;                     // a downed delver's recruits idle (mirrors the overworld skip)
               const mine = allC.filter((c) => c.ownerId === dp.id && c.map === 'dungeon');
               if (!mine.length) continue;
-              S.player = dp; S.inventory = dp.inventory; swapInPP(dp); S.companions = mine;   // the pin (mirrors the overworld warband partition; swapInPP inert since P2/S13)
+              S.player = dp; S.inventory = dp.inventory; S.companions = mine;   // the pin (mirrors the overworld warband partition)
               try { G.updateCompanions(); } catch (e) { this._err('updateCompanionsDg', e); }
             }
             S.companions = allC;

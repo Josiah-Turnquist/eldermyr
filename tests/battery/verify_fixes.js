@@ -405,6 +405,57 @@ const B = w.addPlayer('B', 'Bo');
 }
 
 // ---------------------------------------------------------------------------
+// FIX 9 (P2/S14) — the RPC path carries its OWN acting context: _runRpc runs every
+// handler under the game's actAs(p, …) (plan §1's runAs — pins ONLY state.player/
+// state.inventory, the two slots that remain; restores both in a finally). The swap
+// machinery (PP_KEYS/swapInPP/writeBackPP) is DELETED — the pin IS the whole swap.
+// Pre-S14 an RPC ran against whatever hero its caller left pinned (the §1 trap);
+// these are plan risk #5's rpc-2p assertions ("B buys, A's gold unchanged").
+// ---------------------------------------------------------------------------
+{
+  const R1 = w.addPlayer('R1', 'Rica');
+  const R2 = w.addPlayer('R2', 'Rob');
+  R1.map = 'overworld'; R2.map = 'overworld';
+  R1.gold = 500; R2.gold = 500;
+  const pot = (p) => { const it = (p.inventory.items || []).find((i) => i.name === 'Potion'); return it ? it.qty | 0 : 0; };
+
+  // (a) THE DISCRIMINATOR — an RPC invoked while the AMBIENT pin is another hero must still
+  // act as ITS OWN hero. Pre-S14 (no actAs wrapper — the handler trusted its caller's pin)
+  // the ambient hero paid: R1 lost the 15 g and pocketed the potion. SEEN FAILING there.
+  S.player = R1; S.inventory = R1.inventory;             // the stale-pin shape of the §1 trap
+  const g1 = R1.gold, g2 = R2.gold, q1 = pot(R1), q2 = pot(R2);
+  w._runRpc({ rpc: 'buyPotion', args: [] }, R2);
+  ok('FIX9 the RPC pays the ACTING hero, never the ambient pin (B buys: HIS gold, HIS potion)',
+    R2.gold === g2 - 15 && pot(R2) === q2 + 1, 'R2.gold=' + R2.gold + ' potions=' + pot(R2));
+  ok('FIX9 the ambient-pinned bystander is UNTOUCHED (A\'s gold unchanged — risk #5)',
+    R1.gold === g1 && pot(R1) === q1, 'R1.gold=' + R1.gold + ' potions=' + pot(R1));
+  ok('FIX9 actAs RESTORES the ambient pin after the handler (finally semantics)',
+    S.player === R1 && S.inventory === R1.inventory, 'pinned=' + (S.player && S.player.name));
+
+  // (b) the REAL path (setInput → tick → _runActions → _runRpc under the rotation): both
+  // heroes buy in the SAME tick — each pays exactly his own 15 g, pockets exactly one potion.
+  // (Parked in an empty corner: no foes/pickups/tribute to move gold during the tick.)
+  R1.x = 8 * TILE; R1.y = 8 * TILE; R2.x = 10 * TILE; R2.y = 8 * TILE; R1.held = {}; R2.held = {};
+  const g1b = R1.gold, g2b = R2.gold, q1b = pot(R1), q2b = pot(R2);
+  w.setInput('R1', { actions: [{ rpc: 'buyPotion' }] });
+  w.setInput('R2', { actions: [{ rpc: 'buyPotion' }] });
+  w.tick();
+  ok('FIX9 same-tick 2p buys: each hero pays his OWN 15 g and gains his OWN potion',
+    R1.gold === g1b - 15 && R2.gold === g2b - 15 && pot(R1) === q1b + 1 && pot(R2) === q2b + 1,
+    JSON.stringify({ R1: [g1b, R1.gold, pot(R1)], R2: [g2b, R2.gold, pot(R2)] }));
+
+  // (c) source guard: the machinery is GONE from world.js — definitions AND call sites
+  // (only the retirement chronicle in comments may mention the names), and both the RPC
+  // dispatcher and the interact resolver run under the game's actAs.
+  const WSRC = require('fs').readFileSync(REPO + '/server/world.js', 'utf8');
+  ok('FIX9 world.js: no PP_KEYS/swapInPP/writeBackPP definitions or calls remain',
+    !/const PP_KEYS/.test(WSRC) && !/function swapInPP/.test(WSRC) && !/function writeBackPP/.test(WSRC)
+    && !/swapInPP\s*\(/.test(WSRC) && !/writeBackPP\s*\(/.test(WSRC), '');
+  ok('FIX9 world.js: _runRpc + resolveInteract run under G.actAs(p, …)',
+    (WSRC.match(/G\.actAs\(p, \(\) =>/g) || []).length >= 2, '');
+}
+
+// ---------------------------------------------------------------------------
 // REGRESSION — 3 players, 300 ticks incl. a live dungeon delve, zero exceptions
 // ---------------------------------------------------------------------------
 {

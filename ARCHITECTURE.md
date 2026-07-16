@@ -57,15 +57,19 @@ the battery and golden gates run against both files.
 ## The room (`server/world.js`)
 
 One shared game `state` (`S`). Per tick, **player rotation**: `S.player = p;
-S.inventory = p.inventory; swapInPP(p)` → run game functions as that player → `writeBackPP(p)`.
+S.inventory = p.inventory` → run game functions as that player. Since P2/S13 every per-hero
+key lives ON the player object, so that two-slot pin IS the whole swap; the old
+`swapInPP`/`writeBackPP` mirror machinery is **deleted** (P2/S14). RPC and interact handlers
+do not trust their caller's pin: `_runRpc` and `resolveInteract` run their bodies under the
+GAME's own `actAs(p, …)` (plan §1's runAs — pins exactly those two slots, restores both in a
+finally), so an RPC invoked outside a rotation slice can no longer act as a stale hero.
 
-- **PP_KEYS rule:** every per-player key must appear in *both* `swapInPP` and `writeBackPP`,
-  and (if durable) in `characterOf` + the load path, and (if client-visible) in the snapshot
-  + explicit client adoption. `lastRestDay` was missing from writeBack for weeks; don't be next.
-  A by-reference key still needs its writeBack line: the game may *replace* the object
-  (the retired `bounty` did, via `rollBounty()`), and numbers (the retired `maxDepth`)
-  never write back at all.
-  (The P2 rebuild is retiring this list key-by-key onto `state.player` — S5 took
+- **PP_KEYS chronicle (the machinery is GONE — P2/S14):** every per-player key used to need
+  *both* a `swapInPP` and a `writeBackPP` line, plus `characterOf` + load + snapshot + client
+  adoption. `lastRestDay` was missing from writeBack for weeks; `state.maxDepth` (a number)
+  and `state.bounty` (wholesale-replaced by `rollBounty()`) were the mirror's founding
+  hazards. That whole bug class is structurally dead: the game writes `p.*` directly.
+  (The P2 rebuild retired the list key-by-key onto `state.player` — S5 took
   tonics/sharpenLevel, S7 took shopPurchased/cargo/fishCd/lastRestDay, incl. its doCamp mirror,
   S8 took ingredients (and with it `characterOf`'s whole `shop` slice — migrateCharacter folds
   old rows' shop.* into player.*), S9 took the per-shopper shop SESSION
@@ -83,9 +87,9 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   number and the wholesale-replaced object — now written on `p` directly; both fold into the
   save's player slice, `characterOf`'s top-level copies are gone, and the client re-stamps its
   last adopted bounty across each me-adopt since bounty stays out of `safeClone`);
-  and S13 took QUESTS itself — the LAST key. **PP_KEYS is EMPTY**: the `S.player` pin IS the
-  whole swap now; swapInPP/writeBackPP and their call sites are inert and die in S14 with the
-  RPC runAs conversion. A retired key follows the player-scalar rule below instead.
+  and S13 took QUESTS itself — the LAST key. **S14 then deleted the machinery**: PP_KEYS/
+  swapInPP/writeBackPP and all their call sites are gone from world.js; the `S.player`
+  pin is the whole swap and every retired key follows the player-scalar rule below.
   `activeStock`, `bounty` and `quests` are the three retired keys deliberately SKIPPED by
   `safeClone` — the rolled stock rides the single `shopData` payload and the contract + the
   quest box ride the version-gated quest payload, never `me` at 66 Hz.)
@@ -317,10 +321,11 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
 2. `eldermyr-rpg.html` edits ship to both branches (`main` = Netlify SP, `multiplayer` =
    Railway MP); `server/`/`client/` stay on `multiplayer`.
 3. No bare `catch (_e) {}` around subsystem calls — use the throttled `_err(key, e)` logger.
-4. New per-player state: prefer a **scalar on `state.player`** (rides the whole chain for free —
-   see the milestones note above). If it must be a `state.X` slice, it needs the WHOLE chain:
-   PP_KEYS + swapInPP + writeBackPP + save/load + snapshot + client adopt. Before adding it,
-   ask whether it is per-HERO or a WORLD fact — `state.flags` held both and was wrong for years.
+4. New per-player state is a **field on `state.player`**, full stop (rides the whole chain for
+   free — see the milestones note above). The `state.X` per-player-slice machinery (PP_KEYS +
+   swapInPP/writeBackPP) was deleted in P2/S14 and must not be reintroduced. Before adding a
+   field, ask whether it is per-HERO or a WORLD fact — `state.flags` held both and was wrong
+   for years.
 5. **Update this file** when you change any invariant above — a wrong doc is worse than none.
 
 ## Style-identity resources (Pillar 1: Momentum / Quarry Marks / Heat)
