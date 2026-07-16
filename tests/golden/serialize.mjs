@@ -63,6 +63,14 @@ export const REMAP = [
   { from: 'state.player.shopPurchased', to: 'state.shopPurchased' },
   // P2/S8 — the forage pantry moved onto the player (plan §7 group 4; the last shop-slice key):
   { from: 'state.player.ingredients', to: 'state.ingredients' },
+  // P2/S9 — the per-hero travel list + the per-shopper shop session moved onto the player
+  // (shared-bugs #1/#7). activeStock/activeShopName exist only while a shop session is open
+  // (openShop creates them, matching the old root behavior) — the entries no-op when absent,
+  // exactly the pre-move shape:
+  { from: 'state.player.visitedTowns', to: 'state.visitedTowns' },
+  { from: 'state.player.activeShopTown', to: 'state.activeShopTown' },
+  { from: 'state.player.activeStock', to: 'state.activeStock' },
+  { from: 'state.player.activeShopName', to: 'state.activeShopName' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

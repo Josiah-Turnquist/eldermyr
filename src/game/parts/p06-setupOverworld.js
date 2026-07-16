@@ -583,6 +583,10 @@ function snapshot() {
       /* P2/S8: the forage pantry rides the player slice (same doctrine — root fallback for
          pre-move saves). It was the LAST key in MP's characterOf `shop` slice, which dies. */
       ingredients: { ...(p.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
+      /* P2/S9: the per-hero travel list rides the player slice (same doctrine — root fallback
+         for pre-move saves). The shop SESSION (activeShopTown/activeStock/activeShopName) is
+         deliberately NOT saved: it never was (applySnapshot always reset the town to -1). */
+      visitedTowns: [...(p.visitedTowns || [])],
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -590,8 +594,8 @@ function snapshot() {
     dungeonLevel: state.dungeonLevel,
     maxDepth: state.maxDepth,
     map: state.map,
-    /* (tonics/sharpenLevel moved into the player block above — P2/S5; shopPurchased — P2/S7) */
-    visitedTowns: [...(state.visitedTowns || [])],
+    /* (tonics/sharpenLevel moved into the player block above — P2/S5; shopPurchased — P2/S7;
+       visitedTowns — P2/S9) */
     bounty: state.bounty ? { ...state.bounty } : null,
     factions: { ...(state.factions || { vigil: 0, wilds: 0, dread: 0 }) },
     legion: state.legion ? JSON.parse(JSON.stringify(state.legion)) : null,

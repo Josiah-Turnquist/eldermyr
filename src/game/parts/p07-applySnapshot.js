@@ -72,7 +72,10 @@ function applySnapshot(s) {
   /* P2/S7 player-carried (same doctrine): new saves hold it in s.player, pre-move saves at the
      root — read back LOSSLESSLY, explicit so a stale session value can never survive a load. */
   p.shopPurchased = s.player.shopPurchased !== undefined ? s.player.shopPurchased : s.shopPurchased || [];
-  state.visitedTowns = s.visitedTowns || [];
+  /* P2/S9 player-carried travel list (same doctrine): new saves hold it in s.player, pre-move
+     saves at the root — read back LOSSLESSLY, explicit so a stale session value can never
+     survive loading an old save. */
+  p.visitedTowns = s.player.visitedTowns !== undefined ? s.player.visitedTowns : s.visitedTowns || [];
   state.bounty = s.bounty || null;
   state.factions = s.factions || { vigil: 0, wilds: 0, dread: 0 };
   state.legion = s.legion || null;
@@ -132,7 +135,7 @@ function applySnapshot(s) {
   /* P2/S8 player-carried pantry (root fallback for pre-move saves) */
   /* P2/S7 player-carried trade hold (root fallback for pre-move saves) */
   p.cargo = s.player.cargo !== undefined ? s.player.cargo : s.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 };
-  state.activeShopTown = -1;
+  p.activeShopTown = -1; /* the shop SESSION is never persisted — a load always starts you outside a store, exactly as before P2/S9 (activeStock/activeShopName are re-created by the next openShop, as always) */
   p.fishCd = 0; /* never persisted — a load always starts you off cooldown, exactly as before P2/S7 */
   if (!p.foodBuff) p.foodBuff = null;
   if (!p.foodT) p.foodT = 0;
@@ -297,7 +300,7 @@ function startGame() {
   Sound.resume();
   Sound.startMusic('overworld');
   state.ascension = legacy.ascension || 0;
-  state.visitedTowns = [];
+  state.player.visitedTowns = []; // P2/S9: player-carried (fresh start = no towns discovered; markTownVisited below re-earns the spawn town)
   state.factions = { vigil: 0, wilds: 0, dread: 0 };
   state.bounty = null;
   state.huntsSlain = [];

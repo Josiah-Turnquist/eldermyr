@@ -278,6 +278,36 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   carries player.ingredients with NO shop slice. Conscious MP delta: NONE behavioral (ingredients
   was already per-player via PP) — a pure carrier move; the pantry still persists, now via the
   player slice.
+- 2026-07-16: P2/S9 DONE — per-key retirement #5: visitedTowns (shared-bug #1) + the per-shopper SHOP
+  SESSION (shared-bug #7: activeShopTown/activeStock/activeShopName) moved onto state.player (game
+  literal → PLAYER_TEMPLATE seeds MP heroes with visitedTowns:[0]-spawn-town + closed session;
+  markTownVisited/renderTravel/openShop/buyGood/sellGood/renderShop read p.*; snapshot player-block +
+  applySnapshot root-fallback for visitedTowns ONLY, field-keyed, NO v bump — the session stays
+  UNSAVED/reset-(-1) exactly as always; migrate.js default visitedTowns:[]; PP_KEYS stays 5 but
+  swapInPP's `_shopTown → S.activeShopTown` special case + the `p._shopStock` stash DIE — shopPayloadFor
+  stamps the game's own player fields and the buyWeapon/buyArmor RPC resolves against p.activeStock;
+  safeClone skips `activeStock` (the fat stock rides the ONE shopData payload, never `me` at 66 Hz)).
+  mp.html: shopData repointed to the player fields via tab-local `localShop`, re-stamped after the
+  wholesale adopt (the S6 wayfind inversion — without it the panel blanks in 15 ms since activeStock is
+  off the wire); old root writes deleted per risk #7. REMAP +4 (now 14; stock/name no-op unless a
+  session is open) — golden 1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt
+  exactly @700). mp-golden: all 4 diverge @sample 0 (shape — pre-S9 heroes had NO such keys) → delta
+  proven EXACTLY intended before re-record: old-shape masking view (S9 keys hidden on every hero incl.
+  the boot literal; root re-presented as the boot hero's visitedTowns + activeShopTown -1@sample-0/null
+  after — pre-S9 swapInPP always-assigned null; hashed under the 10 pre-S9 REMAP entries) reproduces the
+  pre-S9 oracle BYTE-FOR-BYTE at all 124 samples, and old-vs-new engine per-hero end-state summaries are
+  IDENTICAL on all 4 trajectories — then conscious re-record, mp-check 4/4 + mp-prove all green. Battery
+  41/41; new asserts SEEN FAILING vs a pre-S9 HEAD-9f3b396 worktree (own dist): 11 (migrate default ×7
+  fixtures + REMAP pin + characterOf S9 emission + real-path v1 default + travel-list-survives-reboot),
+  2+crash (sp-flags-check §2f root-fallback/default; crash at the S9 snapshot-shape probe), 7
+  (verify_fixes FIX7 — incl. the live hole demo: pre-S9 a hero who NEVER opened a shop bought furs for
+  38 g through the null-bridge `i < 0` guard slip; post-S9 refused). World self-test + typecheck green;
+  live browser smoke (MP + SP pages off the same dist): join clean, 0 console errors, ZERO ghost root
+  keys, the shop panel renders stock/name/trade off state.player.active* in the real DOM and SURVIVES
+  3 s of reconciles (the re-stamp), SP [T] travel panel renders off state.player.visitedTowns. Conscious
+  MP deltas: a hero's discovered-towns list is HIS and now SURVIVES reboots (was shared + never saved);
+  a session-less buyGood/sellGood RPC now prices like SP (-1 guard) instead of slipping to town-0
+  prices; fresh joiners start with the spawn town discovered (SP parity via the template).
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

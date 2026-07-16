@@ -208,6 +208,92 @@ const B = w.addPlayer('B', 'Bo');
 }
 
 // ---------------------------------------------------------------------------
+// FIX 7 (P2/S9) — the shop SESSION is PER-SHOPPER on state.player (was shared
+// state.activeShopTown/activeStock/activeShopName bridged by swapInPP's
+// `_shopTown` special case + p._shopStock), and visitedTowns is per-hero.
+// Pre-S9 a session-less buyGood RPC slipped the `i < 0` guard (the bridge set
+// S.activeShopTown = null; null < 0 is false) and traded at town-0 prices.
+// ---------------------------------------------------------------------------
+{
+  const P = w.addPlayer('P', 'Shopper');
+  ok('FIX7 heroes seed with the spawn town discovered + a closed shop session (PLAYER_TEMPLATE carries the S9 keys)',
+    Array.isArray(P.visitedTowns) && P.visitedTowns.length === 1 && P.visitedTowns[0] === 0
+    && P.activeShopTown === -1 && P.activeStock === undefined,
+    'vt=' + JSON.stringify(P.visitedTowns) + ' town=' + P.activeShopTown);
+
+  // two shops in two DIFFERENT towns
+  const shops = (S.npcs || []).filter((n) => n.id === 'shop' && n.shopTown && /^t\d+$/.test(n.shopTown.key));
+  const shop1 = shops[0];
+  const shop2 = shops.find((n) => n.shopTown.key !== shop1.shopTown.key);
+  ok('FIX7 setup: two shops in two different towns exist', !!shop1 && !!shop2,
+    shops.map((n) => n.shopTown.key).join(','));
+
+  const N7 = w.players.get('N');                              // FIX6's bystander — never opened a shop
+  B.map = 'overworld'; B.sailing = false; B.x = shop1.x; B.y = shop1.y;
+  P.x = shop2.x; P.y = shop2.y;
+  const pay1 = w.shopPayloadFor('B'), pay2 = w.shopPayloadFor('P');
+  ok('FIX7 shopPayloadFor stamps the GAME\'s own player-carried session (town/stock/name on p — was _shopTown/_shopStock)',
+    !!pay1 && B.activeShopTown === pay1.town && B.activeStock === pay1.stock && B.activeShopName === pay1.name && pay1.town >= 0,
+    pay1 ? 'town=' + pay1.town + ' name=' + pay1.name : 'null');
+  ok('FIX7 two heroes hold two DIFFERENT sessions at once (per-shopper, no shared root key)',
+    !!pay2 && pay2.town >= 0 && pay2.town !== pay1.town && P.activeShopTown === pay2.town
+    && N7.activeShopTown === -1 && N7.activeStock === undefined,
+    'B@t' + pay1.town + ' P@t' + pay2.town + ' N=' + (N7 && N7.activeShopTown));
+
+  // both buy ALL FOUR trade goods in the same tick: each pays HIS OWN town's prices
+  // (generator-driven: two distinct townEcon rows must price the basket differently).
+  B.gold = 5000; P.gold = 5000;
+  for (const g of ['furs', 'grain', 'spice', 'ore']) { B.actions.push({ rpc: 'buyGood', args: [g] }); P.actions.push({ rpc: 'buyGood', args: [g] }); }
+  w.tick();
+  const paidB = 5000 - B.gold, paidP = 5000 - P.gold;
+  ok('FIX7 both shoppers bought their basket (cargo credited per hero)',
+    ['furs', 'grain', 'spice', 'ore'].every((g) => (B.cargo[g] | 0) >= 1 && (P.cargo[g] | 0) >= 1), JSON.stringify({ B: B.cargo, P: P.cargo }));
+  ok('FIX7 each pays HIS town\'s prices (baskets differ across towns)', paidB > 0 && paidP > 0 && paidB !== paidP,
+    'B paid ' + paidB + ' @t' + pay1.town + ', P paid ' + paidP + ' @t' + pay2.town);
+
+  // a hero with NO open session is REFUSED (pre-S9: the null bridge slipped the guard and sold him town-0 goods)
+  N7.gold = 500; N7.map = 'overworld';
+  N7.actions.push({ rpc: 'buyGood', args: ['furs'] });
+  w.tick();
+  ok('FIX7 session-less buyGood is REFUSED (gold + cargo untouched; pre-S9 it bought at town-0 prices)',
+    N7.gold === 500 && (N7.cargo.furs | 0) === 0, 'gold=' + N7.gold + ' furs=' + N7.cargo.furs);
+
+  // buyWeapon resolves ids against p.activeStock (the renamed p._shopStock)
+  const it7 = pay1.stock && pay1.stock.weapons && pay1.stock.weapons[0];
+  ok('FIX7 setup: B\'s stock has a weapon to buy', !!(it7 && it7.id), it7 ? it7.name : 'EMPTY STOCK');
+  if (it7) {
+    B.gold = 100000;
+    B.actions.push({ rpc: 'buyWeapon', args: [it7.id] });
+    w.tick();
+    ok('FIX7 buyWeapon resolves against p.activeStock (purchase lands on the acting hero)',
+      B.shopPurchased.includes(it7.id) && B.gold < 100000, 'gold=' + B.gold + ' purchased=' + B.shopPurchased.includes(it7.id));
+  }
+
+  // wire shape: the fat stock never rides `me`; the scalars + travel list do
+  const snapB7 = JSON.parse(JSON.stringify(w.snapshotFor('B')));
+  ok('FIX7 wire: activeStock SKIPPED on `me` (one shopData payload, not 66 Hz), town/name scalars + visitedTowns ride',
+    snapB7.me.activeStock === undefined && snapB7.me.activeShopTown === pay1.town
+    && typeof snapB7.me.activeShopName === 'string' && Array.isArray(snapB7.me.visitedTowns),
+    'town=' + snapB7.me.activeShopTown + ' stock=' + JSON.stringify(snapB7.me.activeStock));
+
+  // persistence: the travel list rides the player slice; the SESSION is saved nowhere
+  const chB7 = w.characterOf('B');
+  ok('FIX7 characterOf persists visitedTowns but never the open session',
+    Array.isArray(chB7.player.visitedTowns) && chB7.player.activeShopTown === undefined && chB7.player.activeStock === undefined,
+    'vt=' + JSON.stringify(chB7.player.visitedTowns) + ' town=' + JSON.stringify(chB7.player.activeShopTown));
+
+  // client audit (risk #7): the session lives on the player and activeStock is off the wire, so
+  // the client must re-stamp its tab-local shopData copy after the wholesale adopt (the S6
+  // wayfind inversion), and shopData must stamp the player fields — never a ghost root copy.
+  const MP7 = require('fs').readFileSync(REPO + '/client/mp.html', 'utf8');
+  ok('FIX7 client: shop session is tab-local, re-stamped after the wholesale adopt, no ghost root writes',
+    /S\.player\.activeStock = localShop\.stock/.test(MP7)
+    && MP7.indexOf('S.player = snap.me;') < MP7.indexOf('S.player.activeStock = localShop.stock')
+    && /G\.state\.player\.activeShopTown = localShop\.town/.test(MP7)
+    && !/G\.state\.activeStock =/.test(MP7) && !/G\.state\.activeShopTown =/.test(MP7));
+}
+
+// ---------------------------------------------------------------------------
 // REGRESSION — 3 players, 300 ticks incl. a live dungeon delve, zero exceptions
 // ---------------------------------------------------------------------------
 {

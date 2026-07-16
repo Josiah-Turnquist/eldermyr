@@ -258,7 +258,7 @@ function safeClone(v, d) {
   if (t !== 'object' || d > 6) return undefined;
   if (Array.isArray(v)) return v.map((x) => { const c = safeClone(x, d + 1); return c === undefined ? null : c; });
   const r = {};
-  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === '_shopStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client adopts it in reconcile, and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled).
+  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === 'activeStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client adopts it in reconcile, and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled). activeStock (P2/S9, was `_shopStock`) = the open shop session's whole weapon/armor stock — the client already got it in the ONE `shopData` payload and re-stamps its local copy after every adopt, so dragging it onto `me` at 66 Hz would be pure waste (activeShopTown/activeShopName are scalars and ride fine).
   return r;
 }
 
@@ -278,7 +278,7 @@ const RPC_OK = new Set([
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
 const PP_KEYS = ['sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
-function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = p._shopTown != null ? p._shopTown : null; }   // always assign — a null _shopTown must NOT leak the previous player's shop town into this slice
+function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // (the `_shopTown → S.activeShopTown` special case died in P2/S9: the shop session lives ON state.player now — p.activeShopTown/activeStock/activeShopName — so the S.player pin IS the swap)
 // Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
 // persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
 // P2/S7.) sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
@@ -503,7 +503,10 @@ class World {
     // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5.
     //  hasBoat:false + wayfind:true likewise since P2/S6; shopPurchased:[] + cargo:{0,0,0,0} + fishCd:0
     //  likewise since P2/S7; ingredients:{0,0,0,0} likewise since P2/S8 — a hero's purchases/hold/
-    //  cooldown/pantry are his own and the template seeds them.)
+    //  cooldown/pantry are his own and the template seeds them. visitedTowns + activeShopTown likewise
+    //  since P2/S9 — the template's visitedTowns is [0]: startGame() ran markTownVisited on the boot
+    //  hero before the template was cloned, so a fresh joiner starts with the spawn town discovered,
+    //  exactly like a fresh SP hero.)
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.sailing = false; p.dragon = { tamed: false, mounted: false };   // per-player boat + mount (shared S.sailing/S.dragon leaked water-walk/flight across every hero's slice)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
@@ -549,7 +552,10 @@ class World {
       // snapshot()'s player whitelist emits them under the S.player swap above, like the milestones.
       // P2/S7: shopPurchased/cargo (+lastRestDay) likewise; P2/S8: ingredients — the `shop` slice
       // is GONE (a v4 row post-S8 never carries one). migrateCharacter maps old rows' shop.*
-      // copies into player.* on load, then deletes the emptied slice.
+      // copies into player.* on load, then deletes the emptied slice. P2/S9: visitedTowns rides the
+      // player slice too (pre-S9 it was a shared root key OUTSIDE this save entirely — every reboot
+      // wiped the room's travel list); the shop session (activeShopTown/activeStock/activeShopName)
+      // stays out of the whitelist on purpose — a session, not progress.
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
       // hero "Speak to the Elder" / "Slay monsters (0/5)" and offered him a Depth-3 bounty. Read straight
@@ -745,7 +751,7 @@ class World {
       return;
     }
     if (rpc === 'buyWeapon' || rpc === 'buyArmor') {
-      const stock = p._shopStock; if (!stock) return;
+      const stock = p.activeStock; if (!stock) return;   // P2/S9: the shop session lives on the player (stamped by shopPayloadFor)
       const list = rpc === 'buyWeapon' ? stock.weapons : stock.armor;
       const it = (list || []).find((x) => x && x.id === args[0]);
       if (it && typeof G[rpc] === 'function') G[rpc](it);
@@ -795,9 +801,13 @@ class World {
     if (!npc || bd > (110 * 110)) return null;                 // must actually be at a shop
     const key = npc.shopTown && npc.shopTown.key;
     const ti = (key && /^t\d+$/.test(key)) ? parseInt(key.slice(1)) : -1;
-    p._shopStock = npc.stock || { weapons: [], armor: [] };
-    p._shopTown = ti;
-    return { name: (npc.shopTown && npc.shopTown.name) || 'Shop', town: ti, stock: p._shopStock, purchased: (p.shopPurchased || []).slice() };
+    // P2/S9: stamp the game's own player-carried session fields (was p._shopStock/_shopTown +
+    // swapInPP's activeShopTown bridge) — buyGood/sellGood price against p.activeShopTown and
+    // the buyWeapon/buyArmor RPC resolves ids against p.activeStock, exactly like SP openShop.
+    p.activeStock = npc.stock || { weapons: [], armor: [] };
+    p.activeShopTown = ti;
+    p.activeShopName = (npc.shopTown && npc.shopTown.name) || 'Shop';
+    return { name: p.activeShopName, town: ti, stock: p.activeStock, purchased: (p.shopPurchased || []).slice() };
   }
 
   // Co-op [E] on an NPC: resolve what to show/do for the acting hero near NPC `npcId`.

@@ -30,9 +30,11 @@ function openShop(npc) {
     return;
   }
   state.scene = 'shop';
-  state.activeShopTown = ti;
-  state.activeStock = (npc && npc.stock) || genShopStock({ key: 'def', biome: 0, tier: 1 });
-  state.activeShopName = (npc && npc.shopTown && npc.shopTown.name) || 'Shop';
+  // P2/S9: the shop SESSION lives on the PLAYER (which town/stock/name THIS hero is trading
+  // at) — shared root keys meant two heroes at two stores traded at whichever opened last.
+  state.player.activeShopTown = ti;
+  state.player.activeStock = (npc && npc.stock) || genShopStock({ key: 'def', biome: 0, tier: 1 });
+  state.player.activeShopName = (npc && npc.shopTown && npc.shopTown.name) || 'Shop';
   document.getElementById('shop').style.display = 'block';
   renderShop();
 }
@@ -53,10 +55,11 @@ function currentTownIndex() {
   return -1;
 }
 function markTownVisited() {
-  if (!state.visitedTowns) state.visitedTowns = [];
+  const p = state.player; // P2/S9: the travel list is per-HERO ("have I been there?") and rides the save
+  if (!p.visitedTowns) p.visitedTowns = [];
   const i = currentTownIndex();
-  if (i >= 0 && !state.visitedTowns.includes(i)) {
-    state.visitedTowns.push(i);
+  if (i >= 0 && !p.visitedTowns.includes(i)) {
+    p.visitedTowns.push(i);
     if (i !== 0)
       log(`${__g.townZones[i].name} discovered — fast-travel here anytime with [T] from a town.`, 'good');
   }
@@ -327,7 +330,7 @@ function renderTravel() {
   const el = document.getElementById('travel-list');
   el.innerHTML = '';
   const here = currentTownIndex();
-  const visited = (state.visitedTowns || []).slice().sort((a, b) => a - b);
+  const visited = (state.player.visitedTowns || []).slice().sort((a, b) => a - b); // P2/S9: YOUR discoveries
   const ownedH = ownedHoldings();
   if (visited.length <= 1 && !ownedH.length) {
     el.innerHTML =
@@ -451,7 +454,7 @@ function goodSellPrice(i, good) {
   return Math.max(1, Math.round(goodBuyPrice(i, good) * 0.85));
 }
 function buyGood(good) {
-  const i = state.activeShopTown;
+  const i = state.player.activeShopTown; // P2/S9: price against YOUR open shop session
   if (i < 0) return;
   const c = goodBuyPrice(i, good);
   if (state.player.gold < c) {
@@ -466,7 +469,7 @@ function buyGood(good) {
   saveGame();
 }
 function sellGood(good) {
-  const i = state.activeShopTown;
+  const i = state.player.activeShopTown; // P2/S9: price against YOUR open shop session
   if ((state.player.cargo[good] || 0) <= 0) return;
   state.player.gold += goodSellPrice(i, good);
   state.player.cargo[good]--;
@@ -508,7 +511,7 @@ function renderShop() {
   document.getElementById('shop-gold-amt').textContent = p.gold;
   {
     const st = document.getElementById('shop-title');
-    if (st) st.textContent = '🛒 ' + (state.activeShopName || 'SHOP').toUpperCase() + ' 🛒';
+    if (st) st.textContent = '🛒 ' + (p.activeShopName || 'SHOP').toUpperCase() + ' 🛒'; // P2/S9: session rides the player
   }
   const svc = document.getElementById('shop-list-svc');
   svc.innerHTML = '';
@@ -525,7 +528,7 @@ function renderShop() {
   );
   const wEl = document.getElementById('shop-list-weap');
   wEl.innerHTML = '';
-  (state.activeStock ? state.activeStock.weapons : []).forEach((it) => {
+  (p.activeStock ? p.activeStock.weapons : []).forEach((it) => {
     const owned = state.player.shopPurchased.includes(it.id);
     wEl.appendChild(
       shopRow(
@@ -540,7 +543,7 @@ function renderShop() {
   });
   const aEl = document.getElementById('shop-list-armor');
   aEl.innerHTML = '';
-  (state.activeStock ? state.activeStock.armor : []).forEach((it) => {
+  (p.activeStock ? p.activeStock.armor : []).forEach((it) => {
     const owned = state.player.shopPurchased.includes(it.id);
     aEl.appendChild(
       shopRow(
@@ -554,7 +557,7 @@ function renderShop() {
     );
   });
   {
-    const i = state.activeShopTown;
+    const i = p.activeShopTown; // P2/S9: session rides the player
     const ec = townEcon(i);
     const th = document.getElementById('shop-trade-head');
     if (th)

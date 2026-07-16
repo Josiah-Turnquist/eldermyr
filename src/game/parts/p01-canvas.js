@@ -249,6 +249,19 @@ let state = {
     // berries/mushrooms + caught fish — cook/canCook/sellIngredient/renderCook read this
     // hero's own pantry.
     ingredients: { herb: 0, berry: 0, mushroom: 0, fish: 0 },
+    // PER-HERO TRAVEL LIST + SHOP SESSION (P2/S9) — same Pillar-1 carrier again.
+    // visitedTowns = towns THIS hero has discovered (fast-travel destinations). As a shared
+    // root key one hero's wandering unlocked everyone's travel list, and it was never in MP's
+    // characterOf — a reboot wiped the whole room's discoveries; on the player it persists via
+    // snapshot()'s whitelist and rides `me` with no adopt line. activeShopTown = which town's
+    // store THIS hero is trading at (buyGood/sellGood price against it) — the shop SESSION.
+    // Shared, two heroes at two stores traded at whichever town opened last; in MP the server
+    // bridged it per-player via swapInPP's `_shopTown` special case, which dies with this move.
+    // activeStock/activeShopName join it on open (created by openShop, exactly like the old
+    // root keys; never saved — a session, not progress). The rolled STOCK itself stays
+    // npc-owned (npc.stock — one town, one store; that sharing is correct).
+    visitedTowns: [],
+    activeShopTown: -1,
   },
   inventory: {
     weapons: [
@@ -278,8 +291,8 @@ let state = {
   dungeonEntrance: { tx: 168, ty: 196 },
   spawnTimer: 120,
   maxWildEnemies: 46,
-  // (tonics/sharpenLevel moved onto state.player — P2/S5; shopPurchased likewise — P2/S7)
-  visitedTowns: [],
+  // (tonics/sharpenLevel moved onto state.player — P2/S5; shopPurchased likewise — P2/S7;
+  //  visitedTowns — P2/S9: see the player literal above)
   shrines: [],
   pois: [],
   holdings: [],
@@ -290,8 +303,8 @@ let state = {
   allies: [],
   // (hasBoat/wayfind moved onto state.player — P2/S6, see the player literal above)
   sailing: false,
-  // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8: see the player literal above)
-  activeShopTown: -1,
+  // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8; the shop session
+  //  activeShopTown/activeStock/activeShopName — P2/S9: see the player literal above)
   quests: {
     main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },
     talk: { name: 'Speak to the Elder', done: false },

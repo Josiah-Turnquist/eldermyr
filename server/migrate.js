@@ -49,6 +49,10 @@
  *       shop key: the emptied slice is DELETED from the output — characterOf
  *       stopped emitting `shop` in S8, so a migrated old row and a fresh v4 save
  *       of the same hero now carry the identical shape.
+ *     · S9: player.visitedTowns default [] (NO historical source — it was a shared
+ *       root key outside characterOf entirely, wiped on every reboot; the list
+ *       self-heals as the hero re-enters towns). The shop session (activeShopTown/
+ *       activeStock/activeShopName) is never persisted at all — no default here.
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -170,6 +174,12 @@ function migrateCharacter(oldBlob) {
     // (conservative: never drop data this module doesn't understand).
     if (out.player.ingredients === undefined) out.player.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, (sh && sh.ingredients) || {});
     if (out.shop) { delete out.shop.ingredients; if (!Object.keys(out.shop).length) delete out.shop; }
+    // ---- S9: the per-hero travel list (plan §3 #1) — pre-move rows never carried it anywhere
+    // (a shared root key outside characterOf), so there is nothing to fold: default [] only,
+    // pass-through when a v4 row already has it. Deliberately NOT the fresh-join [spawn town]:
+    // the pure module can't know the world's towns, and an empty list self-heals on the next
+    // town visit. The shop session is never persisted, so it is never synthesized either.
+    if (out.player.visitedTowns === undefined) out.player.visitedTowns = [];
   }
 
   out.quests = q;

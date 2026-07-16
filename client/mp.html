@@ -488,7 +488,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
       else if (m.type === 'shopData') {                  // server sent this hero's shop stock → open the panel
         const d = m.data; if (!d) return;
-        G.state.activeStock = d.stock; G.state.activeShopName = d.name; G.state.activeShopTown = d.town;
+        localShop = { town: (d.town != null ? d.town : -1), name: d.name || 'Shop', stock: d.stock || { weapons: [], armor: [] } };   // P2/S9: the session lives ON the player now (renderShop reads state.player.active*) — keep the tab-local copy that the reconcile re-stamps after every wholesale adopt
+        if (G.state.player) { G.state.player.activeShopTown = localShop.town; G.state.player.activeShopName = localShop.name; G.state.player.activeStock = localShop.stock; }
         if (G.state.player) G.state.player.shopPurchased = d.purchased || [];   // P2/S7: player-carried — pre-seed the open so 'Owned' greys instantly (the next snapshot's `me` re-syncs it anyway)
         G.state.scene = 'shop';
         const el = document.getElementById('shop'); if (el) el.style.display = 'block';
@@ -655,6 +656,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     try { G.log && G.log(f === 'lore' ? 'You study the Realm-stone…' : 'You reach out to the shrine…', 'lore'); } catch (_e) {}
   }
   let localWayfind = true;   // [O] objective guide is a CLIENT pref (P2/S6): p.wayfind rides `me` as the SP-save default only — this local value is authoritative on this tab (re-stamped after every snapshot adopt; no RPC, plan §3.4)
+  let localShop = null;      // this tab's open shop session {town,name,stock} (P2/S9): the session lives ON state.player now, but the wholesale `S.player = snap.me` adopt would stomp it every snapshot — and `activeStock` is deliberately NOT on the wire (safeClone skips the fat stock; it arrives once in shopData) — so, like localWayfind, the shopData copy is re-stamped after every adopt (renderShop + the shop panel-sig refresh read state.player.active*)
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
@@ -971,6 +973,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
     S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
+    if (localShop) { S.player.activeShopTown = localShop.town; S.player.activeShopName = localShop.name; S.player.activeStock = localShop.stock; }   // P2/S9: same inversion for the shop session — activeStock never rides `me` (safeClone skips it), so the adopt above would blank the open panel's stock; re-stamp the shopData copy (town/name ride `me` too, but the local session is authoritative on this tab)
     if (snap.me.inventory) S.inventory = snap.me.inventory;
     // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a

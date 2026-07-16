@@ -187,6 +187,42 @@ ok('S8 round-trip: the pantry survives save→load',
   S.player.ingredients.herb === 1 && S.player.ingredients.mushroom === 2 && S.player.ingredients.fish === 0,
   JSON.stringify(S.player.ingredients));
 
+// ---------------------------------------------------------------- 2f. THE pre-S9 → S9 RELOCATION
+// P2/S9 moved the per-hero travel list (visitedTowns) from state.X into the player slice, and the
+// shop SESSION (activeShopTown/activeStock/activeShopName) onto the player WITHOUT ever being
+// saved — a load always resets the town to -1, exactly as before. Same doctrine as 2b-2e: a
+// pre-move save holds the list at the ROOT; the load reads it back LOSSLESSLY — or a migrated
+// hero's fast-travel destinations all vanish.
+const preS9 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS9.player.visitedTowns;
+preS9.visitedTowns = [0, 2, 4];                                 // the old root spot
+S.player.visitedTowns = [9]; S.player.activeShopTown = 5;       // stale session values a load must clear
+G.applySnapshot(preS9);
+ok('pre-S9 save: root visitedTowns lands LOSSLESSLY on the player (shop session resets to -1)',
+  S.player.visitedTowns.length === 3 && S.player.visitedTowns[0] === 0 && S.player.visitedTowns[1] === 2 && S.player.visitedTowns[2] === 4
+  && S.player.activeShopTown === -1,
+  JSON.stringify({ vt: S.player.visitedTowns, town: S.player.activeShopTown }));
+// …and a save missing it EVERYWHERE (truly old) takes the safe default: no towns discovered
+const preTravel = JSON.parse(JSON.stringify(preS9));
+delete preTravel.visitedTowns;
+S.player.visitedTowns = [7];
+G.applySnapshot(preTravel);
+ok('a save with NO travel list anywhere defaults to []',
+  Array.isArray(S.player.visitedTowns) && S.player.visitedTowns.length === 0, JSON.stringify(S.player.visitedTowns));
+// …and the S9 shape round-trips: the list rides the player slice, never the root; the session in NEITHER
+S.player.visitedTowns = [1, 3]; S.player.activeShopTown = 4; S.player.activeShopName = 'Ghost'; S.player.activeStock = { weapons: [], armor: [] };
+const s9 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S9 snapshot: visitedTowns rides the PLAYER slice, root is clean, the shop session saved NOWHERE',
+  s9.player.visitedTowns.length === 2 && s9.player.visitedTowns[1] === 3 && s9.visitedTowns === undefined
+  && s9.activeShopTown === undefined && s9.player.activeShopTown === undefined
+  && s9.player.activeStock === undefined && s9.player.activeShopName === undefined,
+  JSON.stringify({ p: s9.player.visitedTowns, root: s9.visitedTowns, town: s9.player.activeShopTown }));
+S.player.visitedTowns = []; S.player.activeShopTown = 2;
+G.applySnapshot(s9);
+ok('S9 round-trip: the travel list survives save→load (session back to closed)',
+  S.player.visitedTowns.length === 2 && S.player.visitedTowns[0] === 1 && S.player.activeShopTown === -1,
+  JSON.stringify({ vt: S.player.visitedTowns, town: S.player.activeShopTown }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).
