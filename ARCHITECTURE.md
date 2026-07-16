@@ -20,9 +20,10 @@ per its `CAPTURE` list.
 Reassigning `G.someFn` after load does **not** change internal call sites. To intercept an
 internal call you must rewrap the lexical binding in the load-game **epilogue**. Existing
 hooks (mirror these): `log` → `globalThis.__onLog`; `gameOver` → `__onGameOver` (server sets
-a no-op — co-op death is the downed/revive pass, never SP game-over);
-`liberateHolding`/`clearPOI`/`liberateTown` → gated by `__libGate` (set to `()=>false` only
-while combat runs against a partitioned bucket; the `_seen` sweeps own liberation).
+a no-op — co-op death is the downed/revive pass, never SP game-over).
+(The `__libGate` wrappers around `liberateHolding`/`clearPOI`/`liberateTown` lived here and
+were RETIRED at P2/S15: `updateEnemies` partitions foes internally with `state.enemies` kept
+the full world roster, so killEnemy's inline liberation checks are correct without a gate.)
 `townZones` is reassigned at worldgen, so it's exposed via a live getter (`getTownZones`),
 not a direct capture — copy that pattern for any symbol the game rebinds after boot.
 
@@ -143,10 +144,17 @@ finally), so an RPC invoked outside a rotation slice can no longer act as a stal
   `[V]` key. (v2.59.2's `e._faceL` is the worked example: hysteresis needs memory, memory needs the
   server.) Gate any such scalar to the types that need it — ungated, facing alone measured
   16.24 KB/s per player; gated via the `FACING` map it is 0 B/snapshot at rest.
-- **Partitioned combat:** `S.enemies` is replaced by per-player buckets, then recombined.
-  Inline game checks that scan `state.enemies` are *bucket-blind* during this window — that's
-  why `__libGate` exists and why holdings/POIs/town-sieges are liberated only by the
-  full-roster `_seen` sweeps after recombination.
+- **Enemy combat is internalized (P2/S15):** world.js makes ONE `G.updateEnemies()` call per
+  world; the game itself buckets foes by nearest eligible hero (downed heroes invisible unless
+  everyone is down; overworld boss-tier can't see heroes inside the main-town bubble and
+  `wanderEnemyHome`s with no target), pins each hero for their bucket in JOIN ORDER (no restore
+  — the ambient last-hero pin is part of the hashed state the 2p baselines freeze), and
+  recombines survivors in bucket order (join order, wanderers last — next tick's grouping
+  iterates that array, so the order IS the determinism contract). `state.enemies` stays the
+  FULL world roster throughout — inline `state.enemies` scans (killEnemy's last-guardian
+  liberation checks, healAlly, a pinnacle boss's court check, the Quarry burst) see the whole
+  world, so liberation fires INLINE at the kill, credited to the killer's pin. The `_seen`
+  sweeps REMAIN as reconciliation for guardian removals that bypass killEnemy (leash despawn).
 - **Allies** partition by `a._owner` *after* enemy recombination (targeting needs the full
   enemy list). Unowned allies self-heal to the nearest hero. Allies are overworld-only; a
   delving owner leaves them idling topside. Ally `name` must always be a string
@@ -474,6 +482,6 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   have been *cosmetic* (level 30 → 3,700 hp vs 3,150 before). Party-size/cycle/ascension/distance still multiply
   on top: flat means "not chasing the party's LEVEL", not "no scaling". `e.level` is write-only (read by nothing,
   drawn nowhere) — setting it changes nothing; the stat formulas are the only thing that matters.
-- **PP-loop bag sync:** the enemy-combat partition loop sets `S.inventory = p.inventory` alongside `S.player = p`
-  (every iteration, like the shared/spawn phases) so combat-time gear reads inside `updateEnemies` — melee-riposte's
+- **Bucket bag sync:** the enemy-combat loop (INSIDE `updateEnemies` since P2/S15) sets `state.inventory = q.inventory`
+  alongside `state.player = q` (every iteration, like the shared/spawn phases) so combat-time gear reads — melee-riposte's
   `equippedWeapon()`, future on-hit gear checks — see the BUCKET player's bag, not a stale one from a prior phase.

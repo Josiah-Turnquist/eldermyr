@@ -9,9 +9,10 @@
  *
  *   - rotation model : per tick, for each player set the acting player + input,
  *                      run the per-player functions (movement, attack, fatigue).
- *   - enemy partition: split enemies by nearest player and run the REAL
- *                      updateEnemies once per partition, so each enemy targets
- *                      its nearest player with ZERO change to the game code.
+ *   - enemy combat   : ONE G.updateEnemies() call per world — the game itself
+ *                      partitions foes by nearest hero and pins each hero for
+ *                      their bucket (P2/S15; state.enemies stays the full roster,
+ *                      so killEnemy's inline liberation checks see the whole world).
  *   - shared world   : projectiles / spawns / weather / nemesis run once.
  *   - serialize      : per-player, interest-culled snapshot (map sent once).
  *
@@ -58,13 +59,12 @@ try {
 // +1 rank, recordRun) must NOT fire per knockdown. load-game reroutes the lexical gameOver
 // here; a no-op is all MP needs (playerTakeDamage already left hp at 0 for the downed pass).
 try { global.__onGameOver = () => {}; } catch (_e) {}
-// Liberation gate (see load-game): a function returning false ONLY while combat runs against a
-// partitioned enemy bucket, so killEnemy's inline liberation defers to the tick() _seen sweep.
-try { global.__libGate = null; } catch (_e) {}
+// (P2/S15) The __libGate liberation gate lived here and is RETIRED: the game's own updateEnemies
+// partitions foes internally now with state.enemies kept the FULL world roster, so killEnemy's
+// inline "no guardians left?" checks are correct again — no gate, no load-game wrapper. The _seen
+// sweeps below REMAIN as reconciliation for guardian removals that bypass killEnemy (leash despawn).
 // epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
 const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
-const OW_W = G.OW_W || 347, OW_H = G.OW_H || 291;
-const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
 // Enemy density (server-owned). The game seeds ~127 foes across the whole 347x291 map and
 // caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
 // you; you just roam a thin, static seed. Instead we drive spawning by LOCAL density: keep
@@ -120,33 +120,8 @@ function nearestPlayer(e, players) {
   for (const P of players) { const d = (P.x + P.w / 2 - ex) ** 2 + (P.y + P.h / 2 - ey) ** 2; if (d < bd) { bd = d; best = P; } }
   return best;
 }
-// Is this player inside the main-town vicinity? (bosses treat them as invisible.)
-function inTown(p) { const cx = p.x + p.w / 2, cy = p.y + p.h / 2; return (cx - SPAWN.x) ** 2 + (cy - SPAWN.y) ** 2 < TOWN_R2; }
-// A boss with no valid target ambles toward home (dragon → its lair; others → nearest map edge),
-// dropping any wind-up so it can't attack while leaving.
-function wanderHome(e) {
-  e.tele = null; e.dash = null; e.windup = 0; e.chargeState = 0;
-  const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
-  let hx, hy;
-  if (e.isKraken && S.krakenArena) { hx = S.krakenArena.tx * TILE; hy = S.krakenArena.ty * TILE; }   // the Kraken stays in its peak-ringed arena (was wandering to the nearest map edge → "escaping")
-  else if (e.isWildDragon && S.dragonLair) { hx = S.dragonLair.tx * TILE + 16; hy = S.dragonLair.ty * TILE + 16; }
-  else if (e.isGreatBeast && e.huntKey) {   // great beasts amble to their OWN lair (the Tide Leviathan was heading to "nearest edge" through dry land and embedding itself in walls)
-    const h = (G.GREAT_HUNTS || []).find((x) => x.key === e.huntKey);
-    if (h && h.lair) { hx = h.lair.tx * TILE + 16; hy = h.lair.ty * TILE + 16; }
-  }
-  else if (e.isPinnacle && e._lairTx != null) { hx = e._lairTx * TILE + 16; hy = e._lairTy * TILE + 16; }   // pinnacle bosses drift back to their STAMPED lair (King's shipwreck isle / Shepherd's frozen wastes), never the nearest sea/wall edge — Stage A stamped _lairTx/_lairTy in makePinnacleBoss
-  if (hx === undefined) {
-    const W = OW_W * TILE, H = OW_H * TILE, dl = ecx, dr = W - ecx, dt = ecy, db = H - ecy, m = Math.min(dl, dr, dt, db);
-    hx = m === dl ? 0 : (m === dr ? W : ecx);
-    hy = m === dt ? 0 : (m === db ? H : ecy);
-  }
-  const d = Math.hypot(hx - ecx, hy - ecy);
-  if (d > 8) {
-    const sp = (e.speed || 1.2) * 1.4;
-    e.x += (hx - ecx) / d * sp; e.y += (hy - ecy) / d * sp;   // move freely so terrain can't trap a leaving boss
-  }
-}
-function isBoss(e) { return !!(e.isBoss || e.isNemesis || e.isGreatBeast || e.isWildDragon); }
+// (P2/S15) inTown/wanderHome/isBoss moved INTO the game beside updateEnemies (heroInSpawnTown/
+// wanderEnemyHome — the boss town-blind pool and the amble-home fallback are the sim's own now).
 
 // ---- Unstick pass: pop enemies out of walls -----------------------------------
 // Knockback and wander-home move enemies without collision checks, so one can end up with its
@@ -431,7 +406,8 @@ class World {
     }
   }
 
-  // PROJECTILES, partitioned by SHOOTER (same idiom as the enemy partition).
+  // PROJECTILES, partitioned by SHOOTER (the last world.js partition standing — the enemy one
+  // moved into the game's own updateEnemies at P2/S15; this one follows in the projectile slice).
   // updateProjectiles re-pins `state.player` to each friendly shot's ownerRef itself, so a hit credits the
   // shooter's crit/lifesteal/prof/XP. Since P2/S13 every per-hero key (incl. quests) rides state.player,
   // so that per-projectile re-pin IS the full acting context — killEnemy's `state.player.quests.slay.count++`
@@ -958,37 +934,14 @@ class World {
 
     // SHARED WORLD — overworld heroes only (dungeon delvers run in their own phase below)
     const players = S.players.filter((p) => p.map !== 'dungeon');
+    // ENEMY COMBAT (P2/S15): ONE call — the game's own updateEnemies partitions foes by nearest
+    // hero itself (downed-invisible pools, the boss town-blind bubble, the wander-home fallback,
+    // per-bucket hero pins in JOIN ORDER, bucket-order recombine — all moved in verbatim). Its
+    // roster is the world-scoped partyIn() = exactly `players` here. state.enemies stays the FULL
+    // roster throughout, so killEnemy's inline liberation/POI/raid checks and healAlly/court scans
+    // see the whole world — the __libGate that blinded-then-deferred them is retired.
     if (players.length && S.enemies.length) {
-      // Main-town safety: on the overworld, BOSSES can't see players in the town vicinity —
-      // they target only players who are OUT of town, and wander home if nobody is.
-      const overworld = S.map === 'overworld';
-      // Foes ignore DOWNED heroes and go for the living — that's what gives a party the
-      // window to reach a fallen ally. (Everyone downed → foes still mill on them so the
-      // team wipe resolves via bleed-out instead of freezing the sim.)
-      const standing = players.filter((p) => !p.downed);
-      const normalPool = standing.length ? standing : players;
-      const bossPool = overworld ? standing.filter((p) => !inTown(p)) : standing;
-      const buckets = new Map(players.map((p) => [p, []]));
-      const wanderers = [];
-      for (const e of S.enemies) {
-        if (overworld && isBoss(e)) {
-          if (bossPool.length) buckets.get(nearestPlayer(e, bossPool)).push(e);
-          else wanderers.push(e);           // no valid target (all in town / all downed) → amble home
-        } else {
-          buckets.get(nearestPlayer(e, normalPool)).push(e);
-        }
-      }
-      const survivors = [];
-      global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
-      for (const p of players) {
-        S.player = p; S.inventory = p.inventory;   // keep the bag in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy's quest credit (state.player.quests.slay), bountyProgress(), gold and a boss-drop key all ride the PINNED state.player (quests player-native since P2/S13, bounty since S12), so without this pin every kill in this bucket credits whichever hero the previous phase happened to leave behind
-        S.enemies = buckets.get(p);         // this player's assigned foes target HIM
-        try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
-        survivors.push(...S.enemies);        // killEnemy() may have spliced some out
-      }
-      for (const e of wanderers) { wanderHome(e); survivors.push(e); }
-      S.enemies = survivors;
-      global.__libGate = null;              // recombined — the sweep's own liberate calls run for real
+      try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
     }
     if (S.time % 30 === 0) unstickEnemies('overworld');   // pop wall-embedded foes out (leviathan-on-land etc.)
 
@@ -1113,22 +1066,12 @@ class World {
         if (S.map !== 'dungeon') putWorld(this.sharedDg);  // last action was an exit → restore for the shared passes
         const stillIn = dgAll.filter((p) => p.map === 'dungeon');
         if (stillIn.length) {
-          // foes partition among STANDING delvers (downed heroes are invisible to them)
+          // ENEMY COMBAT (P2/S15): same ONE call as topside — updateEnemies partitions among the
+          // STANDING delvers itself (state.map is 'dungeon' while this instance is swapped in, so
+          // its partyIn() roster is exactly `stillIn`, and the boss town-blind pool is overworld-only
+          // by its own state.map check). A dungeon boss's key drop rides the KILLER's pin by construction.
           if (S.enemies.length) {
-            const standing = stillIn.filter((p) => !p.downed);
-            const pool = standing.length ? standing : stillIn;
-            const buckets = new Map(stillIn.map((p) => [p, []]));
-            for (const e of S.enemies) buckets.get(nearestPlayer(e, pool)).push(e);
-            const survivors = [];
-            global.__libGate = () => false;                // partitioned bucket — same inline-liberation blindness as topside (dungeon foes carry no site keys today; cheap insurance)
-            for (const p of stillIn) {
-              S.player = p; S.inventory = p.inventory;   // the pin — a dungeon boss's key drop sets state.inventory.keys++ AND state.player.quests.key.done; both ride the KILLER's pin (mirrors the overworld partition)
-              S.enemies = buckets.get(p);
-              try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
-              survivors.push(...S.enemies);
-            }
-            S.enemies = survivors;
-            global.__libGate = null;
+            try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
           }
           // WARBAND (dungeon): step each delver's OWN dungeon recruits — mirrors the overworld partition exactly
           // (S.player = delver, S.companions = their map==='dungeon' recruits, S.enemies = the full floor roster so
@@ -1154,7 +1097,6 @@ class World {
         this.sharedDg = stillIn.filter((p) => p.map === 'dungeon').length ? grabWorld() : null;   // save the evolved floor, or dissolve when empty
         if (!this.sharedDg) this.dgSpawn = null;
       } finally {
-        global.__libGate = null;                           // never leak the gate out of the phase
         putWorld(owBase);                                  // ALWAYS restore the shared overworld for everyone else
       }
     } else if (!dgAll.length && this.sharedDg) { this.sharedDg = null; this.dgSpawn = null; }   // stragglers gone (disconnects) → dissolve
@@ -1166,11 +1108,13 @@ class World {
     // ---- DOWNED & REVIVE (overworld heroes; the dungeon phase runs its own pass) ----
     this._downedPass(players);
 
-    // Liberation reconciliation: during partitioned combat state.enemies is only one player's
-    // bucket, so killEnemy's "last occupier dead?" check can miss. Sweep the FULL list here.
+    // Liberation reconciliation: killEnemy's inline "last occupier dead?" checks see the FULL
+    // roster again (P2/S15 — updateEnemies partitions internally, state.enemies never shrinks to
+    // a bucket), so the inline path liberates at the kill, credited to the KILLER's pin. These
+    // sweeps REMAIN as reconciliation for guardian removals that BYPASS killEnemy — the leash
+    // despawn splice, the unstick pass — which strand a site guarded-by-nobody with no kill event.
     // Only fires once guardians were actually PRESENT then removed (_seen gate) — never for a
     // site whose guardians simply haven't spawned, which would hand out free liberation gold.
-    global.__libGate = null;               // the sweep's liberate calls always run for real, even if a gate leaked
     if (S.map === 'overworld' && G.liberateHolding && S.holdings) {
       for (let i = 0; i < S.holdings.length; i++) {
         const hd = S.holdings[i];

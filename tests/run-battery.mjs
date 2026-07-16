@@ -43,6 +43,9 @@ const SUITES = [
   'hazards-mp-verify',
   // the onNewDay World/Hero split (rebuild P2/S4, #116): per-head tribute, party-level captains, party dragon gate
   'newday-mp-verify',
+  // the enemy partition internalized (rebuild P2/S15): updateEnemies buckets by nearest hero in-sim,
+  // full-roster state.enemies (inline liberation correct, __libGate retired), killer-credit discipline
+  'enemies-mp-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

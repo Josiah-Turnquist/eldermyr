@@ -573,11 +573,17 @@ function updateBoss(e, dist, pcx, pcy) {
     e.castCd = 150;
   }
 }
-function updateEnemies() {
+function updateEnemiesFor(list) {
+  /* THE enemy-AI body (P2/S15). Single-player calls it with state.enemies (the spread below is
+     byte-identical to the old `[...state.enemies]`); in MP updateEnemies() calls it once per hero
+     with that hero's assigned foes while state.enemies stays the FULL world roster — so every
+     inline `state.enemies` read in here (the leash despawn splice, killEnemy's last-guardian
+     liberation checks, healAlly's wounded-mate scan, raiseadds' court check, the Quarry burst)
+     sees the whole world, not one hero's slice. `list` decides WHO acts; state.enemies stays WHAT EXISTS. */
   const p = state.player;
   const pcx = p.x + p.w / 2,
     pcy = p.y + p.h / 2;
-  for (const e of [...state.enemies]) {
+  for (const e of [...list]) {
     if (e.hitFlash > 0) e.hitFlash--;
     if (e.attackCd > 0) e.attackCd--;
     if (e.castCd > 0) e.castCd--;
@@ -760,4 +766,120 @@ function updateEnemies() {
       }
     }
   }
+}
+/* ---- MP enemy partition, internalized (P2/S15 — plan §7 S13 "enemies") -----------------------
+   These four run ONLY on the server (state.players is never set in SP — party()'s contract).
+   They are the old server/world.js partition MOVED VERBATIM into the sim, so updateEnemies is
+   the one place enemies pick targets: each foe chases its NEAREST eligible hero, and each
+   hero's foes act under that hero's pin, so killEnemy's XP/gold/quests.slay/bounty credit
+   lands on the killer BY CONSTRUCTION. Downed heroes are invisible to foes (that's the revive
+   window) unless EVERYONE is down (the wipe still resolves); on the overworld, BOSS-tier foes
+   cannot see heroes in the main-town vicinity and amble home when no valid target remains. */
+function nearestHeroTo(e, pool) {
+  const ex = e.x + e.w / 2,
+    ey = e.y + e.h / 2;
+  let best = pool[0],
+    bd = Infinity;
+  for (const q of pool) {
+    const d = (q.x + q.w / 2 - ex) ** 2 + (q.y + q.h / 2 - ey) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = q;
+    }
+  }
+  return best;
+} // ties break first-in-JOIN-ORDER (strict <) — part of the determinism contract the 2p baselines freeze
+function heroInSpawnTown(q) {
+  const tz0 = __g.townZones && __g.townZones[0];
+  if (!tz0) return false;
+  const c0 = townCenter(tz0);
+  const cx = q.x + q.w / 2 - c0.x * TILE,
+    cy = q.y + q.h / 2 - c0.y * TILE;
+  return cx * cx + cy * cy < (20 * TILE) ** 2;
+} // the main-town safety bubble: same center startGame spawns the hero at (setupOverworld's c0×TILE — the value the server used to capture as SPAWN), same 20-tile radius
+function wanderEnemyHome(e) {
+  e.tele = null;
+  e.dash = null;
+  e.windup = 0;
+  e.chargeState = 0;
+  const ecx = e.x + e.w / 2,
+    ecy = e.y + e.h / 2;
+  let hx, hy;
+  if (e.isKraken && state.krakenArena) {
+    hx = state.krakenArena.tx * TILE;
+    hy = state.krakenArena.ty * TILE;
+  } // the Kraken stays in its peak-ringed arena (was wandering to the nearest map edge → "escaping")
+  else if (e.isWildDragon && state.dragonLair) {
+    hx = state.dragonLair.tx * TILE + 16;
+    hy = state.dragonLair.ty * TILE + 16;
+  } else if (e.isGreatBeast && e.huntKey) {
+    // great beasts amble to their OWN lair (the Tide Leviathan was heading to "nearest edge" through dry land)
+    const h = GREAT_HUNTS.find((x) => x.key === e.huntKey);
+    if (h && h.lair) {
+      hx = h.lair.tx * TILE + 16;
+      hy = h.lair.ty * TILE + 16;
+    }
+  } else if (e.isPinnacle && e._lairTx != null) {
+    hx = e._lairTx * TILE + 16;
+    hy = e._lairTy * TILE + 16;
+  } // pinnacle bosses drift back to their STAMPED lair, never the nearest sea/wall edge
+  if (hx === undefined) {
+    const W = OW_W * TILE,
+      H = OW_H * TILE,
+      dl = ecx,
+      dr = W - ecx,
+      dt = ecy,
+      db = H - ecy,
+      m = Math.min(dl, dr, dt, db);
+    hx = m === dl ? 0 : m === dr ? W : ecx;
+    hy = m === dt ? 0 : m === db ? H : ecy;
+  }
+  const d = Math.hypot(hx - ecx, hy - ecy);
+  if (d > 8) {
+    const sp = (e.speed || 1.2) * 1.4;
+    e.x += ((hx - ecx) / d) * sp;
+    e.y += ((hy - ecy) / d) * sp; // move freely so terrain can't trap a leaving boss
+  }
+}
+function updateEnemies() {
+  if (!(state.players && state.players.length)) {
+    updateEnemiesFor(state.enemies);
+    return;
+  } // SP: the one hero, the whole roster — same body, same draws, byte-identical
+  const roster = partyIn(); // heroes of THE WORLD SWAPPED IN right now (risk #9), in JOIN ORDER
+  if (!roster.length || !state.enemies.length) return; // nobody here → foes stand (the parked-worlds rule)
+  const overworld = state.map === 'overworld';
+  const standing = roster.filter((q) => !q.downed);
+  const normalPool = standing.length ? standing : roster; // everyone downed → foes still mill on them (the wipe resolves via bleed-out, never a frozen sim)
+  const bossPool = overworld ? standing.filter((q) => !heroInSpawnTown(q)) : standing;
+  const buckets = new Map(roster.map((q) => [q, []]));
+  const wanderers = [];
+  for (const e of state.enemies) {
+    if (overworld && (e.isBoss || e.isNemesis || e.isGreatBeast || e.isWildDragon)) {
+      if (bossPool.length) buckets.get(nearestHeroTo(e, bossPool)).push(e);
+      else wanderers.push(e); // no valid target (all in town / all downed) → amble home below
+    } else {
+      buckets.get(nearestHeroTo(e, normalPool)).push(e);
+    }
+  }
+  const seen = new Set(state.enemies);
+  for (const q of roster) {
+    state.player = q;
+    state.inventory = q.inventory; // the pin IS the swap (P2/S13): combat-time gear reads AND killEnemy's credit ride the bucket hero. Deliberately NO restore — the old world.js loop left the last hero pinned and the shared phase re-pins players[0] right after; the ambient pin is part of the hashed state the 2p baselines freeze.
+    updateEnemiesFor(buckets.get(q));
+    for (const e of state.enemies)
+      if (!seen.has(e)) {
+        seen.add(e);
+        buckets.get(q).push(e);
+      } // mid-pass spawns (split children, boss summons, a raised court) belong to the acting hero's group, in push order — exactly where the old bucket-swap left them
+  }
+  const alive = new Set(state.enemies); // splices (killEnemy, the leash despawn) hit the FULL array live; the rebuild below just re-groups the survivors
+  const rebuilt = [];
+  for (const q of roster) for (const e of buckets.get(q)) if (alive.has(e)) rebuilt.push(e);
+  for (const e of wanderers)
+    if (alive.has(e)) {
+      wanderEnemyHome(e);
+      rebuilt.push(e);
+    }
+  state.enemies = rebuilt; // recombined in bucket order (hero join order, wanderers last) — the SAME end-of-tick array order the old world.js partition produced, because next tick's grouping iterates it
 }

@@ -85,10 +85,11 @@ These are pre-existing, documented flakes in the source suites — not tree regr
 
 ### The onNewDay World/Hero split (rebuild P2/S4, #116)
 - `newday-mp-verify` — the day tick no longer fires per-player effects against a stale pin: `dailyHoldingIncome` pays EVERY hero the full per-head tribute (besieged outposts pay nobody; delver-tagged and downed heroes still draw — `party()`, not `partyIn()`, tribute isn't positional); `legionDaily` raises fresh captains at the PARTY's level (`state._partyLevel`); `maybeRespawnDragon` gates on the whole party (one tamed hero, even while pinned, no longer parks the wild Emberwyrm). The per-head tribute also has an ACTIVE assert inside the `mp-day-rollover` golden scenario itself.
+- `enemies-mp-verify` — the enemy nearest-hero partition INTERNALIZED (rebuild P2/S15): one direct `G.updateEnemies()` call partitions foes by nearest hero itself — B's foe chases B while A is pinned (the pre-S15 trap), survivors regroup in bucket order (join order, wanderers last), the no-restore pin leaves the last roster hero pinned, killEnemy XP/gold/slay credit rides each bucket's OWN hero, a target-less boss (everyone in the town bubble) drops its telegraph and wanders home while an out-of-town hero is chased even when an in-town one is nearer, downed heroes are invisible, and the last-guardian liberation fires INLINE at the kill paying the KILLER (full-roster `state.enemies` — the `__libGate` replacement); plus artifact source guards and a w.tick() regression floor. SEEN FAILING (12 asserts) against a pre-S15 worktree.
 
 ### Liberation / restore regression tiers
 - `t1-knockdown` — co-op knockdown must NOT run the SP `gameOver` path.
-- `t2-liberation` — no premature liberation from partitioned combat.
+- `t2-liberation` — no premature liberation from partitioned combat. Since P2/S15 the protection is STRUCTURAL (updateEnemies keeps `state.enemies` the full roster, so killEnemy's inline last-guardian checks see other heroes' buckets; `__libGate` retired — source-guarded here): the freeing kill liberates INLINE and pays the KILLER, and the `_seen` sweeps' REMAINING job — liberating a site whose last guardian vanished with NO kill event (leash despawn) under players[0] — is probed explicitly.
 - `t3-restore` — the dungeon phase restores the overworld even when a sim call throws.
 - `t4-regression` — 3 players, ~420 ticks including a real dungeon delve, no throw.
 

@@ -2,9 +2,15 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 /* t2 — FIX 2: no premature liberation from partitioned combat.
  * Two guardians of ONE holding, placed so they land in DIFFERENT players' buckets.
  * Kill #1 via burn DOT (tickEnemyStatus -> statusDamage -> killEnemy fires INSIDE the
- * partitioned updateEnemies, exactly the bug path). Holding must NOT liberate. Kill #2
- * the same way -> the full-roster _seen sweep liberates within the same/next tick.
- * Then the identical scenario for a town SIEGE (raidTown -> checkRaidLiberation -> liberateTown). */
+ * partitioned updateEnemies, exactly the bug path). Holding must NOT liberate — since
+ * P2/S15 that's STRUCTURAL: updateEnemies partitions internally and state.enemies stays
+ * the FULL world roster, so killEnemy's inline `.some(holdKey)` sees the other bucket's
+ * guardian (the __libGate that used to blind-then-defer this is retired). Kill #2 the
+ * same way -> the INLINE path liberates at the kill, same tick, credited to the KILLER's
+ * pin (conscious P2/S15 delta: the hero who freed the site draws the reward, not
+ * players[0]). Then the identical scenario for a town SIEGE (raidTown ->
+ * checkRaidLiberation -> liberateTown), and the _seen sweep's REMAINING job: a guardian
+ * removed with NO kill event (the leash-despawn shape) still liberates via the sweep. */
 'use strict';
 const { World } = require('' + __RR + '/server/world.js');
 const G = require('' + __RR + '/server-spike/load-game.js');
@@ -50,13 +56,14 @@ A1('guardian #2 still alive in the full roster', S.enemies.includes(g2));
 w.tick(); w.tick();
 A1('still not liberated two ticks later', !hd.liberated);
 
-// --- kill guardian #2 inside B's bucket -> sweep must liberate within a tick or two ---
-const gold0 = A.gold | 0;   // sweep credits players[0] (=A)
+// --- kill guardian #2 inside B's bucket -> the INLINE path liberates AT the kill (P2/S15) ---
+const bGold0 = B.gold | 0, aGold0 = A.gold | 0;   // the KILLER (B — g2 died in HIS bucket, under his pin) draws the reward
 burnKill(g2);
 w.tick();
 const libNow = !!hd.liberated; if (!libNow) w.tick();
 A1('holding LIBERATED once every spawned guardian is dead', !!hd.liberated, libNow ? 'same tick' : 'next tick');
-A1('liberation reward went to players[0]', (A.gold | 0) > gold0, `gold ${gold0} -> ${A.gold | 0}`);
+A1('liberation reward went to the KILLER (B), not players[0]', (B.gold | 0) > bGold0, `B gold ${bGold0} -> ${B.gold | 0}`);
+A1('players[0] (A) drew no liberation gold for B\'s kill', (A.gold | 0) === aGold0, `A gold ${aGold0} -> ${A.gold | 0}`);
 
 // --- same shape for a town SIEGE (raidTown / checkRaidLiberation -> liberateTown) ---
 const ti = 1; const tz = TZ[ti];
@@ -76,15 +83,36 @@ w.tick();
 const tLibNow = tz.besieged === false; if (!tLibNow) w.tick();
 A1('town liberated once ALL raiders are dead (sweep)', tz.besieged === false, tLibNow ? 'same tick' : 'next tick');
 
-// --- direct wrapper sanity: gate on -> internal skip; gate off -> real call ---
+// --- the _seen sweep's REMAINING job (P2/S15): a guardian removed with NO kill event ---
+// (the leash-despawn shape: updateEnemies splices a foe that strayed too far off its home
+// ring — no killEnemy, no inline check) must still liberate, via the sweep, under players[0].
 const hj = S.holdings.findIndex((h, j) => j !== hi && h && !h.liberated && !h.built);
+A1('found a second holding for the sweep probe', hj >= 0, 'holdIdx=' + hj);
 if (hj >= 0) {
-  global.__libGate = () => false;
-  G.liberateHolding(hj);
-  A1('gate ON: liberateHolding is a no-op', !S.holdings[hj].liberated);
-  global.__libGate = null;
-  A1('gate cleared for the room', global.__libGate === null);
+  const hd2 = S.holdings[hj];
+  for (let i = S.enemies.length - 1; i >= 0; i--) if (S.enemies[i].holdKey === hj) S.enemies.splice(i, 1);
+  hd2._seen = false;
+  const g3 = mk(A.x + 5 * TILE, A.y + 2 * TILE);
+  A1('sweep-probe guardian crafted', !!g3);
+  g3.holdKey = hj; g3.x = A.x + 110; g3.y = A.y + 40;
+  S.enemies.push(g3);
+  for (let i = 0; i < 3; i++) w.tick();
+  A1('sweep saw the lone guardian (_seen), no liberation', hd2._seen === true && !hd2.liberated);
+  const i3 = S.enemies.indexOf(g3);
+  if (i3 >= 0) S.enemies.splice(i3, 1);              // vanish WITHOUT killEnemy — the leash-despawn shape
+  const aGoldPre = A.gold | 0;
+  w.tick();
+  const swLibNow = !!hd2.liberated; if (!swLibNow) w.tick();
+  A1('sweep liberated the kill-less removal', !!hd2.liberated, swLibNow ? 'same tick' : 'next tick');
+  A1('sweep credit rides players[0] (A)', (A.gold | 0) > aGoldPre, `A gold ${aGoldPre} -> ${A.gold | 0}`);
 }
+
+// --- gate machinery is GONE (P2/S15): no __libGate sets in world.js, no lexical wrappers ---
+const fs = require('fs');
+const worldSrc = fs.readFileSync(__RR + '/server/world.js', 'utf8');
+const loaderSrc = fs.readFileSync(__RR + '/server-spike/load-game.js', 'utf8');
+A1('world.js never assigns __libGate', !/__libGate\s*=/.test(worldSrc));
+A1('load-game.js carries no liberation wrappers', !/__rawLibHold|__rawClearPOI|__rawLibTown/.test(loaderSrc));
 
 console.log(failed ? '\nT2 RESULT: FAIL' : '\nT2 RESULT: PASS');
 process.exit(failed ? 1 : 0);
