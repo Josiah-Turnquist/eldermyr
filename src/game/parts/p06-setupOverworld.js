@@ -565,6 +565,12 @@ function snapshot() {
       abilities: { ...p.abilities },
       abilityRank: { ...(p.abilityRank || {}) },
       prof: JSON.parse(JSON.stringify(p.prof)),
+      /* P2/S5: town-empowerment + teaching keys ride the player slice now (they live on p) —
+         readers stay FIELD-keyed (applySnapshot falls back to the old root spot for older saves),
+         so no version gate: same doctrine as the v5→v6 milestone move above. */
+      tonics: p.tonics | 0,
+      sharpenLevel: p.sharpenLevel | 0,
+      seenHeatTip: !!p.seenHeatTip,
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -572,8 +578,7 @@ function snapshot() {
     dungeonLevel: state.dungeonLevel,
     maxDepth: state.maxDepth,
     map: state.map,
-    tonics: state.tonics,
-    sharpenLevel: state.sharpenLevel,
+    /* (tonics/sharpenLevel moved into the player block above — P2/S5) */
     shopPurchased: [...state.shopPurchased],
     visitedTowns: [...(state.visitedTowns || [])],
     bounty: state.bounty ? { ...state.bounty } : null,
@@ -610,7 +615,7 @@ function snapshot() {
     ingredients: { ...(state.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
     cargo: { ...(state.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 }) },
     wayfind: state.wayfind !== false,
-    seenHeatTip: !!state.seenHeatTip,
+    /* (seenHeatTip moved into the player block above — P2/S5) */
     time: state.time,
     lastRestDay: state.lastRestDay,
     weather: state.weather,

@@ -4,7 +4,8 @@ const SHOP_ARMOR = [
   { id: 'guardian_plate', name: 'Guardian Plate', def: 13, cost: 460, rarity: 2, reqLevel: 8 },
 ];
 function tonicCost() {
-  return 50 + state.tonics * state.tonics * 10 + state.tonics * 40;
+  const t = state.player.tonics | 0; // per-hero (P2/S5): the price ramps on YOUR tonic count
+  return 50 + t * t * 10 + t * 40;
 } // v2.41.0: steeper (2x+ per upgrade) — was 50+tonics*30, too spammable in MP
 function openShop(npc) {
   if (

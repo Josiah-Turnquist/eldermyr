@@ -30,6 +30,10 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * oracle, hand-derived literals, real-world load):
  *   FAIL v1-early: quests match the old inline chain  [$.talk.done (false vs true)]
  * (2026-07-15, S1.)
+ * S5 vacuity: SEEN FAILING (10 asserts) against a scratch repo with the migrate S5-fold
+ * block deleted + characterOf's shop slice reverted + REMAP emptied — all 7 layer-1 fold
+ * asserts, the REMAP-table pin, the characterOf v4 emission, and the real-path v1 load
+ * (A.tonics came back 0, the exact cutover regression the mapping prevents). (2026-07-16.)
  */
 const path = require('path');
 const fs = require('fs');
@@ -175,6 +179,14 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     && m.blob.player.gotKey === old.milestones.gotKey && m.blob.player.enteredFrozen === old.milestones.enteredFrozen,
     JSON.stringify({ got: { d: m.blob.player.enteredDungeon, k: m.blob.player.gotKey, f: m.blob.player.enteredFrozen }, old: old.milestones }));
   ok(`${name}: stamped schemaVersion ${SCHEMA_VERSION}, honest fromVersion`, m.blob.schemaVersion === 4 && m.toVersion === 4 && m.fromVersion === (fx.schemaVersion ?? fx.v ?? 1), `from=${m.fromVersion}`);
+  { // S5 fold: shop.tonics/sharpenLevel → player.* (defaults 0/0 when the era had no shop); seenHeatTip defaults false; shop copies GONE (a move)
+    const sh = fx.shop || null;
+    ok(`${name}: S5 fold — empowerment keys land on player, shop copies removed`,
+      m.blob.player.tonics === ((sh ? sh.tonics : 0) | 0) && m.blob.player.sharpenLevel === ((sh ? sh.sharpenLevel : 0) | 0)
+      && m.blob.player.seenHeatTip === false
+      && (!m.blob.shop || (m.blob.shop.tonics === undefined && m.blob.shop.sharpenLevel === undefined)),
+      JSON.stringify({ t: m.blob.player.tonics, s: m.blob.player.sharpenLevel, tip: m.blob.player.seenHeatTip, shop: m.blob.shop && Object.keys(m.blob.shop) }));
+  }
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
     && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
@@ -249,11 +261,20 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // -------------------------------------------------------------------------
   console.log('\n--- layer 2: golden REMAP scaffolding ---');
   const { hashState, stableSerialize, REMAP } = await import(pathToFileURL(path.join(REPO, 'tests', 'golden', 'serialize.mjs')).href);
-  ok('REMAP table ships EMPTY (S1 — inert by construction)', Array.isArray(REMAP) && REMAP.length === 0, `len=${REMAP.length}`);
+  // The table is no longer empty: each P2 per-key slice adds its relocations. Pin the EXACT
+  // expected entries so an accidental add/remove/reorder fails loudly here.
+  const LADDER_REMAP = [
+    ['state.player.tonics', 'state.tonics'],                 // S5
+    ['state.player.sharpenLevel', 'state.sharpenLevel'],     // S5
+    ['state.player.seenHeatTip', 'state.seenHeatTip'],       // S5
+  ];
+  ok('REMAP table = exactly the shipped ladder relocations (S5)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+    && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
   const oldShape = { state: { player: { level: 5 }, quests: { slay: { count: 3 } }, enemies: [] }, maps: { ow: [1, 2] } };
-  ok('empty/none/default remap all take the untouched path', hashState(movedShape) === hashState(movedShape, []) && hashState(movedShape) === hashState(movedShape, null)
+  ok('empty/none remap take the untouched path; table entries NO-OP where the moved keys are absent', hashState(movedShape, []) === hashState(movedShape, null)
+    && hashState(movedShape) === hashState(movedShape, [])   // default = REMAP: every S5 from-path is absent on this toy shape → inert
     && stableSerialize(movedShape) === stableSerialize(movedShape, REMAP));
   ok('a remap entry ROUND-TRIPS (moved shape hashes as the old shape)', hashState(movedShape, entry) === hashState(oldShape), hashState(movedShape, entry).slice(0, 12));
   ok('…and the entry is what does it (native hashes differ)', hashState(movedShape) !== hashState(oldShape));
@@ -291,10 +312,17 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 
   // era-downgrade a REAL modern save into honest v1/v2/v3 rows
   F.level = 45; F.gold = 777; F.inventory.keys = 16;
+  F.tonics = 2; F.sharpenLevel = 1; F.seenHeatTip = true;   // S5: exercise the fold through the REAL emission + load path
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
-  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; return r; };
-  const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; return r; };
-  const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; return r; };
+  ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold)',
+    modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
+    && modern.shop.tonics === undefined && modern.shop.sharpenLevel === undefined,
+    JSON.stringify({ p: { t: modern.player.tonics, s: modern.player.sharpenLevel, tip: modern.player.seenHeatTip }, shop: Object.keys(modern.shop) }));
+  // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere:
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0 }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; };
+  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); return r; };
+  const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
+  const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
 
   // v1 veteran (level 45, 16 keys): intro synthesized done, milestones from keys, and the
   // ROOM's shared main quest flips to started (the old post-alias line-642 side effect)
@@ -305,6 +333,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('v1 load: depth/bounty start clean', A.maxDepth === 0 && A.bounty === null);
   ok('v1 load: milestones synthesized from 16 keys', A.enteredDungeon === true && A.gotKey === true && A.enteredFrozen === false);
   ok('v1 load: stats/inventory landed', A.level === 45 && A.gold === 777 && (A.inventory.keys | 0) === 16);
+  ok('v1 load: shop.tonics/sharpenLevel FOLD onto the hero; the heat teach re-arms (S5 mapping through the real path)',
+    A.tonics === 2 && A.sharpenLevel === 1 && A.seenHeatTip === false,
+    JSON.stringify({ t: A.tonics, s: A.sharpenLevel, tip: A.seenHeatTip }));
   ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
@@ -328,9 +359,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
   const E = w.addPlayer('E', 'TwinE', mA.blob);
-  ok('round-trip: the migrated save loads back equal (stats/quests/inventory)',
+  ok('round-trip: the migrated save loads back equal (stats/quests/inventory/empowerment)',
     E.level === A.level && E.gold === A.gold && (E.inventory.keys | 0) === (A.inventory.keys | 0)
-    && E.quests.slay.count === A.quests.slay.count && E.enteredDungeon === A.enteredDungeon && E.maxDepth === A.maxDepth);
+    && E.quests.slay.count === A.quests.slay.count && E.enteredDungeon === A.enteredDungeon && E.maxDepth === A.maxDepth
+    && E.tonics === A.tonics && E.sharpenLevel === A.sharpenLevel && E.seenHeatTip === A.seenHeatTip);
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

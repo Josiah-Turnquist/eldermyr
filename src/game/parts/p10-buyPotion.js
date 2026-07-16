@@ -11,7 +11,7 @@ function buyTonic() {
   const c = tonicCost();
   if (p.gold < c) return;
   p.gold -= c;
-  state.tonics++;
+  p.tonics++; // per-hero (P2/S5): each hero's tonic count — and therefore price ramp — is their own
   p.maxHp += 5;
   p.hp += 5;
   log('Health Tonic! +5 Max HP forever.', 'good');

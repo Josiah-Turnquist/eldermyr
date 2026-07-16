@@ -152,9 +152,10 @@ out.push('\n=== Magic — Heat aura ===');
   ok('_auraEl clears below threshold', p._auraEl === 0, '_auraEl=' + p._auraEl);
 
   // --- FIRST-TIME TIP: first cast crossing the aura threshold sets seenHeatTip once (element-aware) ---
-  S.seenHeatTip = false; eq.element = 'fire'; eq.atk = 30; delete eq.pattern; p.heat = 32; p.attackCooldown = 0; p._lastStyle = 'magic';
+  // P2/S5: the flag lives on the PLAYER now (per-hero teach) — was state.seenHeatTip.
+  p.seenHeatTip = false; eq.element = 'fire'; eq.atk = 30; delete eq.pattern; p.heat = 32; p.attackCooldown = 0; p._lastStyle = 'magic';
   G.tryAttack();   // 32 + 12.5 = 44.5 ≥ 40 → crosses the aura threshold
-  ok('first cast crossing the aura threshold sets seenHeatTip (element-aware teach)', S.seenHeatTip === true && p.heat >= AMIN, 'seenHeatTip=' + S.seenHeatTip + ' heat=' + p.heat.toFixed(1));
+  ok('first cast crossing the aura threshold sets the CASTER\'s seenHeatTip (element-aware teach)', p.seenHeatTip === true && p.heat >= AMIN, 'seenHeatTip=' + p.seenHeatTip + ' heat=' + p.heat.toFixed(1));
   unstub();
 })();
 
@@ -170,16 +171,19 @@ out.push('\n=== Style-swap reset + save/load defaults ===');
   equipStyle('magic'); S.inventory.weapons.find(w => w.equipped).element = 'fire'; p.heat = 88; equipStyle('melee'); p._lastStyle = 'magic'; G.updatePlayer();
   ok('swapping magic→melee resets Heat', p.heat === 0, 'heat=' + p.heat);
   equipStyle('melee'); p.momentum = 5; p.heat = 99; p.riposteT = 60; p._auraEl = 'fire'; p._auraCd = 5; p._lastMarkN = 3; p._markShowT = 100;
-  S.seenHeatTip = true;
+  p.seenHeatTip = true;
   const snap = G.snapshot();
   const leaks = ['momentum', 'heat', 'riposteT', '_auraEl', '_lastMarkN'].some(k => k in snap.player);
   ok('snapshot() does NOT persist transient style fields (whitelist)', !leaks, 'leaked=' + leaks);
-  ok('snapshot() DOES persist seenHeatTip (the one durable Heat flag)', snap.seenHeatTip === true, 'snap.seenHeatTip=' + snap.seenHeatTip);
+  ok('snapshot() DOES persist seenHeatTip — in the PLAYER slice (P2/S5)', snap.player.seenHeatTip === true && snap.seenHeatTip === undefined, 'snap.player.seenHeatTip=' + snap.player.seenHeatTip + ' root=' + snap.seenHeatTip);
   p.momentum = 2; p.heat = 50; G.applySnapshot(snap);
   ok('load defaults ALL style resources to 0/off', p.momentum === 0 && p.heat === 0 && p.riposteT === 0 && p._auraEl === 0 && p._auraCd === 0 && p._lastMarkN === 0, 'm=' + p.momentum + ' h=' + p.heat + ' rip=' + p.riposteT + ' auraEl=' + p._auraEl + ' auraCd=' + p._auraCd + ' mark=' + p._lastMarkN);
-  ok('load restores seenHeatTip=true from the save', S.seenHeatTip === true, 'seenHeatTip=' + S.seenHeatTip);
-  const oldSnap = JSON.parse(JSON.stringify(snap)); delete oldSnap.seenHeatTip; G.applySnapshot(oldSnap);
-  ok('old saves (missing seenHeatTip) default it to false → tip still shows once', S.seenHeatTip === false, 'seenHeatTip=' + S.seenHeatTip);
+  ok('load restores seenHeatTip=true from the save', p.seenHeatTip === true, 'seenHeatTip=' + p.seenHeatTip);
+  // pre-S5 save shape: the flag at the ROOT — must restore losslessly through the fallback read
+  const preMove = JSON.parse(JSON.stringify(snap)); delete preMove.player.seenHeatTip; preMove.seenHeatTip = true; G.applySnapshot(preMove);
+  ok('pre-move saves (root seenHeatTip) restore LOSSLESSLY onto the player', p.seenHeatTip === true, 'seenHeatTip=' + p.seenHeatTip);
+  const oldSnap = JSON.parse(JSON.stringify(snap)); delete oldSnap.player.seenHeatTip; delete oldSnap.seenHeatTip; G.applySnapshot(oldSnap);
+  ok('old saves (missing seenHeatTip everywhere) default it to false → tip still shows once', p.seenHeatTip === false, 'seenHeatTip=' + p.seenHeatTip);
 })();
 
 // ============================================================================
@@ -223,6 +227,14 @@ out.push('\n=== MP path (World) ===');
   ok('C (magic) crossed the aura threshold', mx.C_heat >= AURA_MIN, 'peak heat=' + mx.C_heat + ' (threshold ' + AURA_MIN + ')');
   ok('C\'s aura element rides lightPlayer → a teammate sees auraEl="fire"', mx.C_auraEl === 1, 'sawAuraEl=' + mx.C_auraEl);
   ok('the aura DAMAGES a foe server-side, per player (foe near C lost HP)', fC.hp < fCstart, 'fC hp ' + fCstart + '->' + Math.round(fC.hp));
+  // P2/S5: the heat teach is PER-HERO — C's first threshold cast set C's OWN flag; the melee/ranged
+  // heroes (who never heated) must still be owed their tip. Pre-fold this was one shared
+  // state.seenHeatTip: the first caster in the room silenced the teach for every other mage.
+  ok('heat teach is PER-HERO: C tripped his own seenHeatTip, A/B still untipped', C.seenHeatTip === true && A.seenHeatTip !== true && B.seenHeatTip !== true,
+    JSON.stringify({ A: !!A.seenHeatTip, B: !!B.seenHeatTip, C: !!C.seenHeatTip }));
+  { const sC2 = w.snapshotFor('C'), sA2 = w.snapshotFor('A');
+    ok('seenHeatTip rides me.* (per-hero on the wire, no adopt line needed)', sC2.me.seenHeatTip === true && sA2.me.seenHeatTip === false,
+      'C.me=' + sC2.me.seenHeatTip + ' A.me=' + sA2.me.seenHeatTip); }
   ok('B (ranged) built Quarry Marks on the wire', mx.B_mark > 0, 'peak _lastMarkN=' + mx.B_mark);
   ok('enemy _markBy (player ref) NEVER serializes into any snapshot', markByLeak === false, 'leak=' + markByLeak);
   ok('tick stayed fast under combat load (tickMsAvg < 6ms)', perfLoad.tickMsAvg < 6, 'warmAvg=' + perfWarm.tickMsAvg + 'ms loadAvg=' + perfLoad.tickMsAvg + 'ms');

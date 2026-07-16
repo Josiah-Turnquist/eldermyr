@@ -63,8 +63,12 @@ function applySnapshot(s) {
   state.dungeonLevel = s.dungeonLevel;
   state.maxDepth = s.maxDepth;
   state.map = s.map;
-  state.tonics = s.tonics || 0;
-  state.sharpenLevel = s.sharpenLevel || 0;
+  /* P2/S5: tonics/sharpenLevel live on the PLAYER now. New saves carry them in s.player (the
+     Object.assign above already landed them); a pre-move save holds them at the root — read them
+     back off it, LOSSLESSLY, exactly like the v5→v6 flags migration above. Explicit (not relying
+     on Object.assign) so a stale session value can never survive loading an old save. */
+  p.tonics = (s.player.tonics !== undefined ? s.player.tonics : s.tonics) || 0;
+  p.sharpenLevel = (s.player.sharpenLevel !== undefined ? s.player.sharpenLevel : s.sharpenLevel) || 0;
   state.shopPurchased = s.shopPurchased || [];
   state.visitedTowns = s.visitedTowns || [];
   state.bounty = s.bounty || null;
@@ -123,8 +127,8 @@ function applySnapshot(s) {
   if (!p.foodBuff) p.foodBuff = null;
   if (!p.foodT) p.foodT = 0;
   state.wayfind = s.wayfind !== false;
-  state.seenHeatTip = !!s.seenHeatTip;
-  /* old saves lack the field → default false, so the tip still shows once */ state.time = s.time || 0;
+  p.seenHeatTip = s.player.seenHeatTip !== undefined ? !!s.player.seenHeatTip : !!s.seenHeatTip;
+  /* P2/S5 player-carried; pre-move saves hold it at the root (lossless fallback), truly old saves lack it everywhere → default false, so the tip still shows once */ state.time = s.time || 0;
   state.lastRestDay = s.lastRestDay || 1;
   state.weather = s.weather || 'clear';
   state.nemesis = s.nemesis || { alive: false, level: 0, name: '', title: '', kills: 0 };

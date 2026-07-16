@@ -277,7 +277,7 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['shopPurchased', 'tonics', 'sharpenLevel', 'cargo', 'ingredients', 'lastRestDay', 'fishCd', 'sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];
+const PP_KEYS = ['shopPurchased', 'cargo', 'ingredients', 'lastRestDay', 'fishCd', 'sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel: they live ON state.player now (game reads p.tonics/p.sharpenLevel directly), so the S.player pin IS the swap
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = p._shopTown != null ? p._shopTown : null; }   // always assign — a null _shopTown must NOT leak the previous player's shop town into this slice
 // Mirror PP_KEYS on the way out. lastRestDay was MISSING → resting never persisted (players popped back to
 // Exhausted next slice). sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
@@ -287,7 +287,7 @@ function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = 
 // REPLACES `state.bounty` wholesale (`state.bounty = rollBounty()`), so neither reaches p by reference.
 // (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
 // "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.tonics = S.tonics; p.sharpenLevel = S.sharpenLevel; p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; p.lastRestDay = S.lastRestDay; p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
+function writeBackPP(p) { p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; p.lastRestDay = S.lastRestDay; p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -499,7 +499,8 @@ class World {
     p.inventory = clone(INV_TEMPLATE);
     p.held = {}; p.actions = [];
     // per-player town-economy state — each hero shops, empowers and trades independently
-    p.shopPurchased = []; p.tonics = 0; p.sharpenLevel = 0;
+    // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5)
+    p.shopPurchased = [];
     p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
@@ -544,7 +545,10 @@ class World {
       // schemaVersion ?? v ?? 1 — see server/migrate.js). `v: 3` stays alongside so a rolled-back
       // server reads the row identically (the load path was always field-keyed, never version-keyed).
       v: 3, schemaVersion: SCHEMA_VERSION, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
-      shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
+      // P2/S5: tonics/sharpenLevel FOLDED INTO `player` (plan §6 v4 mapping) — they live on p, so
+      // snapshot()'s player whitelist emits them under the S.player swap above, like the milestones.
+      // migrateCharacter maps old rows' shop.tonics/shop.sharpenLevel into player.* on load.
+      shop: { shopPurchased: p.shopPurchased, cargo: p.cargo, ingredients: p.ingredients },
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
       // hero "Speak to the Elder" / "Slay monsters (0/5)" and offered him a Depth-3 bounty. Read straight
@@ -609,8 +613,8 @@ class World {
         }
       }
       if (c && c.shop) {                                         // restore this hero's town-economy state
+        // (tonics/sharpenLevel arrive via the player slice — migrateCharacter folds old shop rows; P2/S5)
         p.shopPurchased = Array.isArray(c.shop.shopPurchased) ? c.shop.shopPurchased.slice() : [];
-        p.tonics = c.shop.tonics | 0; p.sharpenLevel = c.shop.sharpenLevel | 0;
         p.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, c.shop.cargo || {});
         p.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, c.shop.ingredients || {});
       }

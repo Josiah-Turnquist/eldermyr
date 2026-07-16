@@ -215,6 +215,16 @@ let state = {
     enteredDungeon: false,
     gotKey: false,
     enteredFrozen: false,
+    // PER-HERO TOWN EMPOWERMENT + TEACHING (P2/S5) — moved off state.X onto the player, the same
+    // Pillar-1 carrier as the milestones above: snapshot()'s player whitelist persists them, MP's
+    // characterOf saves them via snap.player, and they ride `me` with no adopt line. tonics =
+    // Health-Tonic upgrades bought (prices scale on it); sharpenLevel = legacy smith sharpening
+    // (vestigial — Temper replaced the mechanic, but old saves still carry it); seenHeatTip =
+    // one-time element-aware "your staff is heating up → aura" teaching tip (per-hero now: one
+    // caster's tip no longer suppresses every other mage's).
+    tonics: 0,
+    sharpenLevel: 0,
+    seenHeatTip: false,
   },
   inventory: {
     weapons: [
@@ -244,8 +254,7 @@ let state = {
   dungeonEntrance: { tx: 168, ty: 196 },
   spawnTimer: 120,
   maxWildEnemies: 46,
-  tonics: 0,
-  sharpenLevel: 0,
+  // (tonics/sharpenLevel moved onto state.player — P2/S5, see the player literal above)
   shopPurchased: [],
   visitedTowns: [],
   shrines: [],
@@ -281,7 +290,7 @@ let state = {
   fires: [],
   events: [],
   eventTimer: 2400,
-  seenHeatTip: false, // MAGIC: one-time element-aware "your staff is heating up → aura" teaching tip flag (durable; old saves default false)
+  // (seenHeatTip moved onto state.player — P2/S5, see the player literal above)
   nemesis: { alive: false, level: 0, name: '', title: '', kills: 0 },
   ascension: 0,
   won: false,

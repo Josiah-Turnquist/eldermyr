@@ -218,9 +218,11 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
 (wrapped in throttled try/catch — keep it that way), local prediction covers own movement
 (collision/speed switch on `sailing`/`mounted`).
 
-- **LESSON (bit us twice):** per-player fields riding `me` are *not* auto-applied — each
-  needs an explicit `G.state.X = me.X` adoption (tonics, sharpenLevel, sailing, dragon,
-  allies, floorMod…).
+- **LESSON (bit us twice):** per-player `state.X` fields riding `me` are *not* auto-applied —
+  each needs an explicit `G.state.X = me.X` adoption (sailing, dragon, cargo, allies,
+  floorMod…). Fields that live ON the player need **no adopt line** (`S.player = snap.me` is
+  the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
+  seenHeatTip), its old adopt line must be DELETED, or panels read a stale ghost `state.X`.
 - **The client must never GENERATE shared world state.** The welcome handler nukes the
   client-random features (`state.pois/shrines/loreStones = []`) and adopts the server's; the
   Dread Legion roster is the same class of data and `window.genLegion` is **stubbed to a no-op
@@ -269,8 +271,10 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   plus `_lastStyle`). These are **transient** — deliberately *not* in `snapshot()`'s whitelist,
   and `applySnapshot` zeroes them, so old saves default to 0/off. They reach MP clients with
   **zero extra wiring**: the client adopts `me` wholesale (`S.player = snap.me`), and `safeClone`
-  copies top-level scalars — so unlike `state.X` fields (tonics/sailing/…), these need **no
+  copies top-level scalars — so unlike `state.X` fields (sailing/cargo/…), these need **no
   explicit adoption line**. That is the whole reason they live on the player object.
+  (P2/S5 moved the DURABLE heat flag `seenHeatTip` — and tonics/sharpenLevel — onto the player
+  too: per-hero teach, persisted via the snapshot player whitelist, same zero-wiring ride.)
 - **Marks are per-TARGET, so they live on the ENEMY**, not the player: `e._markN` (0–3, a number
   — it *does* ride `packEnemy`/`packScalar`, harmless) and `e._markBy` = the **owning player
   OBJECT ref**. The "bonus damage from you" check is `e._markBy === po` (identity, O(1)); packScalar

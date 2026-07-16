@@ -194,6 +194,24 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   battery 39/39, world self-test green, typecheck clean. REMAP stays empty (S2 moves no
   keys). Per-player iteration order = state.players JOIN ORDER — documented in party()/rig
   comments as the determinism contract the baselines freeze.
+- 2026-07-16: P2/S5 DONE — first per-key retirement: tonics + sharpenLevel (PP_KEYS) and seenHeatTip
+  (shared-bug #5) moved onto state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; buyTonic/
+  tonicCost/magicShot read p.*; snapshot player-block + applySnapshot root-fallback, field-keyed, NO v
+  bump; PP_KEYS/writeBackPP lines dropped; characterOf shop slice FOLDED into player per §6 with
+  migrate.js mapping shop.tonics/sharpenLevel → player.* + seenHeatTip:false default; mp.html ghost
+  adopts DELETED per risk #7). First real REMAP entries (3) — golden 1p 8/8 on the UNTOUCHED oracle +
+  full prove green (speed/damage cascade@0, hunt exactly @700: the overlay masks shape, not behavior).
+  mp-golden: all 4 diverge @sample 0 (shape) → delta proven EXACTLY intended before re-record: (a)
+  old-shape masking view reproduces the pre-S5 oracle BYTE-FOR-BYTE at all 124 samples (both scenarios
+  × both seeds), (b) serialized deep-diff = only {players[i]+seenHeatTip:false; pinned p's tonics/
+  sharpenLevel leave the remap view}, (c) per-hero summaries identical — then conscious re-record,
+  mp-check 4/4 + mp-prove all green. Battery 41/41; new asserts SEEN FAILING: 5 (style-verify per-hero
+  teach ×2 + caster tip + pre-move fallback; sp-flags-check pre-S5 root restore) vs a fold-reverted
+  scratch artifact, 10 (migrate fold ×7 fixtures + REMAP pin + characterOf v4 emission + real-path v1
+  load returning tonics=0) vs a perturbed scratch repo. World self-test + typecheck green. Conscious
+  MP delta: the heat teach is per-hero (one mage no longer silences every other's tip); tonics/
+  sharpenLevel behavior-identical (were already per-player via PP). ARCHITECTURE.md adopt-list +
+  style-resource bullets updated.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

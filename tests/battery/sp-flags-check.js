@@ -67,6 +67,29 @@ let threw = false;
 try { G.applySnapshot(vNoFlags); } catch (e) { threw = true; }
 ok('a save with NO flags object at all still loads', !threw && S.flags && S.flags.krakenDead === false, threw ? 'THREW' : JSON.stringify(S.flags));
 
+// ---------------------------------------------------------------- 2b. THE pre-S5 → S5 RELOCATION
+// P2/S5 moved tonics/sharpenLevel/seenHeatTip from state.X into the player slice. A pre-move save
+// holds them at the ROOT; the load must read them back off it LOSSLESSLY (same doctrine as v5→v6:
+// field-keyed fallback, no version gate) — or every migrated hero's tonic price resets to 50.
+const preS5 = JSON.parse(JSON.stringify(v6));
+delete preS5.player.tonics; delete preS5.player.sharpenLevel; delete preS5.player.seenHeatTip;
+preS5.tonics = 3; preS5.sharpenLevel = 2; preS5.seenHeatTip = true;                 // the old root spots
+S.player.tonics = 0; S.player.sharpenLevel = 0; S.player.seenHeatTip = false;
+G.applySnapshot(preS5);
+ok('pre-S5 save: root tonics/sharpenLevel/seenHeatTip land LOSSLESSLY on the player',
+  S.player.tonics === 3 && S.player.sharpenLevel === 2 && S.player.seenHeatTip === true,
+  JSON.stringify({ t: S.player.tonics, s: S.player.sharpenLevel, tip: S.player.seenHeatTip }));
+// …and the S5 shape round-trips: the keys ride the player slice, never the root
+S.player.tonics = 4; S.player.seenHeatTip = true;
+const s5 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S5 snapshot: tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, root is clean',
+  s5.player.tonics === 4 && s5.player.seenHeatTip === true && s5.tonics === undefined && s5.sharpenLevel === undefined && s5.seenHeatTip === undefined,
+  JSON.stringify({ p: { t: s5.player.tonics, tip: s5.player.seenHeatTip }, root: { t: s5.tonics, tip: s5.seenHeatTip } }));
+S.player.tonics = 1;
+G.applySnapshot(s5);
+ok('S5 round-trip: player-slice values survive save→load', S.player.tonics === 4 && S.player.seenHeatTip === true,
+  JSON.stringify({ t: S.player.tonics, tip: S.player.seenHeatTip }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

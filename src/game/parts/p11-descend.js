@@ -182,10 +182,10 @@ function magicShot(p, w, d, ps, el, dmg, seek) {
       Math.min(100, (p.heat || 0) + (HEAT_BY_PAT[pat] || 5) * powMul);
     p._heatCool = 45;
     /* HEAT builds per cast, proportional to bolts fired × weapon power: trifan fan-staff is a Heat engine, the pierce lance a sipper. Only an ELEMENTAL staff heats — a plain staff has no Heat and no aura. */ if (
-      !state.seenHeatTip &&
+      !p.seenHeatTip && // per-hero (P2/S5): the CASTER's own tip flag — one mage's first aura no longer suppresses the teach for every other hero
       (p.heat || 0) >= HEAT_AURA_MIN
     ) {
-      state.seenHeatTip = true;
+      p.seenHeatTip = true;
       const _en = ((ELEMENTS[w.element] || {}).name || 'Arcane').toLowerCase(),
         _vb = { fire: 'burns', frost: 'chills', poison: 'poisons', shock: 'jolts' }[w.element] || 'sears';
       log(

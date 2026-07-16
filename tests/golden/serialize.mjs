@@ -35,16 +35,25 @@
  * A `from` path that doesn't resolve no-ops (the hash then reflects the native
  * shape and the golden check fails LOUDLY — the safe direction).
  *
- * The table is EMPTY today (S1): remap null/[] takes the untouched fast path,
- * byte-identical to the pre-hook serializer — proven by the unchanged oracle
- * (golden 8/8, no re-record) and unit-proven in tests/battery/migrate-roundtrip.js.
- * Every entry added later must keep the `prove` perturb controls failing (the
- * vacuous-test rule); S16 deletes the table and re-records oracle.json natively.
+ * The overlay was landed EMPTY in S1 (inert fast path, unchanged oracle) and is
+ * unit-proven in tests/battery/migrate-roundtrip.js. Every entry added must keep
+ * the `prove` perturb controls failing (the vacuous-test rule); S16 deletes the
+ * table and re-records oracle.json natively.
+ *
+ * NOTE (MP): hashState is also the mp-golden hasher. An entry's `from` resolves
+ * through state.player — in MP that is the last-PINNED hero, and the OTHER
+ * players[] entries are not overlaid. oracle-mp.json is re-recorded consciously
+ * per slice anyway (S2 rule), with the shape delta proven at re-record time.
  */
 'use strict';
 import { createHash } from 'node:crypto';
 
-export const REMAP = [];
+export const REMAP = [
+  // P2/S5 — town-empowerment + heat-teach keys moved onto the player (plan §7 S5):
+  { from: 'state.player.tonics', to: 'state.tonics' },
+  { from: 'state.player.sharpenLevel', to: 'state.sharpenLevel' },
+  { from: 'state.player.seenHeatTip', to: 'state.seenHeatTip' },
+];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.
 function buildOverlay(root, remap) {

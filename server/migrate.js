@@ -29,7 +29,11 @@
  *       field-keyed, never version-keyed). Reader rule: schemaVersion ?? v ?? 1.
  *   Later P2 slices fold shop/quests/maxDepth/bounty/dragon INTO the player
  *   slice as those keys move onto p (plan §6 mapping) — each adds its default
- *   here in the same slice.
+ *   here in the same slice. The v4 stamp does NOT change per fold: readers stay
+ *   FIELD-keyed throughout (a row is defined by what it carries).
+ *     · S5: shop.tonics/shop.sharpenLevel → player.tonics/player.sharpenLevel
+ *       (defaults 0/0); player.seenHeatTip default false (no historical source —
+ *       the aura teach re-shows once per hero, intended).
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -115,6 +119,20 @@ function migrateCharacter(oldBlob) {
     // enteredFrozen has NO durable source. Default FALSE — the safe direction: a wrongly-
     // false flag re-plays one lore line (idempotent) and self-heals on the next snow step.
     out.player.enteredFrozen = false;
+  }
+
+  // ---- S5 fold: town-empowerment keys move onto the player (plan §6 v4 mapping) --------
+  // player-first (a post-S5 row already carries them there), else the old shop slice, else
+  // the fresh defaults. The shop copies are DELETED from the output (a MOVE, not a dual-
+  // write) so the blob has one owner per value; idempotent because pass 2 finds them on
+  // player and no longer on shop. Guarded on out.player like the milestone block above
+  // (every real row has a player slice — see the `lvl` note).
+  if (out.player) {
+    const sh = (c && c.shop) || null;
+    if (out.player.tonics === undefined) out.player.tonics = (sh ? sh.tonics : 0) | 0;
+    if (out.player.sharpenLevel === undefined) out.player.sharpenLevel = (sh ? sh.sharpenLevel : 0) | 0;
+    if (out.player.seenHeatTip === undefined) out.player.seenHeatTip = false;
+    if (out.shop) { delete out.shop.tonics; delete out.shop.sharpenLevel; }
   }
 
   out.quests = q;
