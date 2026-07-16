@@ -76,7 +76,7 @@ function compRangedShot(c, e) {
     Sound.shoot && Sound.shoot();
   }
 }
-function updateCompanions() {
+function updateCompanionsFor() {
   const list = state.companions || [];
   if (!list.length) return;
   const p = state.player;
@@ -182,6 +182,36 @@ function updateCompanions() {
       }
     }
   }
+}
+function updateCompanions() {
+  if (!(state.players && state.players.length)) {
+    updateCompanionsFor();
+    return;
+  } // SP: the one hero, the whole warband — same body, same draws, byte-identical
+  /* MP (P2 fold, plan §7 S13 sub-slice "companions"): BOTH world.js warband partitions — the
+     overworld byOwner pass AND the dungeon per-delver pass — moved in as ONE owner loop.
+     state.map picks the side: while the party dungeon is swapped into the state singletons only
+     map==='dungeon' recruits step (against the floor's own enemies/grid), topside only the
+     others — a recruit is never stepped in the wrong coordinate space (risk #9). The body steps
+     state.companions toward state.player, so the pin routes each warband to ITS owner — and a
+     companion kill (killEnemy inside compMeleeHit/compRangedShot's projectiles) credits that
+     owner's own quests.slay/bounty/gold (player-native since P2/S13/S12). Owners iterate in
+     JOIN ORDER (canonized — the old overworld pass followed first-recruit order; the roster is
+     the determinism contract the 2p baselines freeze). */
+  const all = state.companions;
+  if (!all || !all.length) return;
+  const dg = state.map === 'dungeon';
+  for (const p of partyIn()) {
+    if (p.downed) continue; // a downed hero's recruits idle (both old passes skipped them)
+    const mine = [];
+    for (const c of all) if (c.ownerId === p.id && (c.map === 'dungeon') === dg) mine.push(c);
+    if (!mine.length) continue;
+    state.player = p;
+    state.inventory = p.inventory; // the pin IS the swap (P2/S13); deliberately NO restore (the updateEnemies precedent)
+    state.companions = mine;
+    updateCompanionsFor();
+  }
+  state.companions = all;
 }
 function drawCompanion(c) {
   if (!c.alive) return;

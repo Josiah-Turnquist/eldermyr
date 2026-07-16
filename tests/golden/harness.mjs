@@ -26,9 +26,13 @@
  * world.js's own bottom block), and drive w.tick(). The hash root is still
  * {state, maps} — the World's room fields (feed/_errAt/perf EMAs) live on
  * `this`, off-state, and are deliberately outside the oracle. These baselines
- * (oracle-mp.json) freeze the ORCHESTRATION machinery the P2 ladder rewrites;
- * they are re-recorded consciously per slice, while oracle.json stays
- * byte-untouched until S16.
+ * (oracle-mp.json) freeze the ORCHESTRATION machinery the P2 ladder rewrote;
+ * through the ladder they were re-recorded consciously per slice, while
+ * oracle.json stayed byte-untouched. At P2 close (plan §7 S16) BOTH oracles
+ * were re-recorded in one PAIRED operation as the serializer's REMAP overlay
+ * was deleted: same engine state, old view reproduced the old oracles first,
+ * then the native player-keyed shape was recorded. Post-P2, both oracles hash
+ * the NATIVE shape; any future re-record is a conscious behavior change.
  *
  * Usage:
  *   node harness.mjs run <scenario> <seed> [--perturb speed|damage|hunt]  (worker, both kinds)

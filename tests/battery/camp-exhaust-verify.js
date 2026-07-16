@@ -55,6 +55,17 @@ S.map = 'dungeon'; p.map = 'dungeon'; p.camping = false;
 S.enemies.length = 0;
 const tBefore = S.time;
 w._runRpc({ rpc: 'doCamp', args: [] }, p);    // only A camps
+// (P2 fold) Restore the world's REAL between-tick invariant before ticking: a tick never begins
+// with S.map==='dungeon' — the dungeon phase always puts the overworld back in its finally. The
+// hand-forced S.map above exists ONLY so doCamp takes its dungeon branch; leaving it set handed
+// the state.map-scoped partyIn() an impossible world (the OLD rotation keyed membership on p.map
+// and merely never read S.map, so it tolerated the stale value by accident — A, an orphaned
+// delver with no live instance, was never ticked, and still isn't).
+S.map = 'overworld';
+// …and B stands at spawn = IN TOWN: with the real S.map the overworld fatigue pass now runs for
+// him, and town-rest would LEGITIMATELY re-stamp his lastRestDay (fatigue doing its job, not A's
+// camp leaking). Probe B out of town so the assert still isolates "A's rest is A's own".
+{ const _tz = (G.getTownZones ? G.getTownZones() : null) || []; if (_tz[0]) { p2.x = (_tz[0].x - 14) * (G.TILE || 32); p2.y = (_tz[0].y - 10) * (G.TILE || 32); } }
 w.tick();
 ok(p.lastRestDay === day, 'A: rest RECORDED on the player (P2/S7: doCamp writes state.player.lastRestDay directly — the rotation pin IS the swap, no mirror needed)', 'A.lastRestDay=' + p.lastRestDay + ' day=' + day);
 ok(p.camping === true, 'A: is camping', 'camping=' + p.camping);

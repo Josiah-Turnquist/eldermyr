@@ -21,94 +21,19 @@
  * identical in every process. The ids are traversal-order based, never
  * identity/GC based, so two separate OS processes agree.
  *
- * REMAP (P2 ladder scaffolding — rebuild/p2-plan.md, "the hash-shape problem"):
- * the golden hash covers SHAPE, so when a P2 slice MOVES a key (state.quests →
- * state.player.quests) the bytes change even though behavior is identical. Each
- * entry below presents a moved key at its OLD spot, for hashing only:
- *
- *     { from: 'state.player.quests', to: 'state.quests' }   // one line per moved key
- *
- * Implementation is an identity-preserving OVERLAY, not a copied tree: the
- * emitter hides `from`'s leaf where its holder is emitted and emits the SAME
- * value object under `to` — object identities are untouched, so `$ref` dedup
- * (enemies._markBy → player, etc.) produces exactly the pre-move byte stream.
- * A `from` path that doesn't resolve no-ops (the hash then reflects the native
- * shape and the golden check fails LOUDLY — the safe direction).
- *
- * The overlay was landed EMPTY in S1 (inert fast path, unchanged oracle) and is
- * unit-proven in tests/battery/migrate-roundtrip.js. Every entry added must keep
- * the `prove` perturb controls failing (the vacuous-test rule); S16 deletes the
- * table and re-records oracle.json natively.
- *
- * NOTE (MP): hashState is also the mp-golden hasher. An entry's `from` resolves
- * through state.player — in MP that is the last-PINNED hero, and the OTHER
- * players[] entries are not overlaid. oracle-mp.json is re-recorded consciously
- * per slice anyway (S2 rule), with the shape delta proven at re-record time.
+ * REMAP — RETIRED (P2 close; rebuild/p2-plan.md §7 S16). Through the P2 per-key
+ * ladder (S5–S13) this module carried a pure overlay table that re-presented each
+ * key MOVED onto state.player at its old root spot, for hashing only, so
+ * oracle.json could stay byte-untouched while the state shape changed underneath.
+ * At the ladder's end the table (21 entries) was DELETED in a PAIRED operation:
+ * at one engine state, the remap serializer first reproduced the old oracles
+ * (proving the engine byte-identical to the recording), then this native
+ * serializer re-recorded both oracles — so the only delta between old and new
+ * baselines is the serializer view. The hash now covers the NATIVE, player-keyed
+ * shape; a key that moves again must be a conscious re-record, never an overlay.
  */
 'use strict';
 import { createHash } from 'node:crypto';
-
-export const REMAP = [
-  // P2/S5 — town-empowerment + heat-teach keys moved onto the player (plan §7 S5):
-  { from: 'state.player.tonics', to: 'state.tonics' },
-  { from: 'state.player.sharpenLevel', to: 'state.sharpenLevel' },
-  { from: 'state.player.seenHeatTip', to: 'state.seenHeatTip' },
-  // P2/S6 — boat ownership + the [O] guide pref moved onto the player (shared-bugs #4/#6):
-  { from: 'state.player.hasBoat', to: 'state.hasBoat' },
-  { from: 'state.player.wayfind', to: 'state.wayfind' },
-  // P2/S7 — town-economy + fatigue PP keys moved onto the player (plan §7 group 3):
-  { from: 'state.player.fishCd', to: 'state.fishCd' },
-  { from: 'state.player.lastRestDay', to: 'state.lastRestDay' },
-  { from: 'state.player.cargo', to: 'state.cargo' },
-  { from: 'state.player.shopPurchased', to: 'state.shopPurchased' },
-  // P2/S8 — the forage pantry moved onto the player (plan §7 group 4; the last shop-slice key):
-  { from: 'state.player.ingredients', to: 'state.ingredients' },
-  // P2/S9 — the per-hero travel list + the per-shopper shop session moved onto the player
-  // (shared-bugs #1/#7). activeStock/activeShopName exist only while a shop session is open
-  // (openShop creates them, matching the old root behavior) — the entries no-op when absent,
-  // exactly the pre-move shape:
-  { from: 'state.player.visitedTowns', to: 'state.visitedTowns' },
-  { from: 'state.player.activeShopTown', to: 'state.activeShopTown' },
-  { from: 'state.player.activeStock', to: 'state.activeStock' },
-  { from: 'state.player.activeShopName', to: 'state.activeShopName' },
-  // P2/S10 — the boat-state flag + the steed moved onto the player (plan §7 group 6; the
-  // first two PP_KEYS proper to retire — identity-preserving: the dragon OBJECT is emitted
-  // once at the root spot and $ref'd anywhere else, exactly the pre-move stream):
-  { from: 'state.player.sailing', to: 'state.sailing' },
-  { from: 'state.player.dragon', to: 'state.dragon' },
-  // P2/S11 — per-hero reputation + Realm-stone discoveries moved onto the player
-  // (shared-bugs #2/#3; identity-preserving like the dragon entry — the factions/
-  // loreFound OBJECTS are emitted once at the root spot, exactly the pre-move stream):
-  { from: 'state.player.factions', to: 'state.factions' },
-  { from: 'state.player.loreFound', to: 'state.loreFound' },
-  // P2/S12 — deepest-depth + the accepted bounty moved onto the player (plan §7 group 8;
-  // the LAST PP_KEYS before quests — identity-preserving like the dragon entry: a live
-  // bounty OBJECT is emitted once at the root spot, exactly the pre-move stream):
-  { from: 'state.player.maxDepth', to: 'state.maxDepth' },
-  { from: 'state.player.bounty', to: 'state.bounty' },
-  // P2/S13 — the QUESTLINE moved onto the player (the FINAL per-key slice; the header's own
-  // worked example, verbatim. Identity-preserving like the dragon/bounty entries: the quests
-  // OBJECT — and through it the shared main/frozen/legion sub-objects — is emitted once at
-  // the root spot with $ref dedup intact, exactly the pre-move stream):
-  { from: 'state.player.quests', to: 'state.quests' },
-];
-
-// overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.
-function buildOverlay(root, remap) {
-  const ov = new Map();
-  const rec = (o) => { let r = ov.get(o); if (!r) { r = { hide: new Set(), add: new Map() }; ov.set(o, r); } return r; };
-  const walk = (obj, segs) => { let cur = obj; for (const s of segs) { if (cur === null || typeof cur !== 'object') return undefined; cur = cur[s]; } return cur; };
-  for (const { from, to } of remap) {
-    const f = from.split('.'), t = to.split('.');
-    const fromParent = walk(root, f.slice(0, -1)), fromKey = f[f.length - 1];
-    if (fromParent === null || fromParent === undefined || typeof fromParent !== 'object' || !(fromKey in fromParent)) continue; // key absent → entry no-ops (see header)
-    const toParent = walk(root, t.slice(0, -1)), toKey = t[t.length - 1];
-    if (toParent === null || toParent === undefined || typeof toParent !== 'object') continue;
-    rec(fromParent).hide.add(fromKey);
-    rec(toParent).add.set(toKey, fromParent[fromKey]); // added key WINS over a same-named survivor
-  }
-  return ov.size ? ov : null;
-}
 
 function numToken(n) {
   if (Number.isFinite(n)) {
@@ -121,8 +46,7 @@ function numToken(n) {
   return JSON.stringify(String(n)); // "NaN" | "Infinity" | "-Infinity"
 }
 
-export function stableSerialize(root, remap = null) {
-  const overlay = remap && remap.length ? buildOverlay(root, remap) : null;
+export function stableSerialize(root) {
   const seen = new Map(); // object -> assigned id
   let counter = 0;
   const out = [];
@@ -170,18 +94,12 @@ export function stableSerialize(root, remap = null) {
       return;
     }
 
-    // plain object (REMAP overlay applies here only — the golden spine is plain objects)
-    const o = overlay ? overlay.get(v) : undefined;
-    let keys = Object.keys(v);
-    if (o) {
-      keys = keys.filter((k) => !o.hide.has(k));
-      for (const k of o.add.keys()) if (!keys.includes(k)) keys.push(k);
-    }
-    keys.sort();
+    // plain object
+    const keys = Object.keys(v).sort();
     out.push('{');
     let first = true;
     for (const k of keys) {
-      const val = o && o.add.has(k) ? o.add.get(k) : v[k];
+      const val = v[k];
       const vt = typeof val;
       if (vt === 'function' || vt === 'undefined' || vt === 'symbol') continue; // SKIP, don't even emit the key
       if (!first) out.push(',');
@@ -202,8 +120,7 @@ export function sha256Hex(str) {
 }
 
 // The one call the harness uses: canonical-serialize the sim root, then sha256.
-// `remap` defaults to the module REMAP table (empty today → untouched fast path);
-// tests may pass an explicit table to unit-prove the overlay.
-export function hashState(root, remap = REMAP) {
-  return sha256Hex(stableSerialize(root, remap));
+// NATIVE shape — the REMAP overlay that once rode here is retired (see header).
+export function hashState(root) {
+  return sha256Hex(stableSerialize(root));
 }

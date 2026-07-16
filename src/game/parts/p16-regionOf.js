@@ -490,7 +490,7 @@ function useSummon() {
   log(`★ You call ${nc} thrall${nc > 1 ? 's' : ''} to your side!`, 'good');
   updateHUD();
 }
-function updateAllies() {
+function updateAlliesFor() {
   if (!state.allies) state.allies = [];
   const p = state.player;
   const list = state.allies;
@@ -590,4 +590,41 @@ function updateAllies() {
     } // #3: ported warband separation — allies never stand inside each other (nudge respects walls)
     if (a.attackCd > 0) a.attackCd--;
   }
+}
+function updateAllies() {
+  if (!(state.players && state.players.length)) {
+    updateAlliesFor();
+    return;
+  } // SP: the one hero, the whole pool (dungeons included) — same body, same draws, byte-identical
+  /* MP (P2 fold, plan §7 S13 sub-slice "allies"): the world.js _owner partition, moved in VERBATIM.
+     Thralls/bound elites fight for their SUMMONER: buckets by a._owner so each bucket steps under its
+     owner's pin — kills inside (killEnemy) credit the owner's own gold/XP/quests.slay/bounty by
+     construction (player-native since P2/S13/S12). Overworld phase ONLY: state.allies is NOT a world
+     slot (grabWorld doesn't swap it), so while the party dungeon holds the state singletons this must
+     never step topside allies against the floor's grid/enemies (risk #9's coordinate-space rule). */
+  if (state.map !== 'overworld') return;
+  if (!state.allies || !state.allies.length) return;
+  const roster = partyIn(); // overworld heroes, JOIN ORDER — downed included (allies defend a fallen owner)
+  if (!roster.length) return; // every hero below/gone → allies idle topside, life frozen (the world.js guard)
+  const buckets = new Map(roster.map((q) => [q, []]));
+  const idle = [];
+  for (const a of state.allies) {
+    if (typeof a.name !== 'string') a.name = 'Ally'; // drawAlly splits a.name — never leave it non-string
+    let o = a._owner ? state.players.find((q) => q.id === a._owner) : null;
+    if (!o) {
+      o = nearestHeroTo(a, roster);
+      a._owner = o.id;
+    } // shared-phase spawn (Vigil patrol) → adopted by the nearest hero (the world.js unowned rule, in-sim now)
+    if (!buckets.has(o)) idle.push(a); // owner delving (or out of this world) → idles, life frozen — companions don't delve for him either
+    else buckets.get(o).push(a);
+  }
+  const out = [];
+  for (const q of roster) {
+    state.player = q;
+    state.inventory = q.inventory; // the pin IS the swap (P2/S13); deliberately NO restore (the updateEnemies precedent — the ambient pin is hashed state the 2p baselines freeze)
+    state.allies = buckets.get(q);
+    updateAlliesFor();
+    out.push(...state.allies);
+  }
+  state.allies = out.concat(idle); // recombined in bucket order (join order, idlers last) — the world.js order the baselines freeze
 }

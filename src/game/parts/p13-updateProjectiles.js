@@ -357,7 +357,7 @@ function canSailTo(nx, ny, w, h) {
   const c = (x, y) => isWaterTile(Math.floor(x / TILE), Math.floor(y / TILE));
   return c(nx, ny) && c(nx + w - 1, ny) && c(nx, ny + h - 1) && c(nx + w - 1, ny + h - 1);
 }
-function updatePlayer() {
+function updatePlayerFor() {
   const p = state.player;
   let dx = 0,
     dy = 0;
@@ -515,6 +515,29 @@ function updatePlayer() {
       Sound.tone(330, 0.4, 'sine', 0.12, { slideTo: 160 });
       saveGame();
     }
+  }
+}
+function updatePlayer() {
+  if (!(state.players && state.players.length)) {
+    updatePlayerFor();
+    return;
+  } // SP: the one hero, the browser's own keys{} — same body, same draws, byte-identical
+  /* MP (P2 fold, plan §7 S13 "updatePlayers rotation" — the LAST world.js rotation): the per-hero
+     MOVEMENT pass, moved in. Standing heroes of THE WORLD SWAPPED IN step in JOIN order; each
+     hero's held input is stamped into the game's own keys{} before their body runs (the world.js
+     setKeys idiom — the body reads keys, and SP keydown keeps writing exactly that global, so ONE
+     input carrier serves both branches; the plan's uniform p.held read is the deferred "input
+     slice"). The server's action loop (attack/dodge/interact/RPC — world-slot choreography that
+     cannot live in-sim) runs AFTER this call: within one tick the party now moves, then acts —
+     the fold's one conscious reorder, re-recorded into the 2p baselines with the divergence
+     pinned to exactly that interleave. */
+  for (const p of partyIn()) {
+    if (p.downed) continue; // incapacitated — the server's downed pass owns their timers
+    state.player = p;
+    state.inventory = p.inventory; // the pin IS the swap (P2/S13); deliberately NO restore (the updateEnemies precedent — the ambient pin is hashed state the 2p baselines freeze)
+    for (const k in keys) delete keys[k];
+    if (p.held) Object.assign(keys, p.held); // the world.js setKeys stamp, in-sim
+    updatePlayerFor();
   }
 }
 // ================= LIVING WORLD: time, weather, light, rest, fire, events, nemesis =================

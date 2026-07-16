@@ -168,7 +168,7 @@ function spawnPackAround(tx, ty, n, cap) {
     state.enemies.push(nightBuff(makeWildEnemy(ox, oy, tileBiome(ox, oy))));
   }
 }
-function maybeSpawnWild() {
+function maybeSpawnWildFor() {
   if (state.map !== 'overworld') return;
   state.spawnTimer--;
   if (state.spawnTimer > 0) return;
@@ -232,6 +232,54 @@ function maybeSpawnWild() {
       state.enemies.push(lead);
     }
     return;
+  }
+}
+/* (P2 fold, plan §7 S13 sub-slice "spawn") The server's density-driven spawn pass, in-sim. The game
+   seeds ~127 foes across the whole 347x291 map and caps at 46 — the map-wide count sits ABOVE the
+   cap, so the body's own cadence never fires near anyone; you'd roam a thin, static seed. MP drives
+   spawning by LOCAL density instead: keep the ring-scaled target of foes within the 34t spawn ring
+   of EACH hero, refilling every SPAWN_EVERY ticks where a vicinity is sparse, with a generous
+   party-scaled global ceiling as a runaway safety. The body's ring/biome/pack logic still applies,
+   so the frontier fills with packs and the Vale with singles — difficulty geography for free. */
+const SPAWN_EVERY = 55;
+const SPAWN_R2 = (34 * TILE) ** 2; // 34t ≈ the body's spawn ring, so the vicinity count is accurate
+function localSpawnTarget(p) {
+  let df = 0.5;
+  try {
+    df = distFactor((p.x + p.w / 2) / TILE, (p.y + p.h / 2) / TILE);
+  } catch (_e) {}
+  df = Math.max(0, Math.min(1, df));
+  return 13 + Math.round((30 - 13) * df); // target vicinity population scales with the danger ring (safe Vale calm, frontier crawling)
+}
+function nearEnemyCount(p) {
+  const cx = p.x + p.w / 2,
+    cy = p.y + p.h / 2;
+  let n = 0;
+  for (const e of state.enemies) {
+    if ((e.x + e.w / 2 - cx) ** 2 + (e.y + e.h / 2 - cy) ** 2 < SPAWN_R2) n++;
+  }
+  return n;
+}
+function maybeSpawnWild() {
+  if (!(state.players && state.players.length)) {
+    maybeSpawnWildFor();
+    return;
+  } // SP: the one hero, the body's own spawnTimer cadence — same body, same draws, byte-identical
+  // MP: the world.js per-hero density pass, moved in VERBATIM (⚠ RNG order = player order, the
+  // plan's contract: heroes iterate in JOIN order and each eligible spawn draws under ITS hero).
+  if (state.map !== 'overworld') return; // spawning is an overworld system (the world.js call-site guard)
+  const roster = partyIn(); // overworld heroes, JOIN ORDER — downed included for the ceiling below
+  state.maxWildEnemies = 150 + 80 * roster.length; // global safety ceiling only (density does the real work)
+  for (const p of roster) {
+    if (p.downed) continue; // don't spawn foes onto a fallen hero (it would block self-recovery)
+    p._spawnT = p._spawnT == null ? Math.abs((p.x * 3 + p.y * 7) | 0) % SPAWN_EVERY : p._spawnT - 1; // staggered per hero
+    if (p._spawnT > 0) continue;
+    p._spawnT = SPAWN_EVERY;
+    if (nearEnemyCount(p) >= localSpawnTarget(p)) continue; // vicinity already at its ring's target density
+    state.player = p;
+    state.inventory = p.inventory; // the pin IS the swap; deliberately NO restore (the world.js pass left the last spawner pinned — hashed state the 2p baselines freeze)
+    state.spawnTimer = 0; // force the body's cadence gate open for THIS hero right now
+    maybeSpawnWildFor();
   }
 }
 function updateCamera() {

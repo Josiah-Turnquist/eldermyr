@@ -49,6 +49,9 @@ const SUITES = [
   // the projectile partition internalized (rebuild P2/S16): updateProjectiles buckets by shooter in-sim
   // (first-shot order, per-bucket owner pins incl. INVENTORY, parked-shots rule, bucket-order recombine)
   'projectiles-mp-verify',
+  // the LAST world.js partitions folded (rebuild P2 close): movement rotation, allies _owner buckets,
+  // warband byOwner steps, density spawn pass — all in-sim A-shapes; world.js keeps only the action loop
+  'partyloop-mp-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

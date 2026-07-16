@@ -12,10 +12,13 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  *     and ALSO match hand-derived literals (so a transcription slip in the frozen copy
  *     can't silently agree with a module bug). Plus idempotence + purity (input never
  *     mutated, output shares no refs).
- *  2. REMAP: unit proof for the golden-hash overlay scaffolding in
- *     tests/golden/serialize.mjs — the table ships EMPTY, a populated entry round-trips
- *     (moved-shape view byte-equals the old shape, $ref dedup preserved), absent paths
- *     no-op, the view never mutates the root.
+ *  2. REMAP — RETIRED (P2 close, plan §7 S16): the overlay that re-presented moved keys at
+ *     their old root spots for hashing was DELETED after a paired re-record of both oracles
+ *     (old-view run reproduced the old oracle at the same engine state, then the native view
+ *     was recorded). This layer now guards the POST-drop state: serialize.mjs exports no
+ *     table, hashes the NATIVE player-keyed shape (a moved key hashes differently from its
+ *     old spot — no view can mask it), and the serializer's own invariants ($ref dedup,
+ *     no-mutation) still hold.
  *  3. WORLD: boots the real game once — drift-guards migrate.js's QUEST_TEMPLATE literal
  *     against the live booted state.quests (a release that adds a quest key fails HERE),
  *     asserts characterOf stamps schemaVersion 4, loads era-downgraded REAL saves through
@@ -364,57 +367,31 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 
 (async () => {
   // -------------------------------------------------------------------------
-  // LAYER 2 — REMAP overlay unit proof (tests/golden/serialize.mjs scaffolding)
+  // LAYER 2 — the golden serializer is NATIVE (REMAP retired at P2 close, §7 S16)
   // -------------------------------------------------------------------------
-  console.log('\n--- layer 2: golden REMAP scaffolding ---');
-  const { hashState, stableSerialize, REMAP } = await import(pathToFileURL(path.join(REPO, 'tests', 'golden', 'serialize.mjs')).href);
-  // The table is no longer empty: each P2 per-key slice adds its relocations. Pin the EXACT
-  // expected entries so an accidental add/remove/reorder fails loudly here.
-  const LADDER_REMAP = [
-    ['state.player.tonics', 'state.tonics'],                 // S5
-    ['state.player.sharpenLevel', 'state.sharpenLevel'],     // S5
-    ['state.player.seenHeatTip', 'state.seenHeatTip'],       // S5
-    ['state.player.hasBoat', 'state.hasBoat'],               // S6
-    ['state.player.wayfind', 'state.wayfind'],               // S6
-    ['state.player.fishCd', 'state.fishCd'],                 // S7
-    ['state.player.lastRestDay', 'state.lastRestDay'],       // S7
-    ['state.player.cargo', 'state.cargo'],                   // S7
-    ['state.player.shopPurchased', 'state.shopPurchased'],   // S7
-    ['state.player.ingredients', 'state.ingredients'],       // S8
-    ['state.player.visitedTowns', 'state.visitedTowns'],       // S9
-    ['state.player.activeShopTown', 'state.activeShopTown'],   // S9
-    ['state.player.activeStock', 'state.activeStock'],         // S9 (exists only while a shop session is open)
-    ['state.player.activeShopName', 'state.activeShopName'],   // S9 (likewise)
-    ['state.player.sailing', 'state.sailing'],                 // S10
-    ['state.player.dragon', 'state.dragon'],                   // S10
-    ['state.player.factions', 'state.factions'],               // S11
-    ['state.player.loreFound', 'state.loreFound'],             // S11
-    ['state.player.maxDepth', 'state.maxDepth'],               // S12
-    ['state.player.bounty', 'state.bounty'],                   // S12
-    ['state.player.quests', 'state.quests'],                   // S13 — the FINAL per-key relocation
-  ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11+S12+S13)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
-    && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
-  const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
+  console.log('\n--- layer 2: golden serializer native (REMAP retired) ---');
+  const serializeMod = await import(pathToFileURL(path.join(REPO, 'tests', 'golden', 'serialize.mjs')).href);
+  const { hashState, stableSerialize } = serializeMod;
+  ok('REMAP is GONE: serialize.mjs exports no table, no overlay machinery',
+    serializeMod.REMAP === undefined
+    && !/export const REMAP|buildOverlay|\bo\.hide\b/.test(fs.readFileSync(path.join(REPO, 'tests', 'golden', 'serialize.mjs'), 'utf8')));
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
   const oldShape = { state: { player: { level: 5 }, quests: { slay: { count: 3 } }, enemies: [] }, maps: { ow: [1, 2] } };
-  const noKeysShape = { state: { player: { level: 5 }, enemies: [] }, maps: { ow: [1, 2] } };   // carries NO remapped key (S13 put player.quests IN the table, so movedShape is no longer remap-inert)
-  ok('empty/none remap take the untouched path; table entries NO-OP where the moved keys are absent', hashState(noKeysShape, []) === hashState(noKeysShape, null)
-    && hashState(noKeysShape) === hashState(noKeysShape, [])   // default = REMAP: every from-path is absent on this toy shape → inert
-    && stableSerialize(noKeysShape) === stableSerialize(noKeysShape, REMAP));
-  ok('a remap entry ROUND-TRIPS (moved shape hashes as the old shape)', hashState(movedShape, entry) === hashState(oldShape), hashState(movedShape, entry).slice(0, 12));
-  ok('…and the entry is what does it (a run WITHOUT it hashes differently)', hashState(movedShape, []) !== hashState(oldShape));   // (S13 put this entry in the DEFAULT table, so `hashState(movedShape)` now equals the old shape BY DESIGN — the no-table run is the honest negative)
+  ok('the hash covers the NATIVE shape: a player-keyed box hashes DIFFERENTLY from its old root spot (no view can mask a key move)',
+    hashState(movedShape) !== hashState(oldShape), hashState(movedShape).slice(0, 12) + ' vs ' + hashState(oldShape).slice(0, 12));
   {
     const pNew = { level: 5, quests: { slay: { count: 3 } } };
     const rootNew = { state: { enemies: [{ _markBy: pNew }], player: pNew }, maps: {} };
-    const pOld = { level: 5 };
-    const rootOld = { state: { enemies: [{ _markBy: pOld }], player: pOld, quests: { slay: { count: 3 } } }, maps: {} };
-    ok('$ref dedup preserved under the view (enemy._markBy → player)', hashState(rootNew, entry) === hashState(rootOld));
+    const rootNew2 = { state: { enemies: [{ _markBy: structuredClone(pNew) }], player: structuredClone(pNew) }, maps: {} };
+    ok('$ref dedup is identity-based and deterministic (shared player object emits once; a value-equal COPY hashes differently)',
+      hashState(rootNew) === hashState({ state: { enemies: [{ _markBy: pNew }], player: pNew }, maps: {} })
+      && hashState(rootNew) !== hashState(rootNew2));
     const before = JSON.stringify(rootNew);
-    hashState(rootNew, entry);
-    ok('the view never mutates the root', JSON.stringify(rootNew) === before);
+    hashState(rootNew);
+    ok('serialization never mutates the root', JSON.stringify(rootNew) === before);
+    ok('stableSerialize sorts keys (insertion-order independence)',
+      stableSerialize({ b: 1, a: 2 }) === stableSerialize({ a: 2, b: 1 }));
   }
-  ok('absent from-path no-ops (hash = native shape)', hashState(oldShape, entry) === hashState(oldShape));
 
   // -------------------------------------------------------------------------
   // LAYER 3 — the real world: drift guard, characterOf stamp, apply, round-trip

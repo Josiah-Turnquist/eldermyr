@@ -33,14 +33,19 @@ self-test idiom) and drives `w.tick()`. The hash root is still `{state, maps}`; 
 room fields (`feed`/`_errAt`/perf EMAs) live on `this`, off-state, outside the oracle. The
 worker pins `HZ=80` so ambient env can't skew the downed/revive frame constants.
 
-These baselines (`oracle-mp.json`) freeze the ORCHESTRATION machinery the P2 conversion ladder
-rewrites — rotation + PP swap, enemy/ally/companion partitions, projectile shooter buckets,
+These baselines (`oracle-mp.json`) froze the ORCHESTRATION machinery the P2 conversion ladder
+rewrote — rotation + PP swap, enemy/ally/companion partitions, projectile shooter buckets,
 players[1..N] damage patches, per-player spawn cadence — plus the per-player ITERATION ORDER
-(`state.players` join order), which is part of the determinism contract. Unlike `oracle.json`
-(byte-untouched until S16), `oracle-mp.json` is expected to move when a slice intentionally
-changes MP behavior: re-record consciously with `mp-record`, eyeball the diff, commit it with
-the slice, and keep `mp-prove` passing (a baseline a real value change cannot move is worse
-than none).
+(`state.players` join order), which is part of the determinism contract. Through the ladder
+`oracle.json` stayed byte-untouched (a REMAP overlay in serialize.mjs re-presented moved keys
+at their old spots) while `oracle-mp.json` moved consciously per slice. At P2 close (plan §7
+S16) the overlay was DELETED and BOTH oracles were re-recorded in one PAIRED operation at a
+single engine state: the old view first reproduced the old oracles byte-for-byte (proving the
+engine unchanged), then the native player-keyed shape was recorded, and `prove`/`mp-prove`
+re-demonstrated teeth on the fresh baselines. Post-P2 both oracles hash the NATIVE shape;
+either moving is a conscious re-record — `record`/`mp-record`, eyeball the diff, commit it
+with the slice, and keep the proofs passing (a baseline a real value change cannot move is
+worse than none).
 
 ## How it works
 

@@ -7,8 +7,11 @@
  * (killEnemy, combat math, world-gen, items, spawns...). The only thing this
  * file owns is ORCHESTRATION of N players over that single-player sim:
  *
- *   - rotation model : per tick, for each player set the acting player + input,
- *                      run the per-player functions (movement, attack).
+ *   - movement       : ONE G.updatePlayer() call per world phase — the game loops
+ *                      the world-scoped standing party itself (P2 fold; per-hero
+ *                      pin + held-keys stamp, JOIN order). world.js keeps only the
+ *                      per-hero ACTION loop (attack/dodge/interact/RPC — the
+ *                      world-slot choreography that cannot live in-sim).
  *   - fatigue        : ONE G.updateFatigue() call per world phase — the game loops
  *                      the world-scoped party itself (P2; town rest / vigil regen /
  *                      markTownVisited / Exhausted edge+drain, per hero, downed spared).
@@ -71,29 +74,9 @@ try { global.__onGameOver = () => {}; } catch (_e) {}
 // sweeps below REMAIN as reconciliation for guardian removals that bypass killEnemy (leash despawn).
 // epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
 const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
-// Enemy density (server-owned). The game seeds ~127 foes across the whole 347x291 map and
-// caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
-// you; you just roam a thin, static seed. Instead we drive spawning by LOCAL density: keep
-// ~LOCAL_TARGET foes within LOCAL_R of EACH player, refilling every SPAWN_EVERY ticks if the
-// vicinity is sparse. A generous global ceiling is just a runaway safety. maybeSpawnWild's
-// own ring logic still applies, so the frontier fills with packs (dense) and the Vale with
-// singles (calm) — difficulty geography for free.
-const SPAWN_EVERY = 55, LOCAL_R2 = (34 * TILE) ** 2;   // 34t ≈ maybeSpawnWild's spawn ring, so the count is accurate
-// Target vicinity population scales with the danger ring (distFactor 0→1): the safe inner
-// Vale stays calm, the frontier crawls — spatial density variation, not a flat number.
-const LOCAL_TARGET_MIN = 13, LOCAL_TARGET_MAX = 30;
-function localTarget(p) {
-  let df = 0.5;
-  try { df = G.distFactor((p.x + p.w / 2) / TILE, (p.y + p.h / 2) / TILE); } catch (_e) {}
-  df = Math.max(0, Math.min(1, df));
-  return LOCAL_TARGET_MIN + Math.round((LOCAL_TARGET_MAX - LOCAL_TARGET_MIN) * df);
-}
-const SPAWN_CAP_BASE = 150, SPAWN_CAP_PER = 80;
-function nearEnemyCount(p) {
-  const cx = p.x + p.w / 2, cy = p.y + p.h / 2; let n = 0;
-  for (const e of S.enemies) { if ((e.x + e.w / 2 - cx) ** 2 + (e.y + e.h / 2 - cy) ** 2 < LOCAL_R2) n++; }
-  return n;
-}
+// (P2 fold) The density-driven spawn pass (LOCAL vicinity targets, staggered per-hero cadence,
+// party-scaled ceiling) lived here and moved INTO the game's own maybeSpawnWild — see the
+// dispatcher beside the body (p18); world.js makes ONE call per tick below.
 const PLAYER_TEMPLATE = structuredClone(S.player);
 const INV_TEMPLATE = structuredClone(S.inventory);
 // ---- QUESTS ARE PER-PLAYER (v2.57.0), ON the player (P2/S13) -------------------
@@ -120,14 +103,9 @@ const INV_TEMPLATE = structuredClone(S.inventory);
 
 function clone(o) { return structuredClone(o); }
 function setKeys(held) { for (const k in G.keys) delete G.keys[k]; if (held) Object.assign(G.keys, held); }
-function nearestPlayer(e, players) {
-  const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
-  let best = players[0], bd = Infinity;
-  for (const P of players) { const d = (P.x + P.w / 2 - ex) ** 2 + (P.y + P.h / 2 - ey) ** 2; if (d < bd) { bd = d; best = P; } }
-  return best;
-}
 // (P2/S15) inTown/wanderHome/isBoss moved INTO the game beside updateEnemies (heroInSpawnTown/
 // wanderEnemyHome — the boss town-blind pool and the amble-home fallback are the sim's own now).
+// (P2 fold) nearestPlayer moved in too: the ally-adoption rule rides the game's own nearestHeroTo.
 
 // ---- Unstick pass: pop enemies out of walls -----------------------------------
 // Knockback and wander-home move enemies without collision checks, so one can end up with its
@@ -926,11 +904,18 @@ class World {
 
     // Split the party: heroes on the SHARED overworld vs. each inside their OWN private dungeon.
     const owPre = S.players.filter((p) => p.map !== 'dungeon');
-    // PER-PLAYER (overworld): movement, discrete actions, fatigue.
+    // MOVEMENT (P2 fold — the LAST rotation): ONE call — the game's own updatePlayer loops the
+    // world-scoped standing party itself (JOIN order, per-hero pin + held-keys stamp; the rotation
+    // that lived here, moved in). Actions run in the SEPARATE per-hero loop below, AFTER all
+    // movement — the fold's one conscious reorder, re-recorded into the 2p baselines with the
+    // divergence pinned to exactly that interleave.
+    if (owPre.length) {
+      try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
+    }
+    // PER-PLAYER (overworld): discrete actions (attack/dodge/interact/RPC) + ownership stamps.
     for (const p of owPre) {
       if (p.downed) continue;            // incapacitated — the downed pass (below) runs their timers
-      S.player = p; S.inventory = p.inventory; setKeys(p.held);
-      try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
+      S.player = p; S.inventory = p.inventory; setKeys(p.held);   // the acting pin + input for this hero's action slice (doDodge reads the directional keys; RPCs re-pin via actAs anyway)
       this._runActions(p, false);        // interact may ENTER a dungeon → p.map becomes 'dungeon' + its context captured
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
@@ -968,31 +953,14 @@ class World {
     }
     if (S.time % 30 === 0) unstickEnemies('overworld');   // pop wall-embedded foes out (leviathan-on-land etc.)
 
-    // ALLIES (co-op): summoned thralls, dominated elites & Vigil patrols follow and fight for their OWNER.
-    // updateAllies was never called in the MP loop and state.allies was never serialized → allies stood
-    // frozen server-side, were invisible to clients, and never decayed. Partition S.allies by _owner among
-    // overworld heroes and run the REAL updateAllies per owner (it natively moves them, targets the nearest
-    // foe, decays life, and splices the dead/expired). killEnemy inside credits state.player, so set it to the
-    // owner. Allies whose owner is delving (or gone) idle topside with life frozen — companions don't delve
-    // either; an un-owned ally (shared-phase Vigil spawn) self-heals to the nearest hero. S.enemies here is the
-    // full recombined overworld list, so each ally picks its nearest foe correctly.
+    // ALLIES (P2 fold): ONE call — the game's own updateAllies partitions thralls/bound elites/
+    // Vigil patrols by _owner itself (unowned → adopted by the nearest hero, owner-delving → idle
+    // with life frozen, per-owner pins in JOIN order, bucket-order recombine — the partition that
+    // lived here, moved in verbatim). Overworld phase ONLY: state.allies is not a world slot, so
+    // the dungeon phase must never step topside allies against the floor's grid (the dispatcher
+    // self-guards on state.map too).
     if (G.updateAllies && S.allies && S.allies.length && players.length) {
-      const aBuckets = new Map(players.map((p) => [p, []]));
-      const idleAllies = [];
-      for (const a of S.allies) {
-        if (typeof a.name !== 'string') a.name = 'Ally';       // drawAlly splits a.name — never leave it non-string
-        let o = a._owner ? this.players.get(a._owner) : null;
-        if (!o) { o = nearestPlayer(a, players); a._owner = o.id; }   // shared-phase spawn (Vigil patrol) → nearest hero
-        if (o.map === 'dungeon' || !aBuckets.has(o)) idleAllies.push(a);   // owner below ground → idle topside (frozen)
-        else aBuckets.get(o).push(a);
-      }
-      const aSurvivors = [];
-      for (const p of players) {
-        S.player = p; S.inventory = p.inventory; S.allies = aBuckets.get(p);   // the pin: updateAllies → killEnemy credits state.player — quest/bounty writes land on the pinned OWNER's own box (player-native since P2/S13/S12)
-        try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
-        aSurvivors.push(...S.allies);
-      }
-      S.allies = aSurvivors.concat(idleAllies);
+      try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
     }
 
     // remaining shared systems run once (acting player = first, cosmetic-only bias). Flag the block so their
@@ -1012,40 +980,19 @@ class World {
     }   // maybePinnacleBosses: fixed-lair spawn/night-gate/despawn (Drowned King always broods; Pale Shepherd rises at night) — a once-per-tick shared system like updateEvents (self-throttled via state._pinCheckT); its cycle-respawn rides onNewDay→maybeRespawnPinnacle off G.updateTime()
     _sharedPhase = false;
 
-    // WARBAND: updateCompanions steps companions toward state.player — run it PER OWNER so each
-    // hero's recruits follow (and fight for) THEM, not players[0]. Owner in a dungeon → they idle.
+    // WARBAND (P2 fold): ONE call — the game's own updateCompanions partitions recruits by
+    // ownerId itself (owners in JOIN order, downed owners' recruits idle, map-scoped so a
+    // dungeon-tagged recruit is never stepped topside — the partition that lived here, moved
+    // in verbatim; the dungeon phase makes the same one call with the floor swapped in).
     if (G.updateCompanions && S.companions && S.companions.length && players.length) {
-      const all = S.companions;
-      const byOwner = new Map();
-      for (const c of all) {
-        const o = this.players.get(c.ownerId);
-        if (!o || o.map === 'dungeon' || o.downed || c.map === 'dungeon') continue;   // dungeon-tagged recruits are stepped by the DUNGEON phase, never here (wrong coordinate space + enemy list)
-        if (!byOwner.has(o)) byOwner.set(o, []);
-        byOwner.get(o).push(c);
-      }
-      for (const [o, list] of byOwner) {
-        S.player = o; S.inventory = o.inventory; S.companions = list;   // the pin: a companion kill routes through killEnemy → quests.slay/bountyProgress land on the pinned OWNER's own box (player-native since P2/S13/S12)
-        try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
-      }
-      S.companions = all;
+      try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
     }
 
-    // MP SPAWNING (replaces the single player-1 maybeSpawnWild call): feed EVERY player's
-    // vicinity on its own cadence, and scale the density cap with the party + the huge map.
-    // Reuses the game's ring/biome/pack logic, so difficulty still reads distFactor — the
-    // safe Vale stays sparse, the frontier crawls (hotspots "for free" via the rings).
+    // MP SPAWNING (P2 fold): ONE call — the game's own maybeSpawnWild drives LOCAL density itself
+    // (staggered per-hero _spawnT cadence, ring-scaled 13→30 vicinity targets, the party-scaled
+    // global ceiling, per-hero pins in JOIN order — the pass that lived here, moved in verbatim).
     if (S.map === 'overworld' && G.maybeSpawnWild) {
-      S.maxWildEnemies = SPAWN_CAP_BASE + SPAWN_CAP_PER * players.length;   // global safety ceiling only
-      for (const p of players) {
-        if (p.downed) continue;          // don't spawn foes onto a fallen hero (it would block self-recovery)
-        p._spawnT = (p._spawnT == null) ? (Math.abs((p.x * 3 + p.y * 7) | 0) % SPAWN_EVERY) : p._spawnT - 1;   // staggered
-        if (p._spawnT > 0) continue;
-        p._spawnT = SPAWN_EVERY;
-        if (nearEnemyCount(p) >= localTarget(p)) continue;   // area already at its ring's target density
-        S.player = p; S.inventory = p.inventory;
-        S.spawnTimer = 0;                                  // force a spawn around THIS player now
-        try { G.maybeSpawnWild(); } catch (e) { this._err('maybeSpawnWild', e); }
-      }
+      try { G.maybeSpawnWild(); } catch (e) { this._err('maybeSpawnWild', e); }
     }
 
     // (P2/S3) The players[1..N] damage patches died here — the game fns themselves now loop the
@@ -1063,12 +1010,16 @@ class World {
       try {                                                // a throw mid-phase must NEVER skip the restore below — the whole room would live in the dungeon forever (owBase is local → overworld GC'd)
         putWorld(this.sharedDg);                           // the party dungeon into S
         let lvl0 = S.dungeonLevel;
-        // per-player: movement + actions (descend / exit / vault / abilities)
+        // MOVEMENT (P2 fold): the same ONE updatePlayer call as topside — the dungeon is in S, so
+        // its partyIn() roster is the standing delvers. Movement cannot exit/descend (that's [E]),
+        // so the instance stays swapped in for the whole pass; the action loop below handles the
+        // world-slot choreography per delver.
+        try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
+        // per-player: actions (descend / exit / vault / abilities)
         for (const p of dgAll) {
           if (S.map !== 'dungeon') putWorld(this.sharedDg);  // a previous player exited → bring the dungeon back for the rest
           if (p.downed || p.map !== 'dungeon') continue;
           S.player = p; S.inventory = p.inventory; setKeys(p.held);
-          try { G.updatePlayer(); } catch (e) { this._err('updatePlayer', e); }
           const compPos = (S.companions || []).map((c) => [c, c.x, c.y]);   // descend/exit run setupCompanions() → would teleport EVERY warband to this delver
           this._runActions(p, true);                       // interact = descend / exit / key-vault
           for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // hits credit the shooter
@@ -1109,19 +1060,12 @@ class World {
           if (S.enemies.length) {
             try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
           }
-          // WARBAND (dungeon): step each delver's OWN dungeon recruits — mirrors the overworld partition exactly
-          // (S.player = delver, S.companions = their map==='dungeon' recruits, S.enemies = the full floor roster so
-          // they target/hit correctly, S.map = 'dungeon' from putWorld). Topside recruits are NOT touched here.
+          // WARBAND (dungeon, P2 fold): the same ONE updateCompanions call as topside — S.map is
+          // 'dungeon' while this instance is swapped in, so the dispatcher steps ONLY map==='dungeon'
+          // recruits of the standing delvers (its partyIn() roster is exactly `stillIn`), against the
+          // floor's own enemies/grid. Topside recruits are untouched here by the same map filter.
           if (G.updateCompanions && S.companions && S.companions.length) {
-            const allC = S.companions;
-            for (const dp of stillIn) {
-              if (dp.downed) continue;                     // a downed delver's recruits idle (mirrors the overworld skip)
-              const mine = allC.filter((c) => c.ownerId === dp.id && c.map === 'dungeon');
-              if (!mine.length) continue;
-              S.player = dp; S.inventory = dp.inventory; S.companions = mine;   // the pin (mirrors the overworld warband partition)
-              try { G.updateCompanions(); } catch (e) { this._err('updateCompanionsDg', e); }
-            }
-            S.companions = allC;
+            try { G.updateCompanions(); } catch (e) { this._err('updateCompanionsDg', e); }
           }
           // PROJECTILES (P2/S16): same ONE call as topside — updateProjectiles buckets by shooter
           // among the delvers itself (its partyIn() roster is exactly `stillIn` while this instance

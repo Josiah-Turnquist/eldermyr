@@ -80,7 +80,7 @@ deferred to the P2/P3 module-migration slices, where server imports land natural
 *Gate: golden identical on modular engine; battery green; server self-test green; game
 boots in browser from the built bundle.*
 
-**P2 — multiplayer-native sim** `[pending]`
+**P2 — multiplayer-native sim** `[done]`
 `players[]` first-class; all three per-player mechanisms (PP_KEYS swap/write-back,
 characterOf partition, `_owner` tagging) deleted; systems iterate players. Fix the known
 latent shared-state bugs as part of conversion: `visitedTowns`, `factions`, `loreFound`,
@@ -89,6 +89,35 @@ AOI). Save `schemaVersion` + `migrateCharacter` importer, tested against a real 
 dump. 1-player golden hashes must STILL match (swap removal for one player is an
 identity transform); multi-player scenarios get new recorded baselines.
 *Gate: golden(1p) identical; MP suites green; importer round-trips prod blobs.*
+*END STATE (2026-07-16, S1–S20):* **What died:** the PP_KEYS swap/write-back machinery
+(every per-player key now lives ON the player; the two-slot pin IS the swap), the
+characterOf shop/quests/dragon/maxDepth/bounty slices (v4 rows are player-slice-only, the
+pure `server/migrate.js` importer normalizes v1–v3), `__libGate`, every world.js partition
+and replica loop (hazard patches, enemy/projectile partitions, fatigue edge replicas,
+allies/companions/spawn passes, the movement rotation — each an in-sim A-shape dispatcher
+looping the world-scoped `partyIn()` in join order), the 66 Hz full-fat wire (snapshot v2:
+20 Hz + 34t AOI + gated inventory/world-features, measured 3.5× cut), and the golden REMAP
+overlay (both oracles re-recorded native in a paired operation). **What deliberately
+remains world.js-side:** grabWorld/putWorld dungeon-vs-overworld instancing (plan §1 —
+P3+ scope), the per-hero ACTION loop + `_runActions` (RPC allow-list, dungeon enter/
+descend/exit choreography, rift breach — orchestration that cannot live in-sim, every
+handler under the game's own `actAs`), the ownership STAMPS (ownerRef/ownerId/_owner —
+plan M3: tags are sim data, the loops died), downed/revive, the liberation `_seen`
+reconciliation sweeps, unstick, threat rescale, rift, feed, serialization; the plan's
+aspirational single `G.simTick()` was consciously implemented as one-call-per-system
+dispatchers instead (the accepted S15+ pattern), and the "input slice" (uniform p.held
+read) stays deferred per the plan's own note — the game's `keys{}` is the one input
+carrier, stamped per-hero by the movement dispatcher in MP. **Bug ledger (9/9 fixed):**
+the plan's seven — visitedTowns #1, factions #2, loreFound #3, wayfind #4, seenHeatTip #5,
+hasBoat #6, per-shopper shop session #7 — plus onNewDay's stale-pin day tick (#116, the
+World/Hero split) and updateFatigue-never-ran-in-MP (town rest/regen/drain now exist in
+MP). **Gate receipts:** golden 8/8 + full prove and mp-golden 4/4 + full mp-prove on the
+NATIVE post-drop baselines (speed/damage cascade @0, hunt exactly @700); battery 45/45
+(every new/reworked assert SEEN FAILING against scratch worktrees); world self-test +
+typecheck green; live 2-hero + SP browser smoke clean. Importer: round-trips synthetic
+v1/v2/v3 fixtures in CI every run; the real-prod-dump sweep is the owner-run
+`MIGRATE_DUMP` hook + `scripts/db-dump.mjs` (needs DATABASE_URL) — unchanged since S1 and
+still the pre-cutover checklist item.
 
 **P3 — content platform** `[pending]`
 Registries for enemies, spells/auras, gear+affixes, dungeons+floor-mods, steeds,
@@ -588,4 +617,66 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   (SP suppresses it via the applySnapshot pre-arm — informative, kept). ARCHITECTURE.md gains the
   fatigue-internalized bullet. Remaining P2 arc: snapshot v2, S16 remap drop (allies/companions/spawn/
   rotation still partition world.js-side).
+- 2026-07-16: P2/S19 DONE — THE LAST PARTITIONS FOLD (plan §7 S13's remaining sub-slices: allies,
+  companions, spawn, the movement rotation — after this, world.js runs ZERO per-player system loops).
+  All four are A-shapes now: the SP bodies became updateAlliesFor/updateCompanionsFor/maybeSpawnWildFor/
+  updatePlayerFor (verbatim; golden 1p 8/8 on the oracle at every sub-step + full prove) and the captured
+  names are MP dispatchers looping the WORLD-SCOPED partyIn() (JOIN order). Allies: the _owner buckets
+  moved in verbatim (unowned → ADOPTED by nearestHeroTo in-sim, delving owner → life-frozen idle, name
+  normalization, state.map self-guard — state.allies is NOT a world slot); companions: BOTH world.js
+  passes (ow byOwner + dg per-delver) became ONE map-scoped owner loop (owner order canonized to JOIN
+  order from first-recruit order — no comps in the recorded windows, hashes untouched); spawn: the whole
+  density pass (150+80/hero ceiling, staggered per-hero _spawnT@55t, ring-scaled 13→30 targets in 34t)
+  moved beside the body; movement: the game pins each standing hero and stamps p.held into its own keys{}
+  (the setKeys idiom in-sim; SP keydown keeps writing that global — ONE input carrier, the plan's uniform-
+  p.held read stays deferred as the plan's own "input slice"). world.js keeps ONLY the per-hero ACTION
+  loop (attack/dodge/interact/RPC — world-slot choreography), now AFTER the movement call: the fold's one
+  conscious reorder (move-then-act within a tick). mp-golden: 4/4 on the UNTOUCHED oracle-mp after EVERY
+  sub-step (pre+post both-runs, sha 282db979…) — allies/companions/spawn are draw-for-draw verbatim, and
+  the rotation reorder proved UNOBSERVABLE on the recorded trajectories (the hash identity is the proof:
+  attacks draw in join order under both interleaves, enemies never move during the rotation, and no
+  hero reads another's same-tick action outcome in-window) — so the reorder's teeth live in battery
+  instead. Battery 45/45: NEW suite `partyloop-mp-verify` (23 asserts: one-call rotation moves BOTH
+  heroes per their OWN held keys with empty global keys, downed frozen, delver excluded, ambient-pin
+  contract, per-owner ally kill credit, in-sim adoption, life-frozen idling, per-owner recruit steps,
+  map scoping, spawn ceiling/stagger/per-hero refill/density skip/downed freeze, source guards, tick
+  floor) — SEEN FAILING 17/23 vs a pre-fold worktree at HEAD 11322a2 (own dist), incl. the live demos:
+  a direct G.updatePlayer() moved NOBODY, B's thrall's kill paid the AMBIENT hero (A 0→25), B's recruit
+  TELEPORTED to the ambient hero (dist 54), a direct spawn call stamped/spawned nothing. Fixture reworks
+  (subjects unchanged, teeth re-proven): verify_fixes FIX1 stamps through actAs mid-tick + FIX2 probes
+  the pin by EFFECT (A sails/flies a scanned water lane while B is refused at the shore AND stays free
+  on land — the leak's both faces) — SEEN FAILING vs a perturbed scratch dist (actAs de-pinned → the
+  stamp landed ambient + 10 more actAs-seam probes fell; pre-S10 root-sailing read resurrected → B
+  frozen on grass dx=0); camp-exhaust restores the real between-tick invariant (a tick never begins
+  with S.map='dungeon'; B probes out of town — town-rest legitimately re-stamps now). World self-test +
+  typecheck green; live browser smoke (local server, MP + SP off the same dist): headless ws probe
+  moved 188–192px east on held keys through the folded rotation in BOTH a 1-hero and a 2-hero room,
+  took real contact damage, welcome carried all four gated seeds, stopped clean against the Hearth's
+  collision; browser hero joined, "2 online" with the probe rendered mid-walk, quest box + feed +
+  region banners painting, 0 console errors; SP page: New Game → play, hero walks east through the
+  dispatcher's SP branch, spawn cadence live, state.players provably unset, 0 console errors.
+  Conscious MP deltas: NONE on the recorded trajectories (hashes identical); movement now resolves
+  for the whole party before any hero acts (imperceptible at 80 Hz), and companion owner order is
+  join-order by contract. ARCHITECTURE.md: room intro rewritten (no per-player loops left; the action
+  loop is what remains) + the allies bullet became the four-fold internalization bullet.
+- 2026-07-16: P2/S20 DONE — THE REMAP DROP (plan §7 S16, the P2 close-out): tests/golden/serialize.mjs's
+  REMAP overlay — the 21-entry table AND the buildOverlay machinery + remap parameter — DELETED; the
+  golden hash now covers the NATIVE player-keyed shape (header → past-tense chronicle; a future key move
+  is a conscious re-record, never an overlay). PAIRED RE-RECORD, one engine state (the post-S19 tree,
+  nothing else touched between the legs): parent leg = the remap serializer reproduced BOTH committed
+  oracles first (check 8/8 vs oracle.json sha a4f26557…, mp-check 4/4 vs oracle-mp.json sha 282db979…
+  — the engine is byte-identical to the recordings), the drop was then proven LIVE (native serializer
+  vs old oracle: 0/8, divergence at sample 0 — the safe direction the header promised), child leg =
+  both oracles re-recorded native (oracle.json → 24c2ed95…, oracle-mp.json → 0db3e62a…; 8/8 + 4/4
+  green on the new baselines) — so the ONLY delta between old and new baselines is the serializer
+  view. FRESH TEETH on the new baselines: full prove (determinism ×4; speed perturb diverges @0 and
+  cascades all 31 samples; damage @0; hunt EXACTLY @700 with samples 0–6 identical — the boundary
+  path still pinned; seed variance ×4) + full mp-prove (determinism; speed(A) @0 cascading on both
+  scenarios; hunt exactly @700; seed variance) ALL GREEN. Battery 45/45: migrate-roundtrip's layer 2
+  reworked from the 21-entry pin into the POST-drop guard (REMAP export GONE + no overlay text; a
+  player-keyed box hashes DIFFERENTLY from its old root spot — no view can mask a key move; $ref
+  dedup identity + no-mutation + key-sort invariants kept) — SEEN FAILING 2 vs a scratch tree with
+  the old overlay resurrected (the masked-equal hashes 9dad5bc9…=9dad5bc9… demonstrated live);
+  harness.mjs + tests/golden/README.md chronicles updated (oracle-mp's "re-recorded per slice" era
+  closed). World self-test + typecheck green. P2 IS CLOSED — see the phase section above.
 - 2026-07-16: P2/S16 DONE — PROJECTILE INTERNALIZATION (plan §7 S13 sub-slice "projectiles"; the plan's #3-riskiest conversion; the LAST world.js combat partition): updateProjectiles is the A-shape now — the SP body became `updateProjectilesFor()` (SP calls it on the whole pool: same body, same draws, golden 1p 8/8 on the UNTOUCHED oracle + full prove, speed/damage cascade@0 + hunt exactly @700) and the MP dispatcher moved world.js's `_projectilesByShooter` INTO the sim VERBATIM: shots bucketed by SHOOTER in FIRST-SHOT order (Map insertion, NOT roster order), per-bucket owner pins (player + INVENTORY) with deliberately no restore (the ambient last-owner pin is hashed state; the ow shared phase re-pins players[0] right after, unchanged), hostile/unowned shots last under roster[0], the PARKED-SHOTS rule moved in (a world with none of its heroes present leaves its in-flight shots waiting — the stale-pin dungeon-coordinates hazard), and bucket-order recombine (mid-pass spawns — the ricochet bounce, the Leviathan lance — land at the acting owner's bucket tail; next tick's grouping iterates that array, so the order IS the determinism contract). world.js: `_projectilesByShooter` + both call sites DELETED → ONE `G.updateProjectiles()` call per phase (ow inside the shared-phase flag + dungeon); zero CAPTURE/NAMES churn (updateProjectiles was already captured; the dispatcher is in-sim). mp-golden: 4/4 on the UNTOUCHED oracle-mp — NO re-record, identity proven by BOTH runs (pre-change 4/4 + post-change 4/4, same sha 910071a8…: first-shot bucket order, pin parity and recombine held byte-for-byte at all 124 samples) + mp-prove all green. Battery 43/43 ×2: NEW suite `projectiles-mp-verify` (direct-call probes: first-shot recombine order, the no-restore pin incl. INVENTORY, rest-pass under roster[0], parked-shots freeze, dungeon-boss key drop into the SHOOTER's bag, artifact/world.js source guards, w.tick per-shooter kill-credit floor) — SEEN FAILING 12 asserts vs a pre-S16 HEAD-0b5def1 worktree (own dist), incl. the live inventory-pin hole: pre-S16 a direct call dropped B's boss key into the AMBIENT hero's bag (A.keys 0→1, B 0→0). camp-seeker-verify's SP seeker block gained the roster tag its probes now need (an acting hero must be IN the probed world — the parked rule working as designed on direct calls; the edit is a no-op on the pre-S16 engine, proven 40/40 there). BONUS: enemies-mp-verify's ~1/4 flake KILLED (reproduced at pre-S16 HEAD — unseeded worldgen put B's blind +150t/+40t teleport targets in water/rock so probe foes couldn't step): probe arenas now scan for open pockets (openNear), probe foes leash-exempt + never aquatic — 15/15 + 10/10 green on changed/pre-change trees. World self-test + typecheck green; live browser smoke (MP + SP off the same dist): MP join clean → hostile contact → downed → bleed-out → respawn-at-town live, 0 console errors, client state.players unset; SP new-game with a bow — arrows fly/hit (+prof.ranged xp), RICOCHET bounce fires — and a fire staff — magic bolts, Heat 0→24, "Your Magic skill rose to 2!" in the real DOM; state.players provably unset (the MP branch is dead code in the browser). Conscious MP deltas: NONE on the recorded trajectories (hashes identical); the acting-context contract is now enforced in-sim (the bucket pin carries the BAG — a shooter's key drop can no longer land in a bystander's inventory on any direct-call path). ARCHITECTURE.md: the shooter-partition bullet rewritten as the internalized contract. Remaining P2 arc: updateFatigue-in-MP, snapshot v2, S16 remap drop (allies/companions/spawn/rotation still partition world.js-side — plan §7 S13's remaining sub-slices).

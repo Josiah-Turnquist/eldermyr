@@ -57,13 +57,20 @@ the battery and golden gates run against both files.
 
 ## The room (`server/world.js`)
 
-One shared game `state` (`S`). Per tick, **player rotation**: `S.player = p;
+One shared game `state` (`S`). The acting-hero seam is the two-slot pin: `S.player = p;
 S.inventory = p.inventory` → run game functions as that player. Since P2/S13 every per-hero
-key lives ON the player object, so that two-slot pin IS the whole swap; the old
-`swapInPP`/`writeBackPP` mirror machinery is **deleted** (P2/S14). RPC and interact handlers
-do not trust their caller's pin: `_runRpc` and `resolveInteract` run their bodies under the
-GAME's own `actAs(p, …)` (plan §1's runAs — pins exactly those two slots, restores both in a
-finally), so an RPC invoked outside a rotation slice can no longer act as a stale hero.
+key lives ON the player object, so that pin IS the whole swap; the old
+`swapInPP`/`writeBackPP` mirror machinery is **deleted** (P2/S14). Since the P2 close fold,
+world.js runs **no per-player system loops of its own**: movement, enemies, allies,
+companions, projectiles, fatigue and spawning are all ONE `G.fn()` call per world phase —
+each fn is an A-shape whose MP dispatcher loops the world-scoped `partyIn()` itself (JOIN
+order) while the SP branch runs the old body verbatim. What world.js still loops per hero is
+the **ACTION queue** (`_runActions`: attack/dodge/interact/RPC — the world-slot choreography
+that cannot live in-sim), which runs AFTER the movement call: within one tick the party
+moves, then acts. RPC and interact handlers do not trust their caller's pin: `_runRpc` and
+`resolveInteract` run their bodies under the GAME's own `actAs(p, …)` (plan §1's runAs —
+pins exactly those two slots, restores both in a finally), so an RPC invoked outside an
+action slice can no longer act as a stale hero.
 
 - **PP_KEYS chronicle (the machinery is GONE — P2/S14):** every per-player key used to need
   *both* a `swapInPP` and a `writeBackPP` line, plus `characterOf` + load + snapshot + client
@@ -155,10 +162,21 @@ finally), so an RPC invoked outside a rotation slice can no longer act as a stal
   liberation checks, healAlly, a pinnacle boss's court check, the Quarry burst) see the whole
   world, so liberation fires INLINE at the kill, credited to the killer's pin. The `_seen`
   sweeps REMAIN as reconciliation for guardian removals that bypass killEnemy (leash despawn).
-- **Allies** partition by `a._owner` *after* enemy recombination (targeting needs the full
-  enemy list). Unowned allies self-heal to the nearest hero. Allies are overworld-only; a
-  delving owner leaves them idling topside. Ally `name` must always be a string
-  (`drawAlly` splits it).
+- **The last partitions are internalized too (P2 close fold):** ONE call each —
+  `G.updatePlayer()` per world phase (the game pins each standing hero and stamps his `held`
+  into the `keys{}` global itself — the world.js `setKeys` idiom moved in; SP keydown keeps
+  writing that same global, so one input carrier serves both branches), `G.updateAllies()`
+  (buckets by `a._owner` *after* enemy recombination — targeting needs the full enemy list;
+  unowned allies are ADOPTED by the nearest hero in-sim; allies are overworld-only —
+  `state.allies` is NOT a world slot, so the dispatcher self-guards on `state.map` and a
+  delving owner's allies idle topside life-frozen; ally `name` is normalized to a string,
+  `drawAlly` splits it), `G.updateCompanions()` (owners in JOIN order, map-scoped both ways:
+  the same one call steps topside warbands in the overworld phase and `map==='dungeon'`
+  recruits in the dungeon phase; a downed owner's recruits idle), and `G.maybeSpawnWild()`
+  (the density-driven pass: party-scaled ceiling `150+80/hero`, staggered per-hero `_spawnT`
+  cadence every 55t, ring-scaled 13→30 vicinity targets within 34t — all in the dispatcher
+  beside the body). Kill credit inside any of these rides the bucket owner's pin by
+  construction. `partyloop-mp-verify` guards all four.
 - **Downed/revive** is owned by world.js (`goDown`/`_downedPass`, triggered by `hp<=0`).
   `gameOver()` must never run its SP consequences server-side (scene='dead',
   `nemesisGrows`, `recordRun`).

@@ -33,9 +33,13 @@ const B = w.addPlayer('B', 'Bo');
   //  fixture. That is fatigue doing its job on the acting hero, not a cross-slice stomp.)
   const _ax = A.x, _ay = A.y;
   { const _tz = (G.getTownZones ? G.getTownZones() : null) || []; if (_tz[0]) { A.x = (_tz[0].x - 14) * (G.TILE || 32); A.y = (_tz[0].y - 10) * (G.TILE || 32); } }
+  // (P2 fold) The rotation is in-sim now: world.js calls G.updatePlayer ONCE per phase, so a
+  // hook fires once with an ambient pin, not once per hero. Stamp through the game's own acting
+  // seam instead — actAs(A) pins A exactly the way every post-S14 write path does — still
+  // MID-TICK (before movement), which is the window the old writeback stomp used to eat.
   const origUP = G.updatePlayer;
   let restedTo = null;
-  G.updatePlayer = function () { if (S.player === A) { restedTo = S.player.lastRestDay = (G.curDay ? G.curDay() : 1) + 3; } return origUP.apply(this, arguments); };
+  G.updatePlayer = function () { if (restedTo == null) G.actAs(A, () => { restedTo = S.player.lastRestDay = (G.curDay ? G.curDay() : 1) + 3; }); return origUP.apply(this, arguments); };
   w.tick();
   G.updatePlayer = origUP;
   A.x = _ax; A.y = _ay;
@@ -57,17 +61,52 @@ const B = w.addPlayer('B', 'Bo');
 //  game must see each hero's OWN boat/flight through the pin, and root ghosts must not exist.)
 // ---------------------------------------------------------------------------
 {
-  A.sailing = true; A.dragon.mounted = true;
-  B.sailing = false; B.dragon.mounted = false;
-  const seenSail = {}, seenMount = {};
-  const origUP = G.updatePlayer;
-  G.updatePlayer = function () { if (S.player) { seenSail[S.player.id] = S.player.sailing; seenMount[S.player.id] = !!(S.player.dragon && S.player.dragon.mounted); } return origUP.apply(this, arguments); };
+  // (P2 fold) The old probe hooked G.updatePlayer once PER PLAYER and read the pin — the rotation
+  // is in-sim now (ONE dispatcher call walks the whole roster), so probe the pin by its EFFECT:
+  // drive the one call directly and watch each hero's own MOVEMENT contract. A sails east across
+  // open water; B (no boat, same held keys) is refused at the water's edge. If B's slice inherited
+  // A's sailing (the pre-S10 leak class, or a stale-pin regression in the fold), B water-walks.
+  const _ax0 = A.x, _ay0 = A.y, _bx0 = B.x, _by0 = B.y;
+  const T = G.T, mapH = G.maps.overworld.length, mapW = G.maps.overworld[0].length;
+  let lane = null, shore = null;                        // lane: 4 water tiles in a row; shore: grass with water east
+  for (let ty = 2; ty < mapH - 2 && !(lane && shore); ty++) {
+    for (let tx = 2; tx < mapW - 5 && !(lane && shore); tx++) {
+      const t0 = G.getTile('overworld', tx, ty);
+      const e1 = G.getTile('overworld', tx + 1, ty), e2 = G.getTile('overworld', tx + 2, ty), e3 = G.getTile('overworld', tx + 3, ty);
+      if (!lane && t0 === T.WATER && e1 === T.WATER && e2 === T.WATER && e3 === T.WATER) lane = { tx, ty };
+      if (!shore && t0 === T.GRASS && e1 === T.WATER && e2 === T.WATER && G.getTile('overworld', tx - 1, ty) === T.GRASS) shore = { tx, ty };   // west neighbor walkable too (pass 3 walks B away from the water)
+    }
+  }
+  ok('FIX2 probe fixtures found (water lane + shore tile)', !!(lane && shore), JSON.stringify({ lane, shore }));
+  const place = (p, t) => { p.x = t.tx * TILE + (TILE - p.w) / 2; p.y = t.ty * TILE + (TILE - p.h) / 2; p.camping = false; p.dodge = 0; p.held = { d: true }; };
+  const heroTile = (p) => Math.floor((p.x + p.w / 2) / TILE);
+  // Pass 1 — the boat: A sails, B walks.
+  A.sailing = true; A.dragon.mounted = false; B.sailing = false; B.dragon.mounted = false;
+  place(A, lane); place(B, shore);
+  const ax1 = A.x;
+  for (let i = 0; i < 30; i++) G.updatePlayer();        // ONE call per frame — the in-sim rotation walks A then B, each under his OWN pin
+  ok("FIX2 A sails east across open water through his own pin", A.x - ax1 >= TILE, 'dx=' + (A.x - ax1).toFixed(1));
+  ok("FIX2 B (no boat) is refused at the water's edge — no sailing leak across slices", heroTile(B) === shore.tx, 'B tile=' + heroTile(B) + ' shore=' + shore.tx);
+  // Pass 2 — the steed: A flies the same lane, B still walks and is still refused.
+  A.sailing = false; A.dragon.mounted = true;
+  place(A, lane); place(B, shore);
+  const ax2 = A.x;
+  for (let i = 0; i < 30; i++) G.updatePlayer();
+  ok("FIX2 A flies over water when mounted (dragon through the pin)", A.x - ax2 >= TILE, 'dx=' + (A.x - ax2).toFixed(1));
+  ok("FIX2 B's slice does NOT inherit flight (no fly-collision leak)", heroTile(B) === shore.tx, 'B tile=' + heroTile(B) + ' shore=' + shore.tx);
+  // Pass 3 — the leak's other face: a landlocked hero who inherited A's boat-mode would be FROZEN
+  // on grass (canSailTo refuses land), which the shore assert alone can't tell from "correctly
+  // refused at the water". B must stay FREE on land: he walks WEST, away from the water, unhindered.
+  A.sailing = true; A.dragon.mounted = false;
+  place(A, lane); place(B, shore);
+  A.held = {}; B.held = { a: true };
+  const bx3 = B.x;
+  for (let i = 0; i < 15; i++) G.updatePlayer();
+  ok('FIX2 B stays FREE on land while A sails (no movement-mode leak across slices)', bx3 - B.x >= 6, 'dx west=' + (bx3 - B.x).toFixed(1));
+  // Restore for the persistence/serialization asserts below (the old probe's fixture shape).
+  A.x = _ax0; A.y = _ay0; B.x = _bx0; B.y = _by0; A.held = {}; B.held = {};
+  A.sailing = true; A.dragon.mounted = true; B.sailing = false; B.dragon.mounted = false;
   w.tick();
-  G.updatePlayer = origUP;
-  ok("FIX2 A's slice sees his own sailing=true through the pin", seenSail.A === true, 'seenSail.A=' + seenSail.A);
-  ok("FIX2 B's slice does NOT inherit sailing (no water-walk leak)", seenSail.B === false, 'seenSail.B=' + seenSail.B);
-  ok("FIX2 A's slice sees his own dragon.mounted=true through the pin", seenMount.A === true, 'seenMount.A=' + seenMount.A);
-  ok("FIX2 B's slice does NOT inherit flight (no fly-collision leak)", seenMount.B === false, 'seenMount.B=' + seenMount.B);
   ok('FIX2 sailing persisted on A after tick', A.sailing === true, 'A.sailing=' + A.sailing);
   ok('FIX2 mounted persisted on A after tick', A.dragon.mounted === true, 'A.dragon.mounted=' + A.dragon.mounted);
   ok('FIX2 no root ghosts: state.sailing/state.dragon retired with the PP swap (P2/S10)',
