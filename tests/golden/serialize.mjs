@@ -61,6 +61,8 @@ export const REMAP = [
   { from: 'state.player.lastRestDay', to: 'state.lastRestDay' },
   { from: 'state.player.cargo', to: 'state.cargo' },
   { from: 'state.player.shopPurchased', to: 'state.shopPurchased' },
+  // P2/S8 — the forage pantry moved onto the player (plan §7 group 4; the last shop-slice key):
+  { from: 'state.player.ingredients', to: 'state.ingredients' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

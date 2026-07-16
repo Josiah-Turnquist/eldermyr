@@ -277,7 +277,7 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['ingredients', 'sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 retired shopPurchased/cargo/fishCd/lastRestDay: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
+const PP_KEYS = ['sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = p._shopTown != null ? p._shopTown : null; }   // always assign — a null _shopTown must NOT leak the previous player's shop town into this slice
 // Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
 // persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
@@ -288,7 +288,7 @@ function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = 
 // REPLACES `state.bounty` wholesale (`state.bounty = rollBounty()`), so neither reaches p by reference.
 // (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
 // "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.ingredients = S.ingredients; p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
+function writeBackPP(p) { p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -502,8 +502,8 @@ class World {
     // per-player town-economy state — each hero shops, empowers and trades independently
     // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5.
     //  hasBoat:false + wayfind:true likewise since P2/S6; shopPurchased:[] + cargo:{0,0,0,0} + fishCd:0
-    //  likewise since P2/S7 — a hero's purchases/hold/cooldown are his own and the template seeds them.)
-    p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+    //  likewise since P2/S7; ingredients:{0,0,0,0} likewise since P2/S8 — a hero's purchases/hold/
+    //  cooldown/pantry are his own and the template seeds them.)
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.sailing = false; p.dragon = { tamed: false, mounted: false };   // per-player boat + mount (shared S.sailing/S.dragon leaked water-walk/flight across every hero's slice)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
@@ -547,9 +547,9 @@ class World {
       v: 3, schemaVersion: SCHEMA_VERSION, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       // P2/S5: tonics/sharpenLevel FOLDED INTO `player` (plan §6 v4 mapping) — they live on p, so
       // snapshot()'s player whitelist emits them under the S.player swap above, like the milestones.
-      // P2/S7: shopPurchased/cargo (+lastRestDay) likewise — the shop slice is down to ingredients.
-      // migrateCharacter maps old rows' shop.* copies into player.* on load.
-      shop: { ingredients: p.ingredients },
+      // P2/S7: shopPurchased/cargo (+lastRestDay) likewise; P2/S8: ingredients — the `shop` slice
+      // is GONE (a v4 row post-S8 never carries one). migrateCharacter maps old rows' shop.*
+      // copies into player.* on load, then deletes the emptied slice.
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
       // hero "Speak to the Elder" / "Slay monsters (0/5)" and offered him a Depth-3 bounty. Read straight
@@ -613,11 +613,9 @@ class World {
           S.companions.push(comp);
         }
       }
-      if (c && c.shop) {                                         // restore this hero's town-economy state
-        // (tonics/sharpenLevel arrive via the player slice — migrateCharacter folds old shop rows; P2/S5.
-        //  shopPurchased/cargo likewise since P2/S7 — the Object.assign(p, c.player) above landed them.)
-        p.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, c.shop.ingredients || {});
-      }
+      // (The old `shop` slice is fully folded into the player slice by migrateCharacter — S5
+      //  tonics/sharpenLevel, S7 shopPurchased/cargo, S8 ingredients — so there is nothing left
+      //  to read off c.shop: the Object.assign(p, c.player) above landed every town-economy key.)
       if (c && c.dragon) p.dragon = { tamed: !!c.dragon.tamed, mounted: false };   // your tamed steed rejoins you (grounded)
 
       // ---- questline + personal milestones — APPLY ONLY (rebuild S1) ----------------------

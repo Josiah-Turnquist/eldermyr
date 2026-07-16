@@ -44,6 +44,11 @@
  *       purpose: an old row never carried it, and absent means addPlayer's
  *       join-rested stamp stands — a synthesized day-1 would make every veteran
  *       join Exhausted on a server past day 3. fishCd is never persisted at all.
+ *     · S8: shop.ingredients → player.ingredients (normalized to the full pantry
+ *       shape exactly like the old apply-side Object.assign). That was the LAST
+ *       shop key: the emptied slice is DELETED from the output — characterOf
+ *       stopped emitting `shop` in S8, so a migrated old row and a fresh v4 save
+ *       of the same hero now carry the identical shape.
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -157,6 +162,14 @@ function migrateCharacter(oldBlob) {
     if (out.player.shopPurchased === undefined) out.player.shopPurchased = Array.isArray(sh && sh.shopPurchased) ? clone(sh.shopPurchased) : [];
     if (out.player.cargo === undefined) out.player.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, (sh && sh.cargo) || {});
     if (out.shop) { delete out.shop.shopPurchased; delete out.shop.cargo; }
+    // ---- S8 fold: shop.ingredients moves onto the player (same MOVE semantics; pantry
+    // normalized to the full ingredient set, mirroring the old apply-side
+    // `Object.assign({herb:0,…}, c.shop.ingredients || {})`). The shop slice is now empty on
+    // every historical row (S5+S7+S8 folded all five keys it ever carried) — delete it when it
+    // is, so the output matches what characterOf writes post-S8; an unknown key would keep it
+    // (conservative: never drop data this module doesn't understand).
+    if (out.player.ingredients === undefined) out.player.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, (sh && sh.ingredients) || {});
+    if (out.shop) { delete out.shop.ingredients; if (!Object.keys(out.shop).length) delete out.shop; }
   }
 
   out.quests = q;

@@ -125,7 +125,11 @@ function applySnapshot(s) {
     wobble: Math.random() * 6.28,
     color: (COMP_CLASSES[c.cls] || {}).color || '#cccccc',
   }));
-  state.ingredients = s.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+  p.ingredients =
+    s.player.ingredients !== undefined
+      ? s.player.ingredients
+      : s.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+  /* P2/S8 player-carried pantry (root fallback for pre-move saves) */
   /* P2/S7 player-carried trade hold (root fallback for pre-move saves) */
   p.cargo = s.player.cargo !== undefined ? s.player.cargo : s.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 };
   state.activeShopTown = -1;
@@ -310,7 +314,7 @@ function startGame() {
   state.player.hasBoat = false; // P2/S6: player-carried (fresh start = no boat, guide pref keeps its literal default)
   state.sailing = false;
   state.allies = [];
-  state.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+  state.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 }; // P2/S8: player-carried (fresh start = empty pantry)
   state.player.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 }; // P2/S7: player-carried (fresh start = empty hold, no cooldown)
   state.player.fishCd = 0;
   state.player.foodBuff = null;

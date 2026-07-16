@@ -254,6 +254,30 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   real DOM. Conscious MP deltas: a hero's lastRestDay now PERSISTS via the player slice (no more free rest on
   every reconnect; old rows keep join-rested), and shop purchases/trade hold survive exactly as before via the
   player slice instead of the shop slice.
+- 2026-07-16: P2/S8 DONE — per-key retirement #4: ingredients (the forage pantry) moved onto
+  state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; gainIngredient/canCook/cook/
+  sellIngredient/renderCook/shop-forage-list read p.*; snapshot player-block + applySnapshot
+  root-fallback, field-keyed, NO v bump; PP_KEYS 6→5, writeBackPP line dropped, addPlayer seed →
+  template; characterOf's `shop` slice DIES — migrate.js S8 fold shop.ingredients → player.*
+  (normalized like the old apply-side merge) + deletes the emptied slice so migrate(old row) ≡
+  characterOf(new hero); world.js _loadCharacter's c.shop block deleted). mp.html ghost adopt
+  S.ingredients DELETED per risk #7 (panel sigs already read snap.me). REMAP +1 (now 10) — golden
+  1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt exactly @700).
+  mp-golden: delta proven EXACTLY intended before re-record — old-shape masking view (root
+  ingredients re-presented from the last-swapInPP'd hero, recovered by quests+dragon object-
+  identity AGREEMENT; at sample 0 the boot-literal pin IS the remap view) reproduces the pre-S8
+  oracle BYTE-FOR-BYTE at all 124 samples, and old-vs-new engine per-hero end-state summaries are
+  IDENTICAL on all 4 trajectories — then conscious re-record, mp-check 4/4 + mp-prove all green.
+  Battery 41/41 (migrate-roundtrip now 125 asserts); new asserts SEEN FAILING vs a pre-S8
+  HEAD-c55e3bf worktree (own dist): 11 (migrate fold ×7 fixtures + REMAP pin + characterOf S8
+  emission + real-path v1 fold returning an all-zero pantry + pantry-survives-reboot) + 2+crash
+  (sp-flags-check §2e root-fallback/default/root-clean). World self-test + typecheck green; live
+  browser smoke: join clean, 0 console errors, NO ghost state.ingredients, THE HEARTH panel
+  renders the pantry off state.player.ingredients in the real DOM; headless RPC drive: cook +
+  sellIngredient consume the acting hero's OWN pantry (bystander untouched), characterOf row
+  carries player.ingredients with NO shop slice. Conscious MP delta: NONE behavioral (ingredients
+  was already per-player via PP) — a pure carrier move; the pantry still persists, now via the
+  player slice.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

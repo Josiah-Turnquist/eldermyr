@@ -156,6 +156,37 @@ ok('S7 round-trip: purchases/hold/rest-day survive save→load (fishCd back to 0
   S.player.shopPurchased[0] === 'new_bow' && S.player.cargo.spice === 2 && S.player.lastRestDay === 4 && S.player.fishCd === 0,
   JSON.stringify({ sp: S.player.shopPurchased, spice: S.player.cargo.spice, rest: S.player.lastRestDay, cd: S.player.fishCd }));
 
+// ---------------------------------------------------------------- 2e. THE pre-S8 → S8 RELOCATION
+// P2/S8 moved the forage pantry (ingredients) from state.X into the player slice — the LAST
+// key of MP's characterOf shop slice. Same doctrine as 2b/2c/2d: a pre-move save holds it at
+// the ROOT; the load reads it back LOSSLESSLY — or a migrated hero's foraged pantry empties.
+const preS8 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS8.player.ingredients;
+preS8.ingredients = { herb: 5, berry: 2, mushroom: 0, fish: 3 };   // the old root spot
+S.player.ingredients = { herb: 9, berry: 9, mushroom: 9, fish: 9 };
+G.applySnapshot(preS8);
+ok('pre-S8 save: root ingredients land LOSSLESSLY on the player',
+  S.player.ingredients.herb === 5 && S.player.ingredients.berry === 2 && S.player.ingredients.mushroom === 0 && S.player.ingredients.fish === 3,
+  JSON.stringify(S.player.ingredients));
+// …and a save missing them EVERYWHERE (truly old) takes the safe default: an empty pantry
+const prePantry = JSON.parse(JSON.stringify(preS8));
+delete prePantry.ingredients;
+G.applySnapshot(prePantry);
+ok('a save with NO pantry anywhere defaults to the empty pantry',
+  S.player.ingredients.herb === 0 && S.player.ingredients.berry === 0 && S.player.ingredients.mushroom === 0 && S.player.ingredients.fish === 0,
+  JSON.stringify(S.player.ingredients));
+// …and the S8 shape round-trips: the key rides the player slice, never the root
+S.player.ingredients = { herb: 1, berry: 0, mushroom: 2, fish: 0 };
+const s8 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S8 snapshot: ingredients ride the PLAYER slice, root is clean',
+  s8.player.ingredients.herb === 1 && s8.player.ingredients.mushroom === 2 && s8.ingredients === undefined,
+  JSON.stringify({ p: s8.player.ingredients, root: s8.ingredients }));
+S.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+G.applySnapshot(s8);
+ok('S8 round-trip: the pantry survives save→load',
+  S.player.ingredients.herb === 1 && S.player.ingredients.mushroom === 2 && S.player.ingredients.fish === 0,
+  JSON.stringify(S.player.ingredients));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

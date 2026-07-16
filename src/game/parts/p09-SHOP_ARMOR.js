@@ -172,7 +172,7 @@ function closeCook() {
 function renderCook() {
   const ig = document.getElementById('cook-ingredients');
   if (ig) {
-    const inv = state.ingredients || {};
+    const inv = state.player.ingredients || {};
     ig.innerHTML =
       'Pantry: ' +
       Object.keys(INGR)
@@ -476,9 +476,9 @@ function sellGood(good) {
   saveGame();
 }
 function sellIngredient(k) {
-  if ((state.ingredients[k] || 0) <= 0) return;
+  if ((state.player.ingredients[k] || 0) <= 0) return;
   state.player.gold += Math.max(1, Math.round((FORAGE_VALUE[k] || 5) * (1 + vigilDiscount() * 0.5)));
-  state.ingredients[k]--;
+  state.player.ingredients[k]--;
   Sound.gold && Sound.gold();
   updateHUD();
   renderShop();
@@ -586,7 +586,7 @@ function renderShop() {
       tEl.appendChild(r);
     }
     for (const k of ['fish', 'herb', 'berry', 'mushroom']) {
-      const have = state.ingredients[k] || 0;
+      const have = state.player.ingredients[k] || 0;
       if (have <= 0) continue;
       const ic = INGR[k];
       const val = Math.max(1, Math.round((FORAGE_VALUE[k] || 5) * (1 + vigilDiscount() * 0.5)));

@@ -65,8 +65,10 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   A by-reference key still needs its writeBack line: the game *replaces* some of them
   (`state.bounty = rollBounty()`), and numbers (`maxDepth`) never write back at all.
   (The P2 rebuild is retiring this list key-by-key onto `state.player` — S5 took
-  tonics/sharpenLevel, S7 took shopPurchased/cargo/fishCd/lastRestDay, incl. its doCamp mirror;
-  6 keys remain. A retired key follows the player-scalar rule below instead.)
+  tonics/sharpenLevel, S7 took shopPurchased/cargo/fishCd/lastRestDay, incl. its doCamp mirror,
+  S8 took ingredients (and with it `characterOf`'s whole `shop` slice — migrateCharacter folds
+  old rows' shop.* into player.*); 5 keys remain. A retired key follows the player-scalar rule
+  below instead.)
 - **`S.player` and the PP slice must be swapped TOGETHER.** Every site that pins `S.player = p`
   must also `swapInPP(p)` — the enemy partition, the allies/warband partitions (both worlds), and
   the spawn pass. `killEnemy` writes `state.quests.slay` / `bountyProgress()` / a boss-drop key
@@ -225,7 +227,8 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
   each needs an explicit `G.state.X = me.X` adoption (sailing, dragon, allies,
   floorMod…). Fields that live ON the player need **no adopt line** (`S.player = snap.me` is
   the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
-  seenHeatTip; S6: hasBoat/wayfind; S7: shopPurchased/cargo/fishCd/lastRestDay), its old adopt
+  seenHeatTip; S6: hasBoat/wayfind; S7: shopPurchased/cargo/fishCd/lastRestDay; S8:
+  ingredients), its old adopt
   line must be DELETED, or panels read a stale ghost `state.X` (S7 also repointed mp.html's
   shop-open pre-seed and its optimistic buy grey-out to `state.player.shopPurchased`). ONE inversion of the rule: a player key that is a **client-side
   preference** (S6: `wayfind`, the [O] guide toggle — the game's own keydown never attaches

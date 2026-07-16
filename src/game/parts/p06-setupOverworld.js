@@ -580,6 +580,9 @@ function snapshot() {
       shopPurchased: [...(p.shopPurchased || [])],
       cargo: { ...(p.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 }) },
       lastRestDay: p.lastRestDay,
+      /* P2/S8: the forage pantry rides the player slice (same doctrine — root fallback for
+         pre-move saves). It was the LAST key in MP's characterOf `shop` slice, which dies. */
+      ingredients: { ...(p.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -620,8 +623,7 @@ function snapshot() {
       weapon: c.weapon ? JSON.parse(JSON.stringify(c.weapon)) : null,
       postedAt: typeof c.postedAt === 'number' ? c.postedAt : null,
     })),
-    ingredients: { ...(state.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
-    /* (wayfind moved into the player block above — P2/S6; seenHeatTip — P2/S5; cargo/lastRestDay — P2/S7) */
+    /* (wayfind moved into the player block above — P2/S6; seenHeatTip — P2/S5; cargo/lastRestDay — P2/S7; ingredients — P2/S8) */
     time: state.time,
     weather: state.weather,
     nemesis: { ...state.nemesis },

@@ -243,6 +243,12 @@ let state = {
     cargo: { furs: 0, grain: 0, spice: 0, ore: 0 },
     fishCd: 0,
     lastRestDay: 1,
+    // PER-HERO PANTRY (P2/S8) — same Pillar-1 carrier again, retiring the LAST key of MP's
+    // characterOf `shop` slice (ingredients was already per-player in MP via the PP swap; now
+    // the game itself reads the player, and the save's shop slice dies). Foraged herbs/
+    // berries/mushrooms + caught fish — cook/canCook/sellIngredient/renderCook read this
+    // hero's own pantry.
+    ingredients: { herb: 0, berry: 0, mushroom: 0, fish: 0 },
   },
   inventory: {
     weapons: [
@@ -284,8 +290,7 @@ let state = {
   allies: [],
   // (hasBoat/wayfind moved onto state.player — P2/S6, see the player literal above)
   sailing: false,
-  ingredients: { herb: 0, berry: 0, mushroom: 0, fish: 0 },
-  // (fishCd/cargo moved onto state.player — P2/S7, see the player literal above)
+  // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8: see the player literal above)
   activeShopTown: -1,
   quests: {
     main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },

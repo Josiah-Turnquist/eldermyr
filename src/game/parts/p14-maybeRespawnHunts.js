@@ -250,11 +250,11 @@ const FOODS = {
 };
 const FOOD_LABEL = { hearty: 'Hearty', energized: 'Energized', swift: 'Swift', wellfed: 'Well Fed' };
 function gainIngredient(k, n) {
-  if (!state.ingredients) state.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
-  state.ingredients[k] = (state.ingredients[k] || 0) + (n || 1);
+  if (!state.player.ingredients) state.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+  state.player.ingredients[k] = (state.player.ingredients[k] || 0) + (n || 1);
 }
 function canCook(f) {
-  for (const k in f.need) if ((state.ingredients[k] || 0) < f.need[k]) return false;
+  for (const k in f.need) if ((state.player.ingredients[k] || 0) < f.need[k]) return false;
   return true;
 }
 function cook(key) {
@@ -265,7 +265,7 @@ function cook(key) {
     log('You lack the ingredients for that dish.', 'combat');
     return;
   }
-  for (const k in f.need) state.ingredients[k] -= f.need[k];
+  for (const k in f.need) state.player.ingredients[k] -= f.need[k];
   const p = state.player;
   p.foodBuff = f.buff;
   p.foodT = f.dur;

@@ -975,7 +975,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a
     //  ghost the panels could read stale, risk #7.)
-    if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
+    // (ingredients adopt DELETED in P2/S8: the pantry lives ON the player now, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.ingredients copy would be a ghost
+    //  the cook/shop panels could read stale, risk #7.)
     if (snap.me.maxDepth != null) S.maxDepth = snap.me.maxDepth;   // per-player deepest depth: a state.X field riding `me`, so NOT auto-applied (the tonics/sailing/floorMod lesson). The quest BOX still repaints off the gated snap.maxDepth in adoptQuests — this keeps state.maxDepth itself honest between quest changes. (quests/bounty do NOT ride `me`: too big at 66 Hz, so they are gated-only — see safeClone's skip-list.)
     if (snap.me.sailing != null) S.sailing = !!snap.me.sailing;   // per-player boat: drawPlayer reads state.sailing (NOT player.sailing) for the hull + bob
     if (snap.me.dragon) { if (S.dragon) Object.assign(S.dragon, snap.me.dragon); else S.dragon = snap.me.dragon; }   // per-player mount: merge so draw/HUD keep every dragon field they read
