@@ -48,7 +48,7 @@ if (typeof CG.updateQuests !== 'function') throw new Error('failed to capture th
 function renderQuestBox(s, inventory) {
   const st = CG.state;
   // --- exactly what client/mp.html adoptQuests() does (mp.html:158-167) ---
-  if (s.quests) st.quests = JSON.parse(JSON.stringify(s.quests));
+  if (s.quests && st.player) st.player.quests = JSON.parse(JSON.stringify(s.quests));   // P2/S13: the real adoptQuests stamps the PLAYER (updateQuests reads state.player.quests)
   if (st.player) st.player.bounty = s.bounty || null;   // P2/S12: the real adoptQuests stamps the PLAYER (updateQuests reads state.player.bounty)
   if (s.loreFound && st.player) st.player.loreFound = s.loreFound;   // P2/S11: the real adoptQuests stamps the PLAYER (updateQuests reads state.player.loreFound)
   if (s.maxDepth != null && st.player) st.player.maxDepth = s.maxDepth;   // P2/S12: likewise
@@ -68,7 +68,7 @@ function renderQuestBox(s, inventory) {
 
 // the game's PRISTINE default quest state, captured before any render mutates it —
 // this is what a brand-new page holds after startGame() and before it adopts anything.
-const DEFAULT_QUESTS = JSON.parse(JSON.stringify(CG.state.quests));
+const DEFAULT_QUESTS = JSON.parse(JSON.stringify(CG.state.player.quests));   // P2/S13: the box lives ON the player literal
 const DEFAULT_INV = JSON.parse(JSON.stringify(CG.state.inventory));
 
 /** What a FRESH page paints with no adoption at all (startGame()'s own updateQuests call). */

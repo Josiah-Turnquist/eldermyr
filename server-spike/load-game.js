@@ -139,6 +139,8 @@ const CAPTURE = [
   'drawPlayer',                         // testing: smoke every archetype render path (ghost ctx absorbs draws, exceptions surface)
   // NPC interactions (co-op [E] resolver): dialogue lines, instant actions, and panel-action RPCs
   'elderLines', 'openBounty', 'buyBoat', 'cook',
+  'aliasSharedQuests',   // P2/S13: the sim's room-shared quest seam — world.js re-attaches main/frozen/legion through it on every join/load
+
   'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
 ];
 

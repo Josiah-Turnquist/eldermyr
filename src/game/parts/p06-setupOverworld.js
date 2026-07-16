@@ -230,7 +230,7 @@ function setupOverworld() {
       break;
     }
   }
-  if (fc && !(state.quests && state.quests.frozen && state.quests.frozen.done)) {
+  if (fc && !(state.player.quests && state.player.quests.frozen && state.player.quests.frozen.done)) {
     const cache = makePickup(fc.tx, fc.ty, 'chest', {
       weapon: normItem(
         { name: 'Frostbrand', atk: 14, style: 'melee', cd: 22, rarity: 3, element: 'frost' },
@@ -535,7 +535,10 @@ function loadOverworld() {
 function snapshot() {
   const p = state.player;
   return {
-    v: 6,
+    v: 7 /* v7 (P2/S13): the player block carries the whole per-hero surface — the 7 shared-bug
+            fields of the S5-S12 relocations (all field-keyed, added without a bump) plus the
+            questline itself, the FINAL key. The stamp is declarative: applySnapshot stays
+            field-keyed with root fallbacks, never version-keyed. */,
     player: {
       enteredDungeon: !!p.enteredDungeon,
       gotKey: !!p.gotKey,
@@ -602,9 +605,15 @@ function snapshot() {
          object is spread exactly like the old root emission. */
       maxDepth: p.maxDepth | 0,
       bounty: p.bounty ? { ...p.bounty } : null,
+      /* P2/S13: the QUESTLINE rides the player slice (same doctrine — field-keyed readers,
+         root fallback for pre-move saves). Deep-copied exactly like the old root emission;
+         the shared main/frozen/legion sub-objects serialize as VALUES here and are
+         re-aliased to the room's live objects on every MP load (never persisted-
+         authoritative — plan §6). */
+      quests: JSON.parse(JSON.stringify(p.quests)),
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
-    quests: JSON.parse(JSON.stringify(state.quests)),
+    /* (quests moved into the player block above — P2/S13) */
     flags: { ...state.flags },
     dungeonLevel: state.dungeonLevel,
     /* (maxDepth moved into the player block above — P2/S12) */

@@ -291,6 +291,27 @@ let state = {
     // in MP while bounty stays in the version-gated quest payload (safeClone skips it).
     maxDepth: 0,
     bounty: null,
+    // THE QUESTLINE (P2/S13) — the LAST state.X key to ride the Pillar-1 carrier, retiring the
+    // final PP_KEYS entry (and with it the whole swap/write-back mirror's reason to exist).
+    // Every intro-quest retire condition reads per-hero state (your level, your keys, your
+    // kills, your Elder visit), so the box is YOURS: killEnemy's slay credit, the key drop,
+    // the Lv-20 Emberwyrm reveal and the Elder's own advance all land on the ACTING hero by
+    // construction now. Persists via snapshot()'s player whitelist (v7)/characterOf.
+    // EXCEPT the three quests that track WORLD OBJECTS — main (the Kraken), frozen (the
+    // Cache), legion (the war): in MP those sub-objects are ALIASED by reference into every
+    // hero's box (see aliasSharedQuests beside party()) so the room shares ONE war; they
+    // deliberately do NOT persist authoritatively (the world regenerates each boot, and every
+    // load re-attaches the room's live objects). In MP quests stays OFF the wire's `me`
+    // (safeClone skips it) — it rides the version-gated quest payload, like bounty.
+    quests: {
+      main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },
+      talk: { name: 'Speak to the Elder', done: false },
+      key: { name: 'Find the Dungeon Key', done: false, hidden: true },
+      slay: { name: 'Slay 5 monsters', done: false, count: 0, target: 5 },
+      frozen: { name: 'Plunder the Frozen Cache', done: false, hidden: true },
+      dragon: { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true },
+      legion: { started: false, stage: 'none', camps: 0, sealstones: 0, villages: 0, seatRegion: -1 },
+    },
   },
   inventory: {
     weapons: [
@@ -332,15 +353,7 @@ let state = {
   // (hasBoat/wayfind moved onto state.player — P2/S6; sailing — P2/S10: see the player literal above)
   // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8; the shop session
   //  activeShopTown/activeStock/activeShopName — P2/S9: see the player literal above)
-  quests: {
-    main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },
-    talk: { name: 'Speak to the Elder', done: false },
-    key: { name: 'Find the Dungeon Key', done: false, hidden: true },
-    slay: { name: 'Slay 5 monsters', done: false, count: 0, target: 5 },
-    frozen: { name: 'Plunder the Frozen Cache', done: false, hidden: true },
-    dragon: { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true },
-    legion: { started: false, stage: 'none', camps: 0, sealstones: 0, villages: 0, seatRegion: -1 },
-  },
+  // (quests moved onto state.player — P2/S13, the FINAL per-key retirement: see the player literal above)
   flags: { krakenDead: false, legionBroken: false }, // WORLD facts only — true for the whole realm (one Kraken, one Legion host), so in MP they stay SHARED and must never become per-player. The personal milestones (enteredDungeon/gotKey/enteredFrozen) moved onto state.player: see the note there. legionBroken used to be undeclared (completeLegionQuest conjured it) — declared here so it round-trips the save like krakenDead.
   camera: { x: 0, y: 0 },
   time: 6480,

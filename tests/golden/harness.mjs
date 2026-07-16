@@ -179,7 +179,7 @@ function summarize(G) {
   return {
     level: p.level, hp: Math.round(p.hp), gold: p.gold, xp: p.xp,
     px: Math.round(p.x), py: Math.round(p.y),
-    kills: (S.quests && S.quests.slay && S.quests.slay.count) | 0,
+    kills: (((p.quests || S.quests) || {}).slay || {}).count | 0,   // player-first since P2/S13 (root fallback keeps this summary honest on pre-move engines)
     maxDepth: (p.maxDepth !== undefined ? p.maxDepth : S.maxDepth) | 0, map: S.map, enemies: S.enemies.length, // player-first since P2/S12 (root fallback keeps this summary honest on pre-move engines)
     enemyHp: Math.round(ehp), scene: S.scene,
     day: (typeof G.curDay === 'function') ? G.curDay() : null,

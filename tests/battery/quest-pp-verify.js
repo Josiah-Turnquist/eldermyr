@@ -84,8 +84,8 @@ const TESTS = {
       pass: !!ch,
       info: {
         savedKeys: Object.keys(ch).join(','), v: ch.v,
-        savedQuests: ch.quests ? 'present' : 'MISSING',
-        savedMaxDepth: ch.maxDepth === undefined ? 'MISSING' : ch.maxDepth,
+        savedQuests: (ch.player && ch.player.quests) ? 'present (player slice — P2/S13)' : 'MISSING',
+        savedMaxDepth: (ch.player && ch.player.maxDepth) === undefined ? 'MISSING' : ch.player.maxDepth,
         serverHeld: { talkDone: questSrc(S, p).talk.done, slay: questSrc(S, p).slay, maxDepth: p.maxDepth !== undefined ? p.maxDepth : S.maxDepth },
       },
     };
@@ -208,6 +208,8 @@ const TESTS = {
     tmp.level = 45; tmp.inventory.keys = 16;
     const row = w.characterOf('TMP');                // a REAL row off the REAL save path…
     delete row.quests; delete row.bounty; delete row.maxDepth; row.v = 1;   // …forced back to the v:1 shape on disk today
+    if (row.player) { delete row.player.quests; delete row.player.bounty; delete row.player.maxDepth; }   // P2/S13/S12: a modern row carries them IN the player slice — a faithful v1 row has them NOWHERE
+    delete row.schemaVersion;
     w.removePlayer('TMP');
     const p = w.addPlayer('P1', 'Owner', row);
     const snap = w.snapshotFor('P1');

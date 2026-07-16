@@ -585,7 +585,7 @@ function clearPOI(poi) {
 }
 // ---- The Legion War: a main questline that threads the frontier POIs (camps → keeps/Sealstones → Overlord) ----
 function onPoiCleared(poi) {
-  const q = state.quests.legion;
+  const q = state.player.quests.legion;
   if (!q || !q.started) return;
   if (poi.kind === 'camp') {
     if (q.camps < 3) {
@@ -603,7 +603,7 @@ function onPoiCleared(poi) {
   advanceLegionQuest();
 }
 function advanceLegionQuest() {
-  const q = state.quests.legion;
+  const q = state.player.quests.legion;
   if (!q || !q.started || q.stage === 'done') return;
   if (q.stage === 'camps' && q.camps >= 3) {
     q.stage = 'keeps';
@@ -629,7 +629,7 @@ function advanceLegionQuest() {
   updateQuests();
 }
 function completeLegionQuest() {
-  const q = state.quests.legion;
+  const q = state.player.quests.legion;
   if (!q || q.stage === 'done') return;
   q.stage = 'done';
   const p = state.player;
@@ -664,7 +664,7 @@ function completeLegionQuest() {
   saveGame();
 }
 function elderLines() {
-  const q = state.quests.legion;
+  const q = state.player.quests.legion;
   if (!q.started)
     return [
       'Ah, a traveler — thank the stars. The Dread Legion masses beyond the safe Vale, and the wilds grow crueler by the day.',

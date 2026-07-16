@@ -217,7 +217,7 @@ function checkPickups() {
       } else if (pk.kind === 'key') {
         state.inventory.keys += 1;
         p.gotKey = true;
-        state.quests.key.done = true;
+        state.player.quests.key.done = true;
         updateQuests();
         Sound.jingle();
         spawnBurst(pk.x + 8, pk.y + 8, 14, { color: '#fff2a0', speed: 2, decay: 0.03 });
@@ -252,10 +252,10 @@ function checkPickups() {
         }
         /* uniquesFound: keyed on the item's uniq tag → the Stage-C Trophy Wall reads this durable list */ if (
           pk.frozenCache &&
-          state.quests.frozen
+          state.player.quests.frozen
         ) {
-          state.quests.frozen.done = true;
-          state.quests.frozen.hidden = false;
+          state.player.quests.frozen.done = true;
+          state.player.quests.frozen.hidden = false;
           updateQuests();
           Sound.jingle();
           log('You claim the Frostbrand from the Frozen Cache!', 'quest');
@@ -453,8 +453,8 @@ function updatePlayer() {
     }
     if (isFrozenTile(ftx, fty) && !p.enteredFrozen) {
       p.enteredFrozen = true;
-      if (state.quests.frozen) {
-        state.quests.frozen.hidden = false;
+      if (state.player.quests.frozen) {
+        state.player.quests.frozen.hidden = false;
         updateQuests();
       }
       log(

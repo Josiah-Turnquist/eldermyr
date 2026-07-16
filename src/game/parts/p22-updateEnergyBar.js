@@ -37,7 +37,7 @@ function updateHUD() {
 function updateQuests() {
   const list = document.getElementById('quest-list');
   list.innerHTML = '';
-  const q = state.quests;
+  const q = state.player.quests;
   const items = [];
   const _hasKey = q.key.done || ((state.inventory && state.inventory.keys) | 0) > 0;
   /* intro quests RETIRE once satisfied: talked-to-Elder, own a key (pickup OR any keys in bag), 5 monsters slain — don't linger as permanent ✓ clutter for a leveled hero */ if (
@@ -298,7 +298,16 @@ function actAs(p, fn) {
     state.player = pp;
     state.inventory = pi;
   }
-} // P2/S4: THE acting-hero context for per-hero sim phases (canonizes the inline pin p23's pinnacleHazard already ships). Pins ONLY player + inventory — the two slots that survive P2 (plan §1's runAs shape); PP keys keep riding the server's swapInPP until their retirement slices, so an actAs body must not touch state.<PP-key>. Single-player: p === state.player and p.inventory is undefined, so both pins are no-ops — byte-identical. MP callers iterate party() in JOIN ORDER.
+} // P2/S4: THE acting-hero context for per-hero sim phases (canonizes the inline pin p23's pinnacleHazard already ships). Pins ONLY player + inventory — the two slots that survive P2 (plan §1's runAs shape). Since P2/S13 (quests, the last PP key, retired) EVERY per-hero key lives on the player object, so this pin IS the whole swap. Single-player: p === state.player and p.inventory is undefined, so both pins are no-ops — byte-identical. MP callers iterate party() in JOIN ORDER.
+function aliasSharedQuests(q) {
+  const anchor = (state.players && state.players.length ? state.players[0] : state.player).quests;
+  if (q !== anchor) {
+    if (anchor.main) q.main = anchor.main;
+    if (anchor.frozen) q.frozen = anchor.frozen;
+    if (anchor.legion) q.legion = anchor.legion;
+  }
+  return q;
+} // P2/S13: THE room-shared quest seam (the sim's load/join re-attach — plan §7). Three quests track WORLD OBJECTS, not the hero — main (one Kraken), frozen (one Cache), legion (one war) — so in MP those sub-objects are ONE object shared by reference into every hero's box. The anchor is players[0]'s box (every roster hero was aliased at his own join, so its sub-objects ARE the room's), else the boot hero's (the first join's source). The server calls this on every join (addPlayer's fresh template clone) and every load (_loadCharacter's migrated row — the row's own main/frozen/legion COPIES are discarded here by design: the world regenerates each boot, so a stale saved war must never fight the live one). A PRIVATE copy of a shared quest silently forks the room's war — mp-golden's identity assert exists to catch exactly that. Single-player NEVER calls this (no join path; the one hero's box needs no alias) — byte-identical SP, zero draws.
 function makeGreatBeast(h, tx, ty) {
   const e = makeBoss(tx, ty);
   e.isGreatBeast = true;

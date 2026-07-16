@@ -42,12 +42,12 @@ function startDialogue(npc) {
   document.getElementById('dialogue').style.display = 'block';
   showDialogueLine();
   if (npc.id === 'elder') {
-    state.quests.talk.done = true;
-    state.quests.main.started = true;
-    state.quests.key.hidden = false;
-    if (state.quests.legion && !state.quests.legion.started) {
-      state.quests.legion.started = true;
-      state.quests.legion.stage = 'camps';
+    state.player.quests.talk.done = true;
+    state.player.quests.main.started = true;
+    state.player.quests.key.hidden = false;
+    if (state.player.quests.legion && !state.player.quests.legion.started) {
+      state.player.quests.legion.started = true;
+      state.player.quests.legion.stage = 'camps';
     }
     updateQuests();
     saveGame();

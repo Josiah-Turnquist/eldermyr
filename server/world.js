@@ -19,9 +19,10 @@
  * (quests/maxDepth/bounty — v2.57.0; they read per-player state, so one shared box could
  * never be right for two heroes at once, and being shared+unpersisted it also reset to the
  * intro on every scale-to-zero) + reputation/lore (factions/loreFound — P2/S11, same
- * argument). SHARED across the party = territory, the world itself — plus the three quests
+ * argument). Since P2/S13 every one of those keys lives ON the player object (PP_KEYS is
+ * empty). SHARED across the party = territory, the world itself — plus the three quests
  * that track WORLD OBJECTS (main/frozen/legion), aliased by reference into every player's
- * quests (see SHARED_QUESTS).
+ * quests through the game's own aliasSharedQuests (see the QUESTS block below).
  */
 'use strict';
 const G = require('../server-spike/load-game');
@@ -87,27 +88,27 @@ function nearEnemyCount(p) {
 }
 const PLAYER_TEMPLATE = structuredClone(S.player);
 const INV_TEMPLATE = structuredClone(S.inventory);
-// ---- QUESTS ARE PER-PLAYER (v2.57.0) ------------------------------------------
+// ---- QUESTS ARE PER-PLAYER (v2.57.0), ON the player (P2/S13) -------------------
 // They used to be shared, which was incoherent BY CONSTRUCTION: every intro-quest retire
 // condition reads state that is per-player (your level, your keys, your kills, your Elder
-// visit), so one shared quest box could never be right for two heroes at once — a level-1
-// joiner saw "Deepest depth: 45" and could never be handed "Speak to the Elder" because a
-// veteran had already consumed it. Shared+unpersisted also meant a Railway scale-to-zero
-// reset the whole party's questline to the intro. Per-player fixes both, and rides the
-// per-character save that already exists (no world-persistence layer, no room identity).
+// visit), so one shared quest box could never be right for two heroes at once. v2.57.0 made
+// them a PP_KEYS slice; P2/S13 finished the move — `quests` lives ON state.player now (the
+// game reads state.player.quests directly), so the S.player pin IS the swap and
+// PLAYER_TEMPLATE seeds each joiner's own deep-cloned box. It rides the per-character save
+// via snapshot()'s player whitelist (v7), like every other per-hero key.
 //
 // EXCEPT the three that track WORLD OBJECTS rather than the hero: `main` (the Mountain
 // Kraken), `frozen` (the Frozen Cache pickup) and `legion` (the war-camps/Sealstones/
 // Overlord). Those are ALIASED — one sub-object shared by reference into every player's
 // quests — so the war has one state for the whole room. They are also the only quest
 // sub-objects the SHARED-PHASE systems touch (updateNemesisPresence/defeatNemesis read
-// quests.legion under players[0]; setupOverworld and updatePlayer read quests.frozen off
-// state.flags.enteredFrozen, which is shared) — so the alias is what keeps those correct
-// no matter which hero happens to be swapped in. They deliberately do NOT persist: the
-// world regenerates on every boot, so they reset with the world they describe.
-const QUEST_TEMPLATE = structuredClone(S.quests);
-const SHARED_QUESTS = { main: S.quests.main, frozen: S.quests.frozen, legion: S.quests.legion };
-function aliasSharedQuests(q) { for (const k in SHARED_QUESTS) q[k] = SHARED_QUESTS[k]; return q; }
+// quests.legion through the pinned hero's box under players[0]) — the alias is what keeps
+// those correct no matter which hero happens to be pinned. They deliberately do NOT persist:
+// the world regenerates on every boot, so they reset with the world they describe.
+// The re-attach seam is the GAME's own `aliasSharedQuests` (P2/S13 — beside party()/actAs()
+// in the sim; anchor = players[0]'s box, else the boot hero's): addPlayer and _loadCharacter
+// call it on every join/load. A private copy of main/frozen/legion would silently FORK the
+// room's war — mp-golden's object-identity assert guards exactly that.
 
 function clone(o) { return structuredClone(o); }
 function setKeys(held) { for (const k in G.keys) delete G.keys[k]; if (held) Object.assign(G.keys, held); }
@@ -278,17 +279,13 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['quests'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients; P2/S10 sailing/dragon; P2/S12 maxDepth/bounty: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap. quests is the LAST one standing — its own slice retires this machinery entirely.
-function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // (the `_shopTown → S.activeShopTown` special case died in P2/S9: the shop session lives ON state.player now — p.activeShopTown/activeStock/activeShopName — so the S.player pin IS the swap)
-// Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
-// persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
-// P2/S7. sailing/dragon likewise since P2/S10. maxDepth/bounty — the two keys whose number/wholesale-
-// replace semantics were this mirror's whole reason to exist (`state.maxDepth = Math.max(...)` and
-// `state.bounty = rollBounty()` never reached p by reference) — moved onto the player in P2/S12:
-// the game writes p.maxDepth / p.bounty directly now, so nothing is left to mirror for them.)
-// (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
-// "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.quests = S.quests; }
+const PP_KEYS = [];   // EMPTY since P2/S13 (quests, the last key, lives ON state.player like everything else — S5 tonics/sharpenLevel, S7 shopPurchased/cargo/fishCd/lastRestDay, S8 ingredients, S10 sailing/dragon, S12 maxDepth/bounty). The S.player pin IS the whole swap now; this machinery and its call sites are inert and die in S14 (plan §7) together with the RPC runAs conversion.
+function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // inert since P2/S13 (zero keys) — deleted in S14
+// Inert since P2/S13: nothing is left to mirror (the game writes every per-hero key on p directly).
+// (History, why this existed: lastRestDay was MISSING from this mirror for weeks → resting never
+// persisted; `state.maxDepth = Math.max(...)` and `state.bounty = rollBounty()` were number/wholesale-
+// replace writes that never reached p by reference. Every key has since moved onto the player.)
+function writeBackPP(_p) {}   // deleted in S14 with its call sites
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -419,7 +416,7 @@ class World {
     } catch (e) { this._err('enterRift', e); }
     finally {
       putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else
-      writeBackPP(p);                                                // this method swaps IN (above), so p must not be left reading someone else's quest slice — mirror any quest writes the breach made, on the failure path too. (The old bug this line fixed — the breach's `Math.max(…, deep)` depth bump discarded by the next hero's swap — can't recur since P2/S12: maxDepth is written on p directly.)
+      writeBackPP(p);                                                // inert since P2/S13 (the game writes p.quests directly — nothing left to mirror); the call stays until S14 deletes the machinery. (The old bug this line fixed — the breach's `Math.max(…, deep)` depth bump discarded by the next hero's swap — can't recur since P2/S12: maxDepth is written on p directly.)
       // per-owner delving: the BREACHER's own alive, un-posted warband dives WITH them (keep the setupCompanions
       // teleport, re-seat near p on the deep floor, tag map='dungeon'); everyone else stays topside where they were.
       // A failed breach (entered=false) dives nobody — restore all.
@@ -439,12 +436,11 @@ class World {
 
   // PROJECTILES, partitioned by SHOOTER (same idiom as the enemy partition).
   // updateProjectiles re-pins `state.player` to each friendly shot's ownerRef itself, so a hit credits the
-  // shooter's crit/lifesteal/prof/XP — but it cannot re-pin the PP SLICE, and a swapInPP at the call site
-  // can't follow a swap that happens per projectile inside the loop. With quests per-player that matters:
-  // killEnemy's `state.quests.slay.count++` and bountyProgress() write into whatever slice is swapped in, so
-  // one pass under players[0] would credit players[0] for EVERY ranged and magic kill in the room — two of
-  // the three combat styles — and a pure-ranged hero's "Slay monsters (0/5)" would never retire. Bucketing by
-  // owner and running the REAL updateProjectiles once per bucket makes state.player and the slice agree.
+  // shooter's crit/lifesteal/prof/XP. Since P2/S13 every per-hero key (incl. quests) rides state.player,
+  // so that per-projectile re-pin IS the full acting context — killEnemy's `state.player.quests.slay.count++`
+  // and bountyProgress() land on the shooter by construction. The owner BUCKETS stay: they fix the
+  // projectile STEP ORDER per owner (the determinism the 2p baselines freeze) until the next slice
+  // internalizes the loops; the swapInPP call below is inert (S14 deletes it).
   // Hostile + unowned shots ride one final pass under pool[0] — (P2/S3) their player-hit test loops the
   // game's world-scoped partyIn() itself, so every hero of the swapped-in world is a target (the old
   // players[1..N] patches are gone). Every projectile is stepped exactly once:
@@ -515,9 +511,12 @@ class World {
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
-    // per-player questline: your OWN intro (talk/key/slay/dragon) off a deep template clone, with the
-    // world-object quests (main/frozen/legion) re-aliased so the room shares ONE Kraken/Cache/war.
-    p.quests = aliasSharedQuests(clone(QUEST_TEMPLATE));
+    // per-player questline (P2/S13): your OWN intro (talk/key/slay/dragon) rides PLAYER_TEMPLATE
+    // like every other per-hero key (clone() above deep-copied the box), with the world-object
+    // quests (main/frozen/legion) re-aliased THROUGH THE SIM's own seam so the room shares ONE
+    // Kraken/Cache/war. Alias BEFORE the roster push below: the first joiner anchors on the boot
+    // hero's box (the room's source), every later joiner on players[0]'s — the same objects.
+    G.aliasSharedQuests(p.quests);
     p._qN = 1; p._qJson = '';          // quest-sync version + its stringify cache (per-player: see _step)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
     p._feedSeen = this.feedN | 0;      // join fresh — don't replay the room's whole event history
@@ -563,13 +562,14 @@ class World {
       // stays out of the whitelist on purpose — a session, not progress.
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this it lived only in RAM and a Railway scale-to-zero handed a level-45
-      // hero "Speak to the Elder" / "Slay monsters (0/5)". Read straight off `p` — NOT off the
-      // G.snapshot() above: characterOf swaps only S.player/S.inventory and never calls swapInPP, so
-      // snap.quests would be whichever hero the sim last swapped in. (A live ref; the save chain
-      // JSON-serializes it.) P2/S12: maxDepth/bounty FOLDED INTO `player` (plan §6 v4 mapping) — they
-      // live on p now, so snapshot()'s player whitelist emits them under the S.player swap above, like
-      // the milestones/steed; migrateCharacter maps old rows' top-level copies into player.* on load.
-      quests: p.quests,
+      // hero "Speak to the Elder" / "Slay monsters (0/5)". P2/S13: quests FOLDED INTO `player` (plan
+      // §6 v4 mapping, the FINAL fold) — the box lives on p now, so snapshot()'s player whitelist
+      // emits it (deep-copied) under the S.player swap above, exactly like the milestones/steed/
+      // depth/bounty; the old "read straight off p, never off snap" hazard is gone because the pin IS
+      // the swap. The shared main/frozen/legion serialize as VALUES and are re-aliased to the room's
+      // live objects on load (G.aliasSharedQuests — never persisted-authoritative). migrateCharacter
+      // maps old rows' top-level quests into player.* on load.
+      // P2/S12: maxDepth/bounty FOLDED INTO `player` the same way.
       // P2/S10: the steed FOLDED INTO `player` (plan §6 v4 mapping) — dragon lives on p, so
       // snapshot()'s player whitelist emits it under the S.player swap above (mounted rides
       // as-saved; every load path re-grounds it). migrateCharacter maps old rows' top-level
@@ -641,12 +641,12 @@ class World {
       // ---- questline + personal milestones — APPLY ONLY (rebuild S1) ----------------------
       // The v1→v2 quest synthesis and the v2→v3 milestone synthesis now live in the PURE
       // module server/migrate.js (the WHY of each rule is documented there); the migrated
-      // blob always carries a template-complete `quests` and (for every row that has a player
-      // slice — all real rows) the personal milestones AND a normalized player.maxDepth/
-      // player.bounty (P2/S12 fold), which the Object.assign above already copied onto `p`
-      // with the rest of the slice.
+      // blob always carries a template-complete quest box IN THE PLAYER SLICE (P2/S13 fold —
+      // player-first; a playerless blob keeps it top-level, which the fallback read covers)
+      // plus the personal milestones AND a normalized player.maxDepth/player.bounty (P2/S12
+      // fold), which the Object.assign above already copied onto `p` with the rest of the slice.
       // This method only ATTACHES, plus the ONE side effect that must touch SHARED state:
-      const q = c.quests;                              // fresh clone from migrateCharacter — safe to own
+      const q = (c.player && c.player.quests) || c.quests;   // fresh clone from migrateCharacter — safe to own
       // A returning v1 veteran has met the Elder → the room's (shared) Kraken hunt is on.
       // migrateCharacter recorded that purely on the BLOB's own main copy; keyed on
       // `wasLegacy` because a v2/v3 row's main copy was always DISCARDED by the re-alias,
@@ -654,10 +654,11 @@ class World {
       const legacyMainStarted = wasLegacy && !!(q.main && q.main.started);
       // The world-object quests are the LIVE room's, never the save's private copy: the world
       // regenerates every boot, so a stale legion/Kraken/Cache from a row would fight the world
-      // it describes. (Re-alias AFTER the merge — migrateCharacter kept the row's copies.)
-      aliasSharedQuests(q);
+      // it describes. (Re-alias AFTER the merge, through the SIM's own seam — P2/S13;
+      // migrateCharacter kept the row's copies.)
+      G.aliasSharedQuests(q);
       if (legacyMainStarted) q.main.started = true;    // mutates the SHARED main post-alias — the old line-642 effect, exactly
-      p.quests = q;                                    // (maxDepth/bounty ride the player slice since P2/S12 — landed by the Object.assign above)
+      p.quests = q;                                    // explicit attach (the Object.assign above landed the same ref for v4 rows; older/playerless shapes need this line)
       p._qJson = ''; p._qN = (p._qN | 0) + 1;          // force a re-stamp so the restored box reaches the client
 
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
@@ -847,11 +848,12 @@ class World {
       else if (npcId === 'shipwright') res = this._doInstant(p, 'buyBoat');
       else {                                                    // elder / guard / any talker → dialogue
         const lines = (npcId === 'elder' && typeof G.elderLines === 'function') ? G.elderLines() : (Array.isArray(npc.lines) ? npc.lines.slice() : ['…']);
-        if (npcId === 'elder' && S.quests) {                   // the elder advances the (shared) questline
-          if (S.quests.talk) S.quests.talk.done = true;
-          if (S.quests.main) S.quests.main.started = true;
-          if (S.quests.key) S.quests.key.hidden = false;
-          if (S.quests.legion && !S.quests.legion.started) { S.quests.legion.started = true; S.quests.legion.stage = 'camps'; }
+        if (npcId === 'elder' && p.quests) {                   // the elder advances the questline — the ACTING hero's own box (P2/S13; talk/key are personal, main/legion write the room's shared objects through the alias, exactly as before)
+          const q = p.quests;
+          if (q.talk) q.talk.done = true;
+          if (q.main) q.main.started = true;
+          if (q.key) q.key.hidden = false;
+          if (q.legion && !q.legion.started) { q.legion.started = true; q.legion.stage = 'camps'; }
         }
         res = { kind: 'dialogue', speaker: npc.name || '', lines: Array.isArray(lines) ? lines : ['…'] };
       }
@@ -904,9 +906,9 @@ class World {
     this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
     // Quest sync: version-stamp EACH HERO'S OWN quest state so snapshots only carry it when it CHANGES.
-    // Per-player, not room-wide: quests is a PP slice and bounty/maxDepth live ON the player (P2/S12), and
-    // this block runs OUTSIDE the rotation (S.player is pinned to whoever the last phase left), so
-    // stringifying `S.quests` here would version-stamp one arbitrary hero's quests on behalf of the whole
+    // Per-player, not room-wide: quests/bounty/maxDepth all live ON the player (P2/S13/S12), and this
+    // block runs OUTSIDE the rotation (S.player is pinned to whoever the last phase left), so reading
+    // through state.player here would version-stamp one arbitrary hero's quests on behalf of the whole
     // room. Read each p directly instead.
     // loreFound is per-HERO since P2/S11 (p.loreFound — your own Realm-stone discoveries), so a stone read
     // re-syncs only the READER's box. Cost: one stringify per player per 40 ticks (~2/s/player, ~0.001 ms).
@@ -939,7 +941,7 @@ class World {
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
-      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is NOT skippable: any quest write the entering slice made must be mirrored before `continue` (the original hole this fixed — enterDungeon's maxDepth=1 thrown away — can't recur since P2/S12: the game writes p.maxDepth directly). The overworld-only work below (the exhaustion edge) is what we're skipping, not the slice.
+      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is INERT since P2/S13 (the game writes p.quests directly; S14 deletes the call) — the original hole it plugged, enterDungeon's writes thrown away by the next hero's swap, is structurally gone. The overworld-only work below (the exhaustion edge) is what we're skipping.
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       // (P2/S3) The winter snow-chill replica died here: updateWeather itself now chills every
       // overworld hero (it loops the game's world-scoped partyIn()), so the shared phase covers all.
@@ -971,7 +973,7 @@ class World {
       const survivors = [];
       global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p);   // keep the bag AND the PP slice in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy writes state.quests.slay straight into the swapped-in slice while bountyProgress()/gold/a boss-drop key credit the PINNED state.player (bounty is player-native since P2/S12), so without this pin+swap every kill in this bucket credits whichever hero the previous phase happened to leave behind
+        S.player = p; S.inventory = p.inventory; swapInPP(p);   // keep the bag in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy's quest credit (state.player.quests.slay), bountyProgress(), gold and a boss-drop key all ride the PINNED state.player (quests player-native since P2/S13, bounty since S12), so without this pin every kill in this bucket credits whichever hero the previous phase happened to leave behind (swapInPP is inert — S14 deletes it)
         S.enemies = buckets.get(p);         // this player's assigned foes target HIM
         try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
@@ -1002,7 +1004,7 @@ class World {
       }
       const aSurvivors = [];
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p); S.allies = aBuckets.get(p);   // swapInPP: updateAllies → killEnemy credits state.player — its quest writes land in the swapped-in slice, its bounty writes on the pinned hero (P2/S12)
+        S.player = p; S.inventory = p.inventory; swapInPP(p); S.allies = aBuckets.get(p);   // the pin: updateAllies → killEnemy credits state.player — quest/bounty writes land on the pinned OWNER's own box (player-native since P2/S13/S12; swapInPP inert)
         try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
         aSurvivors.push(...S.allies);
       }
@@ -1031,7 +1033,7 @@ class World {
         byOwner.get(o).push(c);
       }
       for (const [o, list] of byOwner) {
-        S.player = o; S.inventory = o.inventory; swapInPP(o); S.companions = list;   // swapInPP: a companion kill routes through killEnemy → quests.slay lands on the OWNER's slice, bountyProgress on the pinned owner (P2/S12)
+        S.player = o; S.inventory = o.inventory; swapInPP(o); S.companions = list;   // the pin: a companion kill routes through killEnemy → quests.slay/bountyProgress land on the pinned OWNER's own box (player-native since P2/S13/S12; swapInPP inert)
         try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
       }
       S.companions = all;
@@ -1113,7 +1115,7 @@ class World {
             const survivors = [];
             global.__libGate = () => false;                // partitioned bucket — same inline-liberation blindness as topside (dungeon foes carry no site keys today; cheap insurance)
             for (const p of stillIn) {
-              S.player = p; S.inventory = p.inventory; swapInPP(p);   // PP slice too — a dungeon boss's key drop sets state.inventory.keys++ AND state.quests.key.done; both must be the KILLER's (mirrors the overworld partition)
+              S.player = p; S.inventory = p.inventory; swapInPP(p);   // the pin — a dungeon boss's key drop sets state.inventory.keys++ AND state.player.quests.key.done; both ride the KILLER's pin (mirrors the overworld partition; swapInPP inert since P2/S13)
               S.enemies = buckets.get(p);
               try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
               survivors.push(...S.enemies);
@@ -1130,7 +1132,7 @@ class World {
               if (dp.downed) continue;                     // a downed delver's recruits idle (mirrors the overworld skip)
               const mine = allC.filter((c) => c.ownerId === dp.id && c.map === 'dungeon');
               if (!mine.length) continue;
-              S.player = dp; S.inventory = dp.inventory; swapInPP(dp); S.companions = mine;   // PP slice too (mirrors the overworld warband partition)
+              S.player = dp; S.inventory = dp.inventory; swapInPP(dp); S.companions = mine;   // the pin (mirrors the overworld warband partition; swapInPP inert since P2/S13)
               try { G.updateCompanions(); } catch (e) { this._err('updateCompanionsDg', e); }
             }
             S.companions = allC;
@@ -1279,9 +1281,10 @@ class World {
       me._feedSeen = this.feedN;
       if (fs.length) snap.feed = fs.slice(-8);   // cap the burst a single snapshot can carry
     }
-    // YOUR questline (per-player), version-gated so it costs 0 B/tick at rest. Read off `me` — never off
-    // S.quests, which holds whichever hero the sim last swapped in. A fresh player has _qSeen 0 !== _qN 1,
-    // so the roster/feed guarantee applies here too: quests ALWAYS ride your first snapshot.
+    // YOUR questline (per-player, ON the player since P2/S13), version-gated so it costs 0 B/tick at
+    // rest. Read off `me` — never through the state.player pin, which holds whichever hero the sim last
+    // pinned. A fresh player has _qSeen 0 !== _qN 1, so the roster/feed guarantee applies here too:
+    // quests ALWAYS ride your first snapshot.
     if ((me._qSeen | 0) !== (me._qN | 0)) {
       me._qSeen = me._qN | 0;
       snap.quests = safeClone(me.quests);

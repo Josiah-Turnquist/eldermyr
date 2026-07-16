@@ -472,7 +472,7 @@ function compass8(dx, dy) {
 }
 function currentObjective() {
   if (state.map !== 'overworld') return null;
-  const q = state.quests;
+  const q = state.player.quests;
   let best = null,
     bd = 1e18;
   (state.holdings || []).forEach((hd, i) => {

@@ -177,10 +177,10 @@ function killEnemy(e) {
   state.player.gold += Math.round(e.gold * (e.isBoss || e.isNemesis || e.dread ? dreadLootBonus() : 1));
   if (notableEnemy(e)) log(`${e.name} defeated! +${e.xp} XP, +${e.gold} gold.`, 'good');
   tryDropLoot(e);
-  if (!state.quests.slay.done) {
-    state.quests.slay.count++;
-    if (state.quests.slay.count >= state.quests.slay.target) {
-      state.quests.slay.done = true;
+  if (!state.player.quests.slay.done) {
+    state.player.quests.slay.count++;
+    if (state.player.quests.slay.count >= state.player.quests.slay.target) {
+      state.player.quests.slay.done = true;
       log('Quest complete: Slay 5 monsters!', 'quest');
     }
     updateQuests();
@@ -193,8 +193,8 @@ function killEnemy(e) {
     log(`${e.name} is vanquished!`, 'good');
     if (state.map === 'dungeon' && !e.isFinalBoss && Math.random() < 0.3) {
       state.inventory.keys++;
-      if (state.quests.key && !state.quests.key.done) {
-        state.quests.key.done = true;
+      if (state.player.quests.key && !state.player.quests.key.done) {
+        state.player.quests.key.done = true;
         updateQuests();
       }
       /* a boss-dropped key also satisfies (and PERSISTS) the 'Find the Dungeon Key' quest — the overworld pickup was the only completion-set site before */ log(
@@ -388,8 +388,8 @@ function gainXP(amount) {
     spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 });
     log(`LEVEL UP! You are now level ${p.level}. +2 skill points — press K in town!`, 'good');
     bumpCompanionLevels();
-    if (p.level >= 20 && state.quests.dragon && state.quests.dragon.hidden) {
-      state.quests.dragon.hidden = false;
+    if (p.level >= 20 && state.player.quests.dragon && state.player.quests.dragon.hidden) {
+      state.player.quests.dragon.hidden = false;
       updateQuests();
       log(
         'You are mighty enough to tame a wild beast! Seek the Emberwyrm in the Emberwaste, far to the southeast.',

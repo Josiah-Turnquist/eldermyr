@@ -416,7 +416,7 @@ function drawMapMarkers(x, W, H) {
     x.fill();
   }
   {
-    const lq = state.quests.legion;
+    const lq = state.player.quests.legion;
     if (lq && lq.stage === 'overlord' && lq.seatRegion >= 0) {
       const rcx = (((lq.seatRegion % 3) + 0.5) * OW_W) / 3,
         rcy = ((Math.floor(lq.seatRegion / 3) + 0.5) * OW_H) / 3;

@@ -307,9 +307,9 @@ function tameDragon(e) {
   addRep('vigil', 5);
   const i = state.enemies.indexOf(e);
   if (i >= 0) state.enemies.splice(i, 1);
-  if (state.quests.dragon) state.quests.dragon.done = true;
-  state.quests.main.started = true;
-  state.quests.main.hidden = false;
+  if (state.player.quests.dragon) state.player.quests.dragon.done = true;
+  state.player.quests.main.started = true;
+  state.player.quests.main.hidden = false;
   updateQuests();
   spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 30, { color: '#ff8030', speed: 3, decay: 0.03 });
   log('★ The Emberwyrm submits — it is now your steed! Press [G] to mount and take to the skies.', 'quest');
@@ -370,7 +370,7 @@ function legacyLineHtml() {
 function victory() {
   state.scene = 'won';
   state.won = true;
-  state.quests.main.done = true;
+  state.player.quests.main.done = true;
   updateQuests();
   Sound.levelup();
   const r = recordRun(true);

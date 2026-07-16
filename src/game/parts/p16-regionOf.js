@@ -168,7 +168,7 @@ function updateNemesisPresence() {
   // Softlock guard (v2.34.2): if the finale stage points at an Overlord who already fell (slain early via
   // high-infamy ambushes — legionDaily refills warlords but never re-crowns an Overlord), the war is won.
   {
-    const lq = state.quests.legion;
+    const lq = state.player.quests.legion;
     if (lq && lq.stage === 'overlord' && (!L.overlord || !L.overlord.alive)) completeLegionQuest();
   }
   const present = state.enemies.find((e) => e.isNemesis);
@@ -201,7 +201,7 @@ function updateNemesisPresence() {
   // FINALE (v2.36.5): entering the seat region with the war at its end summons the Overlord IMMEDIATELY —
   // no ambush timer, no roll, and no captain squatting the region can hijack the duel.
   {
-    const lq = state.quests.legion;
+    const lq = state.player.quests.legion;
     if (lq && lq.stage === 'overlord' && L.overlord && L.overlord.alive) {
       const p0 = state.player;
       const reg0 = regionOf(Math.floor((p0.x + p0.w / 2) / TILE), Math.floor((p0.y + p0.h / 2) / TILE));
@@ -223,7 +223,7 @@ function updateNemesisPresence() {
   /* the Vale & Heartland are sanctuary — warlords stalk only the mid-outer lands, never near home */ const reg =
     regionOf(ptx, pty);
   let target = L.warlords.find((w) => w.alive && w.region === reg);
-  const finale = state.quests.legion && state.quests.legion.stage === 'overlord';
+  const finale = state.player.quests.legion && state.player.quests.legion.stage === 'overlord';
   if (
     !target &&
     (dreadTierIdx(partyRep('dread')) >= 3 || finale) && // P2/S11: the Overlord stirs for the party's most-infamous hero (shared-phase read)
@@ -266,7 +266,7 @@ function defeatNemesis(e) {
       addRep('vigil', 15);
       if (!state.legionRespawnDay) state.legionRespawnDay = curDay() + 4;
       log('The Overlord has fallen — the Dread Legion is leaderless.', 'lore');
-      if (state.quests.legion && state.quests.legion.stage === 'overlord') completeLegionQuest();
+      if (state.player.quests.legion && state.player.quests.legion.stage === 'overlord') completeLegionQuest();
       else log('A new terror will rise.', 'lore');
     }
     if (w !== L.overlord) {

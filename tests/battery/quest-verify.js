@@ -46,8 +46,12 @@ function questBox() {
 const has = (lines, sub) => lines.some((l) => l.indexOf(sub) >= 0);
 
 // Reset quests to a known FRESH state (as the initial state literal / startGame leaves them).
+// P2/S13: the box lives ON the player — poke S.player.quests (the evaled updateQuests/
+// currentObjective read state.player.quests). NB this replaces the BOOT hero's box with a
+// fresh object; the room's SHARED_QUESTS anchor is players[0]'s box once heroes exist, so
+// section E's aliasing is unaffected (its heroes alias at their own join).
 function freshQuests() {
-  S.quests = { main:{name:'Slay the Mountain Kraken',done:false,started:false,hidden:true},
+  S.player.quests = { main:{name:'Slay the Mountain Kraken',done:false,started:false,hidden:true},
     talk:{name:'Speak to the Elder',done:false},
     key:{name:'Find the Dungeon Key',done:false,hidden:true},
     slay:{name:'Slay 5 monsters',done:false,count:0,target:5},
@@ -57,8 +61,8 @@ function freshQuests() {
   S.player.bounty = null; S.player.loreFound = []; S.player.maxDepth = 0; S.inventory.keys = 0;   // P2/S11: loreFound lives on the player; P2/S12: bounty/maxDepth too
 }
 // mirror startDialogue(elder) / world.js elder branch
-function talkToElder() { S.quests.talk.done = true; S.quests.main.started = true; S.quests.key.hidden = false;
-  if (!S.quests.legion.started) { S.quests.legion.started = true; S.quests.legion.stage = 'camps'; } }
+function talkToElder() { const q = S.player.quests; q.talk.done = true; q.main.started = true; q.key.hidden = false;
+  if (!q.legion.started) { q.legion.started = true; q.legion.stage = 'camps'; } }
 
 out.push('=== A. Quest BOX retires completed / satisfied intro quests ===');
 freshQuests();
@@ -78,7 +82,7 @@ L = questBox();
 ok('A3 with 16 keys: Find the Dungeon Key is GONE (symptom b fixed)', !has(L, 'Find the Dungeon Key'), 'keys=16');
 ok('A3 with 16 keys: legion quest STILL shows', has(L, 'break the war-camps'));
 
-S.quests.slay.count = 5; S.quests.slay.done = true;
+S.player.quests.slay.count = 5; S.player.quests.slay.done = true;
 L = questBox();
 ok('A4 slay done: Slay monsters is GONE (retired)', !has(L, 'Slay monsters'), L.join(' | '));
 
@@ -111,23 +115,28 @@ S.inventory.keys = 16;
 o = global.currentObjective();
 ok('B3 with 16 keys: NOT pointed at the key (symptom b)', !(o && /Dungeon Key/.test(o.label)), o && o.label);
 
-out.push('=== C. Completion PERSISTS across snapshot() -> applySnapshot() (SP save/reload) ===');
+out.push('=== C. Completion PERSISTS across snapshot() -> applySnapshot() (SP save/reload; v7 player-slice shape + v6 root-fallback) ===');
 freshQuests(); talkToElder();
-S.quests.slay.count = 5; S.quests.slay.done = true; S.quests.key.done = true; S.inventory.keys = 4; S.player.level = 6;
+S.player.quests.slay.count = 5; S.player.quests.slay.done = true; S.player.quests.key.done = true; S.inventory.keys = 4; S.player.level = 6;
 const snap = G.snapshot();
+ok('C1 snapshot v7: quests ride the PLAYER slice, never the root', snap.v === 7 && !!snap.player.quests && snap.quests === undefined,
+  'v=' + snap.v + ' player.quests=' + !!snap.player.quests + ' root=' + (snap.quests === undefined ? 'absent' : 'PRESENT'));
 // perturb, then restore from the snapshot
-S.quests.talk.done = false; S.quests.slay.done = false; S.quests.key.done = false; S.inventory.keys = 0;
+S.player.quests.talk.done = false; S.player.quests.slay.done = false; S.player.quests.key.done = false; S.inventory.keys = 0;
 G.applySnapshot(JSON.parse(JSON.stringify(snap)));
-ok('C1 talk.done survived save/reload', S.quests.talk.done === true);
-ok('C1 slay.done survived save/reload', S.quests.slay.done === true);
-ok('C1 key.done survived save/reload', S.quests.key.done === true);
+ok('C1 talk.done survived save/reload', S.player.quests.talk.done === true);
+ok('C1 slay.done survived save/reload', S.player.quests.slay.done === true);
+ok('C1 key.done survived save/reload', S.player.quests.key.done === true);
 ok('C1 inventory.keys survived save/reload', S.inventory.keys === 4, 'keys=' + S.inventory.keys);
 L = questBox();
 ok('C1 after reload: intro quests stay retired', !has(L, 'Speak to the Elder') && !has(L, 'Find the Dungeon Key') && !has(L, 'Slay monsters'), L.join(' | '));
 
-// old save: key.done never set, but bag already has keys -> must retire via LIVE check
-freshQuests(); talkToElder(); S.quests.key.done = false; S.inventory.keys = 5;
+// old save: key.done never set, but bag already has keys -> must retire via LIVE check.
+// Forged to the PRE-S13 shape (root quests, none in the player slice) so this also
+// exercises applySnapshot's root FALLBACK — the lossless path every v<=6 save takes.
+freshQuests(); talkToElder(); S.player.quests.key.done = false; S.inventory.keys = 5;
 const oldSnap = G.snapshot();
+oldSnap.quests = oldSnap.player.quests; delete oldSnap.player.quests; oldSnap.v = 6;   // era-honest v6 row
 oldSnap.quests.key.done = false;
 G.applySnapshot(JSON.parse(JSON.stringify(oldSnap)));
 L = questBox();
@@ -135,7 +144,7 @@ ok('C2 old save (key.done=false, 5 keys) retires the key quest', !has(L, 'Find t
 
 out.push('=== D. No regression: rewards + real quests still fire ===');
 // D1: boss-dropped key now also marks key.done (Edit C) — drive REAL killEnemy
-freshQuests(); talkToElder(); S.quests.key.done = false; S.inventory.keys = 0;
+freshQuests(); talkToElder(); S.player.quests.key.done = false; S.inventory.keys = 0;
 S.map = 'dungeon';
 const _r = Math.random; Math.random = () => 0.05;   // force the 30% key-drop roll
 const boss = G.makeWildEnemy(10, 10, 3) || {};
@@ -146,16 +155,16 @@ const keysBefore = S.inventory.keys;
 try { G.killEnemy(boss); } catch (e) { out.push('   killEnemy threw: ' + e.message); }
 Math.random = _r;
 ok('D1 boss-drop: inventory.keys incremented', S.inventory.keys === keysBefore + 1, 'keys ' + keysBefore + '->' + S.inventory.keys);
-ok('D1 boss-drop: key.done now set + persists', S.quests.key.done === true);
+ok('D1 boss-drop: key.done now set + persists', S.player.quests.key.done === true);
 S.map = 'overworld';
 
 // D2: slay quest still counts + completes via REAL killEnemy
-freshQuests(); talkToElder(); S.quests.slay.count = 4; S.quests.slay.done = false;
+freshQuests(); talkToElder(); S.player.quests.slay.count = 4; S.player.quests.slay.done = false;
 const mob = G.makeWildEnemy(12, 12, 1) || {};
 mob.hp = 0; mob.xp = 5; mob.gold = 1; mob.x = 12 * G.TILE; mob.y = 12 * G.TILE; mob.w = 24; mob.h = 24; mob._markN = 0; mob.isBoss = false;
 if (!S.enemies.includes(mob)) S.enemies.push(mob);
 try { G.killEnemy(mob); } catch (e) { out.push('   killEnemy(mob) threw: ' + e.message); }
-ok('D2 slay quest reaches 5/5 + done', S.quests.slay.count >= 5 && S.quests.slay.done === true, S.quests.slay.count + '/5');
+ok('D2 slay quest reaches 5/5 + done', S.player.quests.slay.count >= 5 && S.player.quests.slay.done === true, S.player.quests.slay.count + '/5');
 
 // D3: bounty reward still grants gold (openBounty captured)
 freshQuests();
@@ -169,13 +178,13 @@ if (S.player.bounty) { S.player.bounty.progress = S.player.bounty.target; const 
 
 // D4: legion / frozen / dragon display branches intact (real active quests still render)
 freshQuests(); talkToElder();
-S.quests.legion.stage = 'keeps'; L = questBox();
+S.player.quests.legion.stage = 'keeps'; L = questBox();
 ok('D4 legion keeps stage renders', has(L, 'recover Sealstones'));
-S.quests.legion.stage = 'overlord'; S.quests.legion.seatRegion = 2; L = questBox();
+S.player.quests.legion.stage = 'overlord'; S.player.quests.legion.seatRegion = 2; L = questBox();
 ok('D4 legion overlord stage renders', has(L, 'confront the Dread Overlord'));
-S.quests.frozen.hidden = false; L = questBox();
+S.player.quests.frozen.hidden = false; L = questBox();
 ok('D4 frozen quest renders when revealed', has(L, 'Frozen Cache'));
-S.quests.dragon.hidden = false; L = questBox();
+S.player.quests.dragon.hidden = false; L = questBox();
 ok('D4 dragon quest renders when revealed', has(L, 'Emberwyrm'));
 
 out.push('=== E. MP: the questline is PER-PLAYER; the world-object quests stay shared ===');
@@ -213,8 +222,8 @@ ok('E3c …while the per-player sub-objects are distinct (not a shallow clone)',
   p1.quests.talk !== p2.quests.talk && p1.quests.key !== p2.quests.key && p1.quests.slay !== p2.quests.slay);
 // E4 (was the "[finding]"): the questline IS in the per-character DB slice → it survives a cold boot
 const ch = w.characterOf('P1');
-ok('E4 characterOf() persists the questline per character (survives a room COLD boot)',
-  !!(ch && ch.quests && ch.quests.talk && ch.quests.talk.done === true && ch.player && ch.player.maxDepth !== undefined && (ch.v | 0) >= 2), ch && ('v=' + ch.v + ' quests=' + (ch.quests ? 'yes' : 'no') + ' player.maxDepth=' + (ch.player && ch.player.maxDepth)));   // P2/S12: depth rides the player slice
+ok('E4 characterOf() persists the questline per character IN the player slice (survives a room COLD boot; no top-level copy since P2/S13)',
+  !!(ch && ch.player && ch.player.quests && ch.player.quests.talk && ch.player.quests.talk.done === true && ch.quests === undefined && ch.player.maxDepth !== undefined && (ch.v | 0) >= 2), ch && ('v=' + ch.v + ' player.quests=' + (ch.player && ch.player.quests ? 'yes' : 'no') + ' topQuests=' + (ch.quests ? 'PRESENT' : 'absent') + ' player.maxDepth=' + (ch.player && ch.player.maxDepth)));   // P2/S12: depth rides the player slice; P2/S13: the questline too
 ok('E5 a join/takeover seed exists (welcome payload, mirrors legionPayload)',
   typeof w.questPayload === 'function' && !!(w.questPayload('P1') || {}).quests);
 

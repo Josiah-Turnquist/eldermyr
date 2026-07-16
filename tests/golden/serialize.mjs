@@ -86,6 +86,11 @@ export const REMAP = [
   // bounty OBJECT is emitted once at the root spot, exactly the pre-move stream):
   { from: 'state.player.maxDepth', to: 'state.maxDepth' },
   { from: 'state.player.bounty', to: 'state.bounty' },
+  // P2/S13 — the QUESTLINE moved onto the player (the FINAL per-key slice; the header's own
+  // worked example, verbatim. Identity-preserving like the dragon/bounty entries: the quests
+  // OBJECT — and through it the shared main/frozen/legion sub-objects — is emitted once at
+  // the root spot with $ref dedup intact, exactly the pre-move stream):
+  { from: 'state.player.quests', to: 'state.quests' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

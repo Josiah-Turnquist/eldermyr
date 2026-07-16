@@ -57,6 +57,18 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * steed-survives-reboot (characterOf('E') still emitted a top-level dragon). Same run:
  * sp-flags-check §2g 2 asserts + crash, verify_fixes FIX2 2 asserts (root ghosts existed;
  * characterOf shape), facing-mp-verify 1 (drawOthers temp-hero probe) — 11 total. (2026-07-16.)
+ * S13 vacuity: SEEN FAILING against a pre-S13 git worktree (HEAD cfcb06a + its own dist
+ * build) — all 7 layer-1 fold asserts (quests still emitted top-level, nothing on player)
+ * + a crash at the hand-literal probe (b.player.quests undefined) before the REMAP pin
+ * (20 ≠ 21) and drift guard could even run. Same run: sp-flags-check 1 assert (v7 stamp
+ * read v=6) + crash at the §2j snapshot-shape probe, quest-verify crash (the evaled
+ * updateQuests reads state.player.quests — TypeError on the old engine), flags-pp-verify
+ * 1 T-case (T1 cold boot via objclient's updated reconcile mirror + carriesQuestsAcrossAdopt/
+ * adoptStampsPlayerQuests probes), quest-pp-verify T1b-T5 (crash at qrender's player-quests
+ * capture). And the OTHER direction — a deliberately-FORKED scratch build (post-S13 code,
+ * aliasSharedQuests neutered to no-op): the mp-golden scenario's object-identity assert
+ * throws at t=0 ("quests.main FORKED across heroes") and quest-pp T4 fails with
+ * mainAliased/legionAliased/frozenAliased all false. (2026-07-16.)
  * S12 vacuity: SEEN FAILING (14 asserts here) against a pre-S12 git worktree (HEAD 70fcfb2 + its
  * own dist build) — all 7 layer-1 fold asserts (top-level maxDepth/bounty still emitted, nothing
  * on player), 4 hand-literal blocks, the REMAP pin (18 ≠ 20 entries), the characterOf S12
@@ -204,7 +216,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const before = JSON.stringify(fx);
   const m = migrateCharacter(fx);
   const old = oldInlineChains(fx);
-  ok(`${name}: quests match the old inline chain`, deepEq(m.blob.quests, old.quests), diff(m.blob.quests, old.quests) || 'equal');
+  ok(`${name}: S13 fold — quests land on player (old-chain values), top-level copy gone`,
+    deepEq(m.blob.player.quests, old.quests) && m.blob.quests === undefined,
+    diff(m.blob.player.quests, old.quests) || ('equal; top=' + (m.blob.quests === undefined ? 'absent' : 'PRESENT')));
   // S12 fold: top-level maxDepth/bounty → player.* (MOVE — the old chain's exact values land on
   // the player; the top-level copies are GONE; a live bounty is a fresh clone, never the row's ref)
   ok(`${name}: S12 fold — depth/bounty land on player (old-chain values), top-level copies gone`,
@@ -282,7 +296,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     JSON.stringify({ fac: m.blob.player.factions, lore: m.blob.player.loreFound }));
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
-    && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.player.bounty !== fx.bounty)
+    && (!fx.quests || m.blob.player.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.player.bounty !== fx.bounty)
     && m.blob.player.abilities !== fx.player.abilities);
   const m2 = migrateCharacter(m.blob);
   ok(`${name}: IDEMPOTENT (v4 in → deep-equal v4 out, fromVersion 4)`, deepEq(m2.blob, m.blob) && m2.fromVersion === 4, diff(m2.blob, m.blob) || 'stable');
@@ -296,7 +310,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 //             keys 3 → key.done; lvl<20 → dragon stays hidden; mDepth/bnty forced 0/null;
 //             milestones: keys 3≥2 → enteredDungeon, keys>0 → gotKey, frozen always false.
 {
-  const b = migrateCharacter(FIXTURES['v1-early']).blob, q = b.quests;
+  const b = migrateCharacter(FIXTURES['v1-early']).blob, q = b.player.quests;
   ok('v1-early literals', q.talk.done === true && q.key.hidden === false && q.key.done === true
     && q.slay.done === true && q.slay.count === 5 && q.dragon.hidden === true && q.main.started === true
     && b.player.maxDepth === 0 && b.player.bounty === null
@@ -305,7 +319,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 //   v1-late: lvl 25 → veteran + dragon revealed (≥20); keys 0 → key.done false, and the v1
 //            depth hole: enteredDungeon FALSE (no keys, migration zeroed depth), gotKey false.
 {
-  const b = migrateCharacter(FIXTURES['v1-late']).blob, q = b.quests;
+  const b = migrateCharacter(FIXTURES['v1-late']).blob, q = b.player.quests;
   ok('v1-late literals', q.talk.done === true && q.key.hidden === false && q.key.done === false
     && q.dragon.hidden === false && q.main.started === true
     && b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === false,
@@ -314,7 +328,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 //   v1-fresh: lvl 1 → NOT veteran: whole intro intact (talk undone, key still hidden,
 //             slay 0/5, main NOT started), all milestones false.
 {
-  const b = migrateCharacter(FIXTURES['v1-fresh']).blob, q = b.quests;
+  const b = migrateCharacter(FIXTURES['v1-fresh']).blob, q = b.player.quests;
   ok('v1-fresh literals', q.talk.done === false && q.key.hidden === true && q.key.done === false
     && q.slay.done === false && q.slay.count === 0 && q.main.started === false
     && b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === false, JSON.stringify(q.talk));
@@ -324,7 +338,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 //              flip must never fire for v2+); maxDepth 7.9|0=7; bounty kept; milestones
 //              synthesized: depth 7>0 → enteredDungeon, key.done → gotKey.
 {
-  const b = migrateCharacter(FIXTURES['v2-depths']).blob, q = b.quests;
+  const b = migrateCharacter(FIXTURES['v2-depths']).blob, q = b.player.quests;
   ok('v2-depths literals', q.slay.count === 5 && q.legion.stage === 'camps' && q.legion.seatRegion === 3
     && deepEq(q.dragon, QUEST_TEMPLATE.dragon) && q.main.started === false
     && b.player.maxDepth === 7 && b.player.bounty.gold === 120
@@ -336,7 +350,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const e = migrateCharacter(FIXTURES['v2-edge']).blob, n = migrateCharacter(FIXTURES['v2-neg']).blob;
   ok('v2 hostile maxDepth/bounty edges', e.player.maxDepth === 0 && e.player.bounty === null && n.player.maxDepth === 0 && n.player.bounty === null,
     `edge=${e.player.maxDepth} neg=${n.player.maxDepth}`);
-  ok('v2-edge: missing quest keys template-filled', deepEq(e.quests.slay, QUEST_TEMPLATE.slay) && e.quests.talk.done === true);
+  ok('v2-edge: missing quest keys template-filled', deepEq(e.player.quests.slay, QUEST_TEMPLATE.slay) && e.player.quests.talk.done === true);
 }
 //   v3-full: milestones pass through UNTOUCHED (false/false/true) even though keys 9 /
 //            depth 12 would synthesize true/true/false — migration must not re-run.
@@ -377,17 +391,19 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.loreFound', 'state.loreFound'],             // S11
     ['state.player.maxDepth', 'state.maxDepth'],               // S12
     ['state.player.bounty', 'state.bounty'],                   // S12
+    ['state.player.quests', 'state.quests'],                   // S13 — the FINAL per-key relocation
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11+S12)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11+S12+S13)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
   const oldShape = { state: { player: { level: 5 }, quests: { slay: { count: 3 } }, enemies: [] }, maps: { ow: [1, 2] } };
-  ok('empty/none remap take the untouched path; table entries NO-OP where the moved keys are absent', hashState(movedShape, []) === hashState(movedShape, null)
-    && hashState(movedShape) === hashState(movedShape, [])   // default = REMAP: every S5 from-path is absent on this toy shape → inert
-    && stableSerialize(movedShape) === stableSerialize(movedShape, REMAP));
+  const noKeysShape = { state: { player: { level: 5 }, enemies: [] }, maps: { ow: [1, 2] } };   // carries NO remapped key (S13 put player.quests IN the table, so movedShape is no longer remap-inert)
+  ok('empty/none remap take the untouched path; table entries NO-OP where the moved keys are absent', hashState(noKeysShape, []) === hashState(noKeysShape, null)
+    && hashState(noKeysShape) === hashState(noKeysShape, [])   // default = REMAP: every from-path is absent on this toy shape → inert
+    && stableSerialize(noKeysShape) === stableSerialize(noKeysShape, REMAP));
   ok('a remap entry ROUND-TRIPS (moved shape hashes as the old shape)', hashState(movedShape, entry) === hashState(oldShape), hashState(movedShape, entry).slice(0, 12));
-  ok('…and the entry is what does it (native hashes differ)', hashState(movedShape) !== hashState(oldShape));
+  ok('…and the entry is what does it (a run WITHOUT it hashes differently)', hashState(movedShape, []) !== hashState(oldShape));   // (S13 put this entry in the DEFAULT table, so `hashState(movedShape)` now equals the old shape BY DESIGN — the no-table run is the honest negative)
   {
     const pNew = { level: 5, quests: { slay: { count: 3 } } };
     const rootNew = { state: { enemies: [{ _markBy: pNew }], player: pNew }, maps: {} };
@@ -410,8 +426,8 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // DRIFT GUARD — must run before any fixture load (a legacy-veteran load mutates the
   // SHARED main below, by design). If a release changes the quest box, update the literal
   // in server/migrate.js in the same change.
-  ok('DRIFT GUARD: migrate.js QUEST_TEMPLATE === booted state.quests', deepEq(QUEST_TEMPLATE, structuredClone(S.quests)),
-    diff(QUEST_TEMPLATE, structuredClone(S.quests)) || 'in sync');
+  ok('DRIFT GUARD: migrate.js QUEST_TEMPLATE === booted state.player.quests (P2/S13: the box lives on the player literal)', deepEq(QUEST_TEMPLATE, structuredClone(S.player.quests)),
+    diff(QUEST_TEMPLATE, structuredClone(S.player.quests)) || 'in sync');
 
   const w = new World();
   const F = w.addPlayer('F', 'Fresh');
@@ -458,10 +474,11 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     deepEq(modern.player.factions, { vigil: 33, wilds: -8, dread: 21 }) && deepEq(modern.player.loreFound, [1, 4])
     && modern.factions === undefined && modern.loreFound === undefined,
     JSON.stringify({ fac: modern.player.factions, lore: modern.player.loreFound }));
-  ok('characterOf (v4): maxDepth/bounty ride the PLAYER slice, nothing at the top level — while quests STAYS top-level until its own slice (S12)',
+  ok('characterOf (v4): maxDepth/bounty ride the PLAYER slice, nothing at the top level (S12) — and since S13 the QUESTLINE rides it too, NO top-level quests left',
     modern.player.maxDepth === 6 && modern.player.bounty && modern.player.bounty.reward === 400 && modern.player.bounty.sp === 1
-    && modern.maxDepth === undefined && modern.bounty === undefined && !!modern.quests,
-    JSON.stringify({ d: modern.player.maxDepth, b: modern.player.bounty, topD: modern.maxDepth, topB: modern.bounty, q: !!modern.quests }));
+    && modern.maxDepth === undefined && modern.bounty === undefined
+    && !!modern.player.quests && !!modern.player.quests.legion && modern.quests === undefined,
+    JSON.stringify({ d: modern.player.maxDepth, b: modern.player.bounty, topD: modern.maxDepth, topB: modern.bounty, pq: !!modern.player.quests, topQ: modern.quests === undefined ? 'absent' : 'PRESENT' }));
   // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
   // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely);
   // pre-S7 eras carried shopPurchased/cargo in the SHOP slice and lastRestDay NOWHERE (a root key
@@ -473,14 +490,15 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // pre-S11 eras carried factions/loreFound NOWHERE (shared root keys, outside characterOf);
   // pre-S12 eras carried maxDepth/bounty TOP-LEVEL (v2+; a v1 row had neither anywhere) —
   // shopify hoists the player copies back up, era-honest:
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; delete r.player.factions; delete r.player.loreFound; if (r.player.maxDepth !== undefined) { r.maxDepth = r.player.maxDepth; delete r.player.maxDepth; } if (r.player.bounty !== undefined) { r.bounty = r.player.bounty; delete r.player.bounty; } };
-  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; delete r.maxDepth; delete r.bounty; return r; };   // (depth/bounty deletes AFTER shopify's hoist — a v1 row carried them nowhere)
+  // pre-S13 eras carried the QUESTLINE top-level (v2+; a v1 row had none) — hoist it back up too:
+  const shopify = (r) => { if (r.player.quests !== undefined) { r.quests = r.player.quests; delete r.player.quests; } r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; delete r.player.factions; delete r.player.loreFound; if (r.player.maxDepth !== undefined) { r.maxDepth = r.player.maxDepth; delete r.player.maxDepth; } if (r.player.bounty !== undefined) { r.bounty = r.player.bounty; delete r.player.bounty; } };
+  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; delete r.maxDepth; delete r.bounty; delete r.quests; return r; };   // (depth/bounty/QUESTS deletes AFTER shopify's hoist — a v1 row carried them nowhere; shopify hoists player.quests top-level for the v2/v3 eras)
   const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); r.maxDepth = 7; return r; };   // (explicit depth AFTER shopify's hoist; the hoisted bounty stays — a v2 row could carry one)
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
 
   // v1 veteran (level 45, 16 keys): intro synthesized done, milestones from keys, and the
   // ROOM's shared main quest flips to started (the old post-alias line-642 side effect)
-  ok('pre-condition: the shared main quest is NOT yet started', S.quests.main.started === false);
+  ok('pre-condition: the shared main quest is NOT yet started', S.player.quests.main.started === false);   // P2/S13: the room's shared anchor = the boot hero's box (no ticks have run — S.player is the boot literal)
   const A = w.addPlayer('A', 'VetA', asV1(modern));
   ok('v1 load: intro synthesized as done', A.quests.talk.done === true && A.quests.key.done === true && A.quests.slay.done === true && A.quests.key.hidden === false);
   ok('v1 load: dragon quest revealed at level 45', A.quests.dragon.hidden === false);
@@ -508,7 +526,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('v1 load: S11 defaults through the real path — zero ledger, no stones read (old rows carried neither anywhere; the reset is the documented floor)',
     deepEq(A.factions, { vigil: 0, wilds: 0, dread: 0 }) && deepEq(A.loreFound, []),
     JSON.stringify({ fac: A.factions, lore: A.loreFound }));
-  ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
+  ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.player.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
     A.quests.main === B.quests.main && A.quests.frozen === B.quests.frozen && A.quests.legion === B.quests.legion && A.quests !== B.quests);
@@ -566,7 +584,15 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ok('round-trip: the depth record + the accepted contract SURVIVE the reboot via the PLAYER slice (S12 — no top-level copies left on a fresh row)',
       E.maxDepth === 9 && E.bounty && E.bounty.progress === 21 && E.bounty.reward === 640 && E.bounty !== A.bounty
       && rowE.maxDepth === undefined && rowE.bounty === undefined && rowE.player.maxDepth === 9,
-      JSON.stringify({ d: E.maxDepth, b: E.bounty, rowTop: [rowE.maxDepth, rowE.bounty] })); }
+      JSON.stringify({ d: E.maxDepth, b: E.bounty, rowTop: [rowE.maxDepth, rowE.bounty] }));
+    ok('round-trip: the QUESTLINE survives the reboot via the PLAYER slice (S13 — personal progress kept, no top-level copy on a fresh row)',
+      E.quests.talk.done === A.quests.talk.done && E.quests.slay.count === A.quests.slay.count && E.quests.key.done === A.quests.key.done
+      && rowE.quests === undefined && !!rowE.player.quests,
+      JSON.stringify({ talk: E.quests.talk.done, slay: E.quests.slay.count, rowTop: rowE.quests === undefined ? 'absent' : 'PRESENT' }));
+    ok('round-trip: the loaded hero is RE-ALIASED into the room\'s ONE war (S13 — the row\'s private main/frozen/legion copies are discarded on apply)',
+      E.quests.main === A.quests.main && E.quests.frozen === A.quests.frozen && E.quests.legion === A.quests.legion
+      && E.quests !== A.quests && E.quests.talk !== A.quests.talk,
+      'main/frozen/legion identical objects; box + personal keys forked'); }
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

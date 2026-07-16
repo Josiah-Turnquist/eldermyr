@@ -80,12 +80,14 @@ const RECONCILE_SRC = {
   adoptsMeWholesale: /S\.player\s*=\s*snap\.me\s*;/.test(MP),
   carriesBountyAcrossAdopt: /const _pb = S\.player\.bounty;/.test(MP) && /S\.player\.bounty = _pb \|\| null;/.test(MP),   // P2/S12: bounty is gated-only (never rides `me`) — the reconcile must carry the last adopted contract across the wholesale adopt
   noGhostMaxDepthAdopt: !/S\.maxDepth = snap\.me\.maxDepth/.test(MP),   // P2/S12: maxDepth rides `me` ON the player — the old explicit root adopt must be GONE (risk #7)
+  carriesQuestsAcrossAdopt: /const _pq = S\.player\.quests;/.test(MP) && /if \(_pq\) S\.player\.quests = _pq;/.test(MP),   // P2/S13: quests is gated-only (never rides `me`) — the reconcile must carry the last adopted box across the wholesale adopt
+  adoptStampsPlayerQuests: /G\.state\.player\.quests = s\.quests/.test(ADOPT_SRC) && !/G\.state\.quests\s*=/.test(ADOPT_SRC),   // P2/S13: adoptQuests stamps the PLAYER, never a root ghost (risk #7)
   callsObjective: /G\.currentObjective\s*&&\s*G\.currentObjective\(\)/.test(MP),
   namesHasObjective: /'currentObjective'/.test(MP),
 };
 const RECONCILE_SRC_OK = Object.values(RECONCILE_SRC).every(Boolean);
 
-const DEFAULT_STATE = JSON.parse(JSON.stringify({ quests: CG.state.quests, inventory: CG.state.inventory, player: CG.state.player }));
+const DEFAULT_STATE = JSON.parse(JSON.stringify({ inventory: CG.state.inventory, player: CG.state.player }));   // P2/S13: the player clone CARRIES the boot quest box
 
 /**
  * One fresh MP page receives `snap` (a REAL world.snapshotFor() payload) and renders.
@@ -94,8 +96,7 @@ const DEFAULT_STATE = JSON.parse(JSON.stringify({ quests: CG.state.quests, inven
 function clientObjective(snap) {
   const st = CG.state;
   // a brand-new page: the game's own boot defaults, nothing adopted yet
-  st.quests = JSON.parse(JSON.stringify(DEFAULT_STATE.quests));
-  st.player = JSON.parse(JSON.stringify(DEFAULT_STATE.player));
+  st.player = JSON.parse(JSON.stringify(DEFAULT_STATE.player));   // carries the boot quest box (P2/S13); no root st.quests exists any more
   st.inventory = JSON.parse(JSON.stringify(DEFAULT_STATE.inventory));
   st.map = 'overworld'; st.holdings = []; st.npcs = []; st.pickups = [];
   if (st.player) st.player.loreFound = [];   // P2/S11: loreFound lives on the player (st.player is re-cloned from the boot default above, which already carries [])
@@ -107,9 +108,11 @@ function clientObjective(snap) {
   // --- the frame loop's reconcile (client/mp.html) ---
   if (snap.me) {
     const _pb = st.player.bounty;   // P2/S12 mirror: the shipped reconcile carries the contract across the wholesale adopt (bounty never rides `me`)
+    const _pq = st.player.quests;   // P2/S13 mirror: same carry for the quest box (quests never rides `me` either)
     st.player = snap.me;
     if (snap.me.inventory) st.inventory = snap.me.inventory;
     st.player.bounty = _pb || null;
+    if (_pq) st.player.quests = _pq;
   }
   let o = null;
   try { o = CG.currentObjective(); } catch (e) { errors.push('currentObjective: ' + e.message); }

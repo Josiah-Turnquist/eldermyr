@@ -32,6 +32,27 @@ export default {
     for (const p of ctx.players) seedFoesAroundPlayer(ctx.G, p, 6, 3);
   },
 
+  postTick(ctx, t) {
+    // P2/S13 ACTIVE ASSERT (the plan's quest-slice gate): the world-object quests —
+    // main (one Kraken), frozen (one Cache), legion (one war) — must be THE SAME OBJECT
+    // across every hero, tick after tick (the room shares one war), while the personal
+    // keys (talk/key/slay/dragon) must be genuinely FORKED per hero. A private copy of a
+    // shared quest silently forks the room's war; a shared personal key re-creates the
+    // v2.57.0 "one box for two heroes" bug. Identity (===), not value equality — a deep
+    // clone with equal values is exactly the failure this exists to catch.
+    // SEEN FAILING against a deliberately-forked scratch build (aliasSharedQuests
+    // neutered to deep-clone): throws here at t=0.
+    if (t % 500 === 0) {
+      const [A, B] = ctx.players;
+      for (const k of ['main', 'frozen', 'legion']) {
+        if (A.quests[k] !== B.quests[k]) throw new Error(`S13 identity assert @t=${t}: quests.${k} FORKED across heroes (room's war split)`);
+      }
+      for (const k of ['talk', 'key', 'slay', 'dragon']) {
+        if (A.quests[k] === B.quests[k]) throw new Error(`S13 identity assert @t=${t}: personal quests.${k} SHARED across heroes (one box for two heroes)`);
+      }
+    }
+  },
+
   preTick(ctx, t) {
     for (const p of ctx.players) {              // JOIN ORDER — part of the contract
       if (p.downed) { p.held = {}; continue; }  // incapacitated: the downed pass owns them

@@ -29,9 +29,9 @@
  *       field-keyed, never version-keyed). Reader rule: schemaVersion ?? v ?? 1.
  *   Later P2 slices fold shop/quests/maxDepth/bounty/dragon INTO the player
  *   slice as those keys move onto p (plan §6 mapping) — each adds its default
- *   here in the same slice; after S12 only `quests` remains top-level. The v4
- *   stamp does NOT change per fold: readers stay FIELD-keyed throughout (a row
- *   is defined by what it carries).
+ *   here in the same slice; after S13 NOTHING remains top-level (name/level/skin
+ *   stay as login/UI reads). The v4 stamp does NOT change per fold: readers stay
+ *   FIELD-keyed throughout (a row is defined by what it carries).
  *     · S5: shop.tonics/shop.sharpenLevel → player.tonics/player.sharpenLevel
  *       (defaults 0/0); player.seenHeatTip default false (no historical source —
  *       the aura teach re-shows once per hero, intended).
@@ -69,6 +69,11 @@
  *       normalization is the old chain's own, computed above the fold: maxDepth
  *       clamped int ≥ 0, falsy bounty → null, and a v1 row synthesizes 0/null
  *       exactly as the old chain forced them).
+ *     · S13 (the FINAL fold — nothing stays top-level after it): top-level quests →
+ *       player.quests (MOVE; the v1 synthesis + template-merge normalization applies
+ *       identically wherever the row carried the box, so this fold is normalize-then-
+ *       place rather than pass-through). The shared main/frozen/legion stay VALUES on
+ *       the blob; the apply path re-aliases them to the live room's objects.
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -79,12 +84,13 @@
 
 const SCHEMA_VERSION = 4;
 
-// The fresh-boot quest box. world.js's live QUEST_TEMPLATE is structuredClone(S.quests)
-// after startGame(); that is byte-for-byte this literal (the boot never mutates
-// state.quests — verified, and DRIFT-GUARDED: tests/battery/migrate-roundtrip.js boots the
-// real game and asserts deep-equality, so a release that adds/renames a quest key fails
-// the battery until this literal is updated in step). A pure module can't read the live
-// game, which is the point: migration must not depend on a booted world.
+// The fresh-boot quest box — byte-for-byte the game's player-literal quests (P2/S13: the
+// box lives on state.player; MP heroes seed from PLAYER_TEMPLATE, whose clone carries it).
+// The boot never mutates it — verified, and DRIFT-GUARDED: tests/battery/migrate-roundtrip.js
+// boots the real game and asserts deep-equality against state.player.quests, so a release
+// that adds/renames a quest key fails the battery until this literal is updated in step.
+// A pure module can't read the live game, which is the point: migration must not depend
+// on a booted world.
 const QUEST_TEMPLATE = {
   main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },
   talk: { name: 'Speak to the Elder', done: false },
@@ -106,8 +112,12 @@ function migrateCharacter(oldBlob) {
   // Merged OVER the template, so a quest key added in a later release still exists on an
   // older row (mirrors applySnapshot's `if(!state.quests.frozen)` fill, for every key).
   const q = clone(QUEST_TEMPLATE);
-  const legacy = !(c && c.quests);                 // a v1 row: no questline was ever saved
-  if (!legacy) Object.assign(q, clone(c.quests));
+  // P2/S13: a post-fold row carries the box IN the player slice; pre-fold rows at the top
+  // level; a v1 row nowhere. The template-merge normalization applies to BOTH locations
+  // (a quest key added in a later release must exist on every loaded row, same as always).
+  const rowQ = c && (c.player && c.player.quests !== undefined ? c.player.quests : c.quests);
+  const legacy = !rowQ;                            // a v1 row: no questline was ever saved
+  if (!legacy) Object.assign(q, clone(rowQ));
   let mDepth = (c && Number.isFinite(c.maxDepth)) ? Math.max(0, c.maxDepth | 0) : 0;
   let bnty = (c && c.bounty) ? clone(c.bounty) : null;
   // The old chain read `p.level` / `p.inventory.keys` AFTER the apply-assign; those are
@@ -219,9 +229,20 @@ function migrateCharacter(oldBlob) {
     if (out.player.maxDepth === undefined) out.player.maxDepth = mDepth;
     if (out.player.bounty === undefined) out.player.bounty = bnty;
     delete out.maxDepth; delete out.bounty;
+    // ---- S13 fold: the QUESTLINE moves onto the player (the FINAL fold — same MOVE
+    // semantics as the S12 one above: one owner per value, top-level copy deleted;
+    // idempotent because pass 2 reads player-first). Unlike the other folds this one is
+    // NOT pass-through-when-present: `q` above is ALWAYS the template-merged/synthesized
+    // normalization of the row's box wherever it lived (the old chain normalized every
+    // era the same way), so a template key added in a later release still back-fills a
+    // v4 row. The shared main/frozen/legion sub-objects stay VALUES on the blob —
+    // _loadCharacter re-aliases them to the live room's objects on apply, never here
+    // (purity: this module knows no world).
+    out.player.quests = q;
+    delete out.quests;
   }
+  if (!out.player) out.quests = q;   // a playerless blob has nowhere to move it — keep the old top-level attach (this module never drops data it can't relocate)
 
-  out.quests = q;
   out.schemaVersion = SCHEMA_VERSION;
   return { blob: out, fromVersion, toVersion: SCHEMA_VERSION };
 }

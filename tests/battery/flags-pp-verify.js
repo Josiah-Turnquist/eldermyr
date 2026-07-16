@@ -59,7 +59,7 @@ function makeDelver(w, G, S, id, name, opts) {
   const elder = (S.npcs || []).find((n) => n.id === 'elder');
   p.x = elder.x; p.y = elder.y;
   w.resolveInteract(id, 'elder');
-  if (!p.quests && !S.quests.talk.done) throw new Error('setup: the Elder did not take');
+  if (!(p.quests ? p.quests.talk.done : (S.quests && S.quests.talk.done))) throw new Error('setup: the Elder did not take');   // P2/S13: quests live on the hero (root fallback kept for pre-move engines)
 
   // REAL: collect a world key (checkPickups runs inside updatePlayer's per-player phase).
   // setupOverworld places exactly ONE, so for a SECOND hero we re-add a deep copy of the real
@@ -225,6 +225,8 @@ const TESTS = {
     row.v = 1;
     delete row.player.enteredDungeon; delete row.player.gotKey; delete row.player.enteredFrozen;
     delete row.flags; delete row.quests; delete row.maxDepth; delete row.bounty;
+    if (row.player) { delete row.player.quests; delete row.player.maxDepth; delete row.player.bounty; }   // P2/S13/S12: a modern row carries them IN the player slice — a faithful v1 row has them NOWHERE
+    delete row.schemaVersion;
     row.player.level = 45; row.inventory.keys = 16;
     const p = w.addPlayer('P1', 'Owner', row);
     for (let i = 0; i < 5; i++) w.tick();

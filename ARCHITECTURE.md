@@ -83,22 +83,29 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   number and the wholesale-replaced object — now written on `p` directly; both fold into the
   save's player slice, `characterOf`'s top-level copies are gone, and the client re-stamps its
   last adopted bounty across each me-adopt since bounty stays out of `safeClone`);
-  ONE key remains (quests — its slice retires this machinery entirely). A
-  retired key follows the player-scalar rule below instead. `activeStock` and `bounty` are the
-  two retired keys deliberately SKIPPED by `safeClone` — the rolled stock rides the single
-  `shopData` payload and the contract rides the version-gated quest payload, never `me` at 66 Hz.)
-- **`S.player` and the PP slice must be swapped TOGETHER.** Every site that pins `S.player = p`
-  must also `swapInPP(p)` — the enemy partition, the allies/warband partitions (both worlds), and
-  the spawn pass. `killEnemy` writes `state.quests.slay` / a boss-drop key into *whatever slice
-  is swapped in* (and `bountyProgress()`/gold onto the PINNED `state.player` since S12), so a
-  bare `S.player = p` silently credits the previous phase's hero.
+  and S13 took QUESTS itself — the LAST key. **PP_KEYS is EMPTY**: the `S.player` pin IS the
+  whole swap now; swapInPP/writeBackPP and their call sites are inert and die in S14 with the
+  RPC runAs conversion. A retired key follows the player-scalar rule below instead.
+  `activeStock`, `bounty` and `quests` are the three retired keys deliberately SKIPPED by
+  `safeClone` — the rolled stock rides the single `shopData` payload and the contract + the
+  quest box ride the version-gated quest payload, never `me` at 66 Hz.)
+- **`S.player` is the acting context — pin it (with `S.inventory`) before running game fns as a
+  hero.** Since P2/S13 every per-hero key (quests included) lives ON the player object, so the pin
+  IS the whole swap: `killEnemy` writes `state.player.quests.slay` / a boss-drop key /
+  `bountyProgress()`/gold onto the PINNED hero by construction. A stale pin still credits the
+  previous phase's hero — the partitions exist to keep the pin right per bucket.
   (This is why `updateProjectiles` is bucketed by shooter — see below.)
-- **The questline is PER-PLAYER** (`quests` as the last PP slice; `maxDepth`/`bounty` as
-  player fields since S12), because every intro-quest retire
-  condition reads per-player state (your level, your keys, your kills, your Elder visit). It rides
-  the per-character save, so it survives a scale-to-zero with no world-persistence layer. The three
-  quests that track WORLD OBJECTS — `main` (Kraken), `frozen` (Cache), `legion` (the war) — are
-  **aliased**: one sub-object shared by reference into every player's `quests`, re-aliased on load.
+- **The questline is PER-PLAYER and lives ON the player** (`p.quests`, like `maxDepth`/`bounty`
+  since S12 — P2/S13 finished the move; snapshot v7 carries it in the player block), because every
+  intro-quest retire condition reads per-player state (your level, your keys, your kills, your
+  Elder visit). It rides the per-character save (`characterOf` → `player.quests`; migrateCharacter
+  folds old rows' top-level copies), so it survives a scale-to-zero with no world-persistence
+  layer. The three quests that track WORLD OBJECTS — `main` (Kraken), `frozen` (Cache), `legion`
+  (the war) — are **aliased**: one sub-object shared by reference into every player's `quests`,
+  re-attached on every join/load through the GAME's own `aliasSharedQuests` (beside `party()` —
+  anchor = players[0]'s box, else the boot hero's; SP never calls it). A private copy of a shared
+  quest silently FORKS the room's war — the mp-golden object-identity assert
+  (`A.quests.legion === B.quests.legion`, personal keys forked) guards exactly that.
   They are exactly the sub-objects the shared-phase systems read (`updateNemesisPresence`/
   `defeatNemesis` read `quests.legion` under `players[0]`), and they deliberately do NOT persist —
   the world regenerates each boot, so they reset with what they describe. Save rows are versioned
@@ -121,8 +128,8 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   before calling `snapshot()`) saves it, `_loadCharacter`'s `Object.assign(p, c.player)` restores it,
   `safeClone` rides it on `me`, and the client's wholesale `S.player = snap.me` adopts it. Those are
   exactly the four links this bug class kept slipping through (`lastRestDay`, the old root
-  `maxDepth`, `flags`). Use a `state.X` PP slice only when the game genuinely keeps the state
-  there (`quests` is the one key left doing so).
+  `maxDepth`, `flags`). There is NO `state.X` per-player slice left
+  (S13 retired the last one, `quests`); new per-player state is a player field, full stop.
 - **The client REBUILDS `state.enemies` from fresh JSON every snapshot** (`S.enemies = snap.enemies`
   in mp.html). So an enemy CANNOT remember anything across frames on the client — any per-enemy
   memory (hysteresis, smoothing, a latched facing bit) **must be authored server-side as an enemy
@@ -177,13 +184,13 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   `state.player` from world code (at the day tick it's whatever the previous tick left pinned —
   scale to the party via `state._partyLevel || state.player.level`, the `legionDaily` idiom).
   `actAs(p, fn)` (in the game, beside `party()`) pins ONLY `state.player`/`state.inventory` —
-  an `actAs` body must not touch a PP-slice `state.<key>`; those still ride `swapInPP` until
-  their retirement slices.
+  since P2/S13 (quests, the last PP key, retired) that pin IS the whole per-hero context.
 - **Projectiles are partitioned by SHOOTER** (`_projectilesByShooter`, both worlds), not run once
   under `players[0]`. `updateProjectiles` re-pins `state.player` to each friendly shot's `ownerRef`
-  *itself* (so hits credit the shooter) — a swap at the call site cannot follow a swap that happens
-  per projectile inside the loop, so the PP slice has to be right per bucket or every ranged/magic
-  kill in the room credits `players[0]`'s quests/bounty. Hostile + unowned shots ride one final pass
+  *itself* (so hits credit the shooter) — and since P2/S13 every per-hero key rides that pinned
+  player object, the re-pin IS the full acting context (killEnemy's quest/bounty credit lands on
+  the shooter by construction; the owner buckets remain — they fix the projectile STEP ORDER per
+  owner, part of the determinism contract the 2p baselines freeze). Hostile + unowned shots ride one final pass
   under `pool[0]`, and their player-hit test loops `partyIn()` itself (P2/S3) — every hero of the
   swapped-in world is a target, downed heroes are spared. With nobody in that world the shots are
   left parked — running them under a stale `state.player` let an overworld arrow hit-test a hero in
@@ -198,9 +205,9 @@ players via `lightPlayer` (includes `sailing`/`mounted` flags), interest-culled
 enemies/allies/npcs/pickups.
 
 **Edge-triggered extras** (sent only on change, tracked by per-player counters): the event
-feed (`_feedSeen`), quest state (`_qSeen` vs `_qN` — **both per-player**, since the questline is a
-PP slice; the `S.time % 40` stamp loops over `S.players` and stringifies each `p`, never `S.quests`,
-which outside the rotation is just whichever hero was swapped in last), the Dread Legion roster
+feed (`_feedSeen`), quest state (`_qSeen` vs `_qN` — **both per-player**, since the questline is
+per-hero; the `S.time % 40` stamp loops over `S.players` and stringifies each `p.quests` directly —
+root `state.quests` no longer exists, P2/S13), the Dread Legion roster
 (`_lgSeen` vs `_lgN`), and the dungeon tile grid (`_sentDgN` vs `_mapSwitchN`). Anything
 edge-triggered ALSO needs a **join seed in `welcome`** (`legionPayload`/`questPayload`) — see the
 takeover note below. Payload builders are pure reads: consuming the `_seen` edge inside one cancels
@@ -259,7 +266,9 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
   the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
   seenHeatTip; S6: hasBoat/wayfind; S7: shopPurchased/cargo/fishCd/lastRestDay; S8:
   ingredients; S10: sailing/dragon — drawOthers now stamps the TEMP hero object with the
-  remote op's flight instead of overriding root keys; S11: factions/loreFound; S12: maxDepth),
+  remote op's flight instead of overriding root keys; S11: factions/loreFound; S12: maxDepth;
+  S13: quests — adoptQuests stamps `G.state.player.quests` and the reconcile CARRIES it across
+  the wholesale me-adopt exactly like bounty, since `safeClone` skips it),
   its old adopt line must be DELETED, or panels read a stale ghost `state.X`. (S11's loreFound
   and S12's bounty/maxDepth are the REPOINTED adopts, not deletions: adoptQuests stamps
   `G.state.player.*` from the gated quest payload so the box repaint in ws.onmessage never races

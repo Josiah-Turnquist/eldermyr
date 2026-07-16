@@ -49,9 +49,14 @@ function applySnapshot(s) {
   state.inventory = s.inventory;
   state.inventory.weapons.forEach((w) => normItem(w, true));
   state.inventory.armor.forEach((a) => normItem(a, false));
-  state.quests = s.quests;
-  if (!state.quests.frozen)
-    state.quests.frozen = { name: 'Plunder the Frozen Cache', done: false, hidden: true };
+  /* P2/S13 player-carried QUESTLINE (same doctrine as every move below): a new save holds it
+     in s.player (the Object.assign above already landed it); a pre-move save at the root —
+     read back LOSSLESSLY, explicit so a stale session box can never survive loading an old
+     save. The old wholesale `state.quests = s.quests` becomes the same wholesale replace on
+     the player. */
+  p.quests = s.player.quests !== undefined ? s.player.quests : s.quests;
+  if (!p.quests.frozen)
+    p.quests.frozen = { name: 'Plunder the Frozen Cache', done: false, hidden: true };
   {
     const _of = s.flags || {};
     state.flags = { krakenDead: !!_of.krakenDead, legionBroken: !!_of.legionBroken };
@@ -163,10 +168,10 @@ function applySnapshot(s) {
   p.dragon = s.player.dragon !== undefined ? s.player.dragon : s.dragon || { tamed: false, mounted: false };
   p.dragon.mounted = false;
   state.dragonRespawnDay = s.dragonRespawnDay || null;
-  if (!state.quests.dragon)
-    state.quests.dragon = { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true };
-  if (!state.quests.legion)
-    state.quests.legion = {
+  if (!p.quests.dragon)
+    p.quests.dragon = { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true };
+  if (!p.quests.legion)
+    p.quests.legion = {
       started: false,
       stage: 'none',
       camps: 0,

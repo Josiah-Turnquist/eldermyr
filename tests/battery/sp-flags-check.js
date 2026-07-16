@@ -26,7 +26,7 @@ const ok = (n, c, info) => { (c ? pass++ : fail++); console.log(`${c ? 'PASS' : 
 S.player.enteredDungeon = true; S.player.gotKey = true; S.player.enteredFrozen = true;
 S.flags.krakenDead = true; S.flags.legionBroken = true;
 const v6 = JSON.parse(JSON.stringify(G.snapshot()));
-ok('v6 snapshot: version bumped', v6.v === 6, 'v=' + v6.v);
+ok('snapshot version stamp: v7 since P2/S13 (v6 milestones + the player-carried questline)', v6.v === 7, 'v=' + v6.v);
 ok('v6 snapshot: milestones ride the PLAYER slice', v6.player.enteredDungeon === true && v6.player.gotKey === true && v6.player.enteredFrozen === true,
   JSON.stringify({ d: v6.player.enteredDungeon, k: v6.player.gotKey, f: v6.player.enteredFrozen }));
 ok('v6 snapshot: flags carry the WORLD facts only', v6.flags.krakenDead === true && v6.flags.legionBroken === true
@@ -322,6 +322,36 @@ G.applySnapshot(s12);
 ok('S12 round-trip: the depth record + the accepted contract survive save→load',
   S.player.maxDepth === 31 && S.player.bounty && S.player.bounty.progress === 4 && S.player.bounty.reward === 800,
   JSON.stringify({ d: S.player.maxDepth, b: S.player.bounty }));
+
+// ---------------------------------------------------------------- 2j. THE pre-S13 → S13 RELOCATION
+// P2/S13 moved the QUESTLINE itself — the FINAL state.X key — from state.quests into the player
+// slice (snapshot v7). Same doctrine as 2b-2i: a pre-move save holds the box at the ROOT; the
+// load reads it back LOSSLESSLY — or every migrated hero re-sees the intro ("Speak to the
+// Elder" at level 45, the exact v2.57.0 regression class this whole chain exists to prevent).
+const preS13 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS13.player.quests;
+preS13.v = 6;
+preS13.quests = JSON.parse(JSON.stringify(G.state.player.quests));   // the old root spot
+preS13.quests.talk.done = true; preS13.quests.slay.count = 5; preS13.quests.slay.done = true;
+preS13.quests.legion.started = true; preS13.quests.legion.stage = 'keeps'; preS13.quests.legion.sealstones = 2;
+S.player.quests.talk.done = false; S.player.quests.slay.count = 0; S.player.quests.slay.done = false;   // stale session values a load must replace
+G.applySnapshot(preS13);
+ok('pre-S13 save (v6): the root quest box lands LOSSLESSLY on the player',
+  S.player.quests.talk.done === true && S.player.quests.slay.count === 5 && S.player.quests.slay.done === true
+  && S.player.quests.legion.stage === 'keeps' && S.player.quests.legion.sealstones === 2,
+  JSON.stringify({ talk: S.player.quests.talk.done, slay: S.player.quests.slay, legion: S.player.quests.legion.stage }));
+// …and the S13 shape round-trips: the box rides the player slice, never the root, stamped v7
+S.player.quests.legion.stage = 'overlord'; S.player.quests.legion.seatRegion = 4; S.player.quests.frozen.done = true;
+const s13 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S13 snapshot (v7): quests ride the PLAYER slice, root is clean',
+  s13.v === 7 && s13.player.quests && s13.player.quests.legion.stage === 'overlord' && s13.player.quests.frozen.done === true
+  && s13.quests === undefined,
+  JSON.stringify({ v: s13.v, stage: s13.player.quests && s13.player.quests.legion.stage, root: s13.quests === undefined ? 'absent' : 'PRESENT' }));
+S.player.quests.legion.stage = 'none'; S.player.quests.frozen.done = false;
+G.applySnapshot(s13);
+ok('S13 round-trip: the questline survives save→load off the player slice',
+  S.player.quests.legion.stage === 'overlord' && S.player.quests.legion.seatRegion === 4 && S.player.quests.frozen.done === true,
+  JSON.stringify({ stage: S.player.quests.legion.stage, seat: S.player.quests.legion.seatRegion, frozen: S.player.quests.frozen.done }));
 
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a

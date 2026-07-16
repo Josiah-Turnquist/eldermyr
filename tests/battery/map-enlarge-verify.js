@@ -196,7 +196,9 @@ let scErr = null, playerAtC0 = false, holdIdx = false, snapNoXY = false, noOOB =
 try {
   // a real old save carries the ancient quest set (key/talk/…) — capture the live one (complete) so the
   // wayfinder's currentObjective (reads q.key.hidden, not backfilled by applySnapshot) stays valid.
-  const savedQuests = JSON.parse(JSON.stringify(S.quests));
+  // (P2/S13: the live box rides the player; the forged v5 row below keeps it at the ROOT — era-honest,
+  // and it exercises applySnapshot's root fallback.)
+  const savedQuests = JSON.parse(JSON.stringify(S.player.quests));
   const oldSnap = {
     v: 5,
     player: { hp: 44, maxHp: 44, xp: 3, xpNext: 20, level: 1, gold: 25, speed: 1.6, atkHaste: 0, energy: 100, maxEnergy: 100, skillPoints: 0, bonusAtk: 0, bonusDef: 0, abilities: {}, prof: { melee: { lvl: 1, xp: 0, next: 12 }, ranged: { lvl: 1, xp: 0, next: 12 }, magic: { lvl: 1, xp: 0, next: 12 } } }, // NOTE: no x, no y (old frame)

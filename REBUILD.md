@@ -415,6 +415,45 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   CONSTRUCTION now (no slice left to desync). quests(53) + SHARED_QUESTS aliasing stands alone as the final
   per-key slice (the object-identity assert in mp-golden + the v7 stamp land there). ARCHITECTURE.md:
   PP_KEYS chronicle + killEnemy pin bullet + adopt-list S12 carry note + safeClone skip-list note.
+- 2026-07-16: P2/S13 DONE — per-key retirement #9, THE QUEST SLICE (the plan's #1-riskiest conversion;
+  final shared-key slice): quests(50 game sites) moved onto state.player (game literal → PLAYER_TEMPLATE
+  seeds MP heroes; killEnemy-slay/key-drop, checkPickups, frozen-crossing/cache, tameDragon, victory,
+  startDialogue-elder, legion war fns ×8, updateQuests, currentObjective, minimap-seat read p.quests —
+  the acting pin IS the credit now). SHARED-vs-PERSONAL partition per plan: main/frozen/legion stay ONE
+  object per room, re-attached through the GAME's new `aliasSharedQuests` (p22 beside party()/actAs —
+  the sim's load/join seam; anchor = players[0]'s box else the boot hero's; SP never calls it; CAPTURE
+  entry added); talk/key/slay/dragon genuinely fork per hero. Save: snapshot **v7** (the stamp lands
+  here per plan §3) with quests in the player block + applySnapshot player-first/root-fallback;
+  characterOf's top-level quests DIES (rides snap.player) with migrate.js S13 fold (normalize-then-place:
+  the v1 synthesis + template-merge applies wherever the row carried the box; playerless blobs keep
+  top-level); world.js elder-advance reads p.quests; **PP_KEYS is now []** — swapInPP/writeBackPP inert
+  (deletion = S14 per plan). mp.html: adoptQuests stamps state.player.quests (risk #7) + the reconcile
+  gains the quests CARRY (never rides `me`; safeClone already skipped it). REMAP +1 (21 — the header's
+  own worked example) — golden 1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt
+  exactly @700). mp-golden: delta proven EXACTLY intended before re-record — old-shape masking view (root
+  quests re-presented BY REFERENCE from the pinned hero, boot-literal hidden at sample 0, hashed under
+  the 20 pre-S13 entries) reproduces the pre-S13 oracle BYTE-FOR-BYTE at all 124 samples; native diverges
+  @sample 1 on all 4 (shape only; sample 0 = the boot-literal-pin precedent) — then conscious re-record,
+  mp-check 4/4 + mp-prove all green. THE OBJECT-IDENTITY ASSERT (plan risk #4) lives in BOTH the recorded
+  scenario (mp-overworld-combat postTick every 500t: main/frozen/legion === across heroes AND personal
+  keys forked) and quest-pp-verify T4 — SEEN FAILING against a deliberately-forked scratch build
+  (aliasSharedQuests neutered): scenario throws "quests.main FORKED across heroes" @t=0, T4
+  mainAliased/legionAliased/frozenAliased all false. Battery 41/41 (migrate-roundtrip now 160 asserts);
+  new/changed asserts SEEN FAILING vs a pre-S13 HEAD-cfcb06a worktree (own dist): 7 migrate fold asserts
+  + crash at the hand-literal probe (before the 20≠21 REMAP pin), sp-flags-check v7 stamp + crash at the
+  §2j shape probe, quest-verify crash (evaled updateQuests reads player.quests), flags-pp-verify T1 via
+  objclient's carriesQuestsAcrossAdopt/adoptStampsPlayerQuests probes, quest-pp T1b-T5 (qrender capture
+  crash). World self-test + typecheck green; live browser smoke (MP + SP off the same dist): join clean,
+  0 console errors, ZERO root ghosts surviving reconciles, quest box renders off state.player.quests and
+  survives 3 s of reconciles (the carry), objective diamond over the Elder, REAL Elder [E] → dialogue +
+  talk personal/legion shared + box repaint through the gated payload, a fresh joiner's box showed the
+  FIRST hero's shared frozen-reveal (room aliasing live on the wire), SP new-game elder + wayfinder
+  ("🗝 The Dungeon Key") + v7 snapshot/applySnapshot round-trip clean. Conscious MP deltas: NONE
+  behavioral (quests was already per-player via PP) — a pure carrier move; killEnemy/projectile/ally/
+  companion quest credit rides the pinned hero BY CONSTRUCTION (no slice left to desync). S14 (RPC runAs
+  + machinery deletion) is now the whole of the swap cleanup. ARCHITECTURE.md: 8 bullets rewritten
+  (pin-is-the-swap, questline-on-player + alias seam, no-PP-slice-left rule, projectile re-pin, adopt
+  list S13 carry).
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).
