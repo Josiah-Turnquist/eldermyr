@@ -75,10 +75,11 @@ if (!global.window) global.window = {};
 global.window.updateQuests = () => {};
 const adoptQuests = eval('(' + ADOPT_SRC + ')');   // eslint-disable-line no-eval
 
-// The two reconcile lines below are reproduced by hand — assert the shipped client really does them.
+// The reconcile lines below are reproduced by hand — assert the shipped client really does them.
 const RECONCILE_SRC = {
   adoptsMeWholesale: /S\.player\s*=\s*snap\.me\s*;/.test(MP),
-  adoptsMaxDepth: /if \(snap\.me\.maxDepth != null\) S\.maxDepth = snap\.me\.maxDepth;/.test(MP),
+  carriesBountyAcrossAdopt: /const _pb = S\.player\.bounty;/.test(MP) && /S\.player\.bounty = _pb \|\| null;/.test(MP),   // P2/S12: bounty is gated-only (never rides `me`) — the reconcile must carry the last adopted contract across the wholesale adopt
+  noGhostMaxDepthAdopt: !/S\.maxDepth = snap\.me\.maxDepth/.test(MP),   // P2/S12: maxDepth rides `me` ON the player — the old explicit root adopt must be GONE (risk #7)
   callsObjective: /G\.currentObjective\s*&&\s*G\.currentObjective\(\)/.test(MP),
   namesHasObjective: /'currentObjective'/.test(MP),
 };
@@ -96,17 +97,19 @@ function clientObjective(snap) {
   st.quests = JSON.parse(JSON.stringify(DEFAULT_STATE.quests));
   st.player = JSON.parse(JSON.stringify(DEFAULT_STATE.player));
   st.inventory = JSON.parse(JSON.stringify(DEFAULT_STATE.inventory));
-  st.map = 'overworld'; st.maxDepth = 0; st.holdings = []; st.npcs = []; st.pickups = []; st.bounty = null;
+  st.map = 'overworld'; st.holdings = []; st.npcs = []; st.pickups = [];
   if (st.player) st.player.loreFound = [];   // P2/S11: loreFound lives on the player (st.player is re-cloned from the boot default above, which already carries [])
+  if (st.player) { st.player.maxDepth = 0; st.player.bounty = null; }   // P2/S12: maxDepth/bounty live on the player too (the re-clone already seeds them; explicit for scenario isolation — no root ghosts)
   st.flags = { krakenDead: false, legionBroken: false, enteredDungeon: false, gotKey: false, enteredFrozen: false };   // a fresh page's flags (pre-fix: the client GENERATES these; they are never on the wire)
   errors.length = 0;
   // --- ws.onmessage: the edge-triggered quest payload ---
   adoptQuests(snap);
   // --- the frame loop's reconcile (client/mp.html) ---
   if (snap.me) {
+    const _pb = st.player.bounty;   // P2/S12 mirror: the shipped reconcile carries the contract across the wholesale adopt (bounty never rides `me`)
     st.player = snap.me;
     if (snap.me.inventory) st.inventory = snap.me.inventory;
-    if (snap.me.maxDepth != null) st.maxDepth = snap.me.maxDepth;
+    st.player.bounty = _pb || null;
   }
   let o = null;
   try { o = CG.currentObjective(); } catch (e) { errors.push('currentObjective: ' + e.message); }

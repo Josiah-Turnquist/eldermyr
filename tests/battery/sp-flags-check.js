@@ -295,6 +295,34 @@ ok('S11 round-trip: standings + read stones survive save→load',
   && JSON.stringify(S.player.loreFound) === '[1,6]',
   JSON.stringify({ fac: S.player.factions, lore: S.player.loreFound }));
 
+// ---------------------------------------------------------------- 2i. THE pre-S12 → S12 RELOCATION
+// P2/S12 moved maxDepth (the deepest-depth record) + bounty (the accepted Bounty-Board contract)
+// from state.X into the player slice — the last two PP keys before quests. Same doctrine as
+// 2b-2h: a pre-move save holds both at the ROOT; the load reads them back LOSSLESSLY — or every
+// migrated hero forgets his depth (depth bounties re-scale to Depth 3, Delver's Insight re-pays)
+// and loses his live contract.
+const preS12 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS12.player.maxDepth; delete preS12.player.bounty;
+preS12.maxDepth = 23;                                           // the old root spots
+preS12.bounty = { type: 'depth', target: 26, progress: 23, reward: 950, loot: true, desc: 'Delve to dungeon Depth 26' };
+S.player.maxDepth = 0; S.player.bounty = null;                  // stale session values a load must replace
+G.applySnapshot(preS12);
+ok('pre-S12 save: root maxDepth/bounty land LOSSLESSLY on the player',
+  S.player.maxDepth === 23 && S.player.bounty && S.player.bounty.target === 26 && S.player.bounty.reward === 950,
+  JSON.stringify({ d: S.player.maxDepth, b: S.player.bounty && S.player.bounty.desc }));
+// …and the S12 shape round-trips: both ride the player slice, never the root
+S.player.maxDepth = 31; S.player.bounty = { type: 'cull', target: 40, progress: 4, reward: 800, desc: 'Cull the wilds: slay 40 foes' };
+const s12 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S12 snapshot: maxDepth/bounty ride the PLAYER slice, root is clean',
+  s12.player.maxDepth === 31 && s12.player.bounty && s12.player.bounty.target === 40
+  && s12.maxDepth === undefined && s12.bounty === undefined,
+  JSON.stringify({ p: { d: s12.player.maxDepth, b: s12.player.bounty && s12.player.bounty.type }, rootD: s12.maxDepth, rootB: s12.bounty }));
+S.player.maxDepth = 0; S.player.bounty = null;
+G.applySnapshot(s12);
+ok('S12 round-trip: the depth record + the accepted contract survive save→load',
+  S.player.maxDepth === 31 && S.player.bounty && S.player.bounty.progress === 4 && S.player.bounty.reward === 800,
+  JSON.stringify({ d: S.player.maxDepth, b: S.player.bounty }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).
@@ -308,7 +336,7 @@ const calls = (game.match(/(?<!function )(?<!get )\benterDungeon\(\)/g) || []).l
 const insideTry = /state\.player\.enteredDungeon = true;\s*\}\s*enterDungeon\(\);/.test(game);
 ok('currentObjective\'s new maxDepth clause is a no-op in SP: enterDungeon() has exactly ONE call site…', calls === 1, 'callSites=' + calls);
 ok('…and it is inside tryEnterDungeon, AFTER the milestone is set (so maxDepth>0 ⇒ enteredDungeon)', insideTry);
-ok('the wayfinder gate reads the PLAYER milestone, not the shared flags', /!state\.player\.enteredDungeon && !\(state\.maxDepth > 0\)/.test(game));
+ok('the wayfinder gate reads the PLAYER milestone, not the shared flags', /!state\.player\.enteredDungeon && !\(state\.player\.maxDepth > 0\)/.test(game));   // P2/S12: the depth clause reads the player too
 ok('no personal milestone is left on state.flags anywhere in the game file',
   !/state\.flags\.(enteredDungeon|gotKey|enteredFrozen)/.test(game));
 ok('the WORLD facts are still on the shared state.flags',

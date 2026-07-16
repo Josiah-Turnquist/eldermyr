@@ -451,22 +451,22 @@ function rollBounty() {
     };
   return {
     type: 'depth',
-    target: state.maxDepth + 3,
-    progress: state.maxDepth,
+    target: state.player.maxDepth + 3,
+    progress: state.player.maxDepth,
     reward: 260 + lvl * 30,
     loot: true,
-    desc: `Delve to dungeon Depth ${state.maxDepth + 3}`,
+    desc: `Delve to dungeon Depth ${state.player.maxDepth + 3}`,
   };
 }
 function openBounty() {
   const p = state.player;
-  const b = state.bounty;
+  const b = p.bounty; /* P2/S12: the contract lives ON the player — the acting hero accepts/claims his own */
   if (!b) {
-    state.bounty = rollBounty();
+    p.bounty = rollBounty();
     updateQuests();
     Sound.blip();
     log(
-      `Bounty accepted — ${state.bounty.desc}. Reward: ${state.bounty.reward} gold${state.bounty.sp ? ' + a skill point' : ''}${state.bounty.loot ? ' + rare loot' : ''}.`,
+      `Bounty accepted — ${p.bounty.desc}. Reward: ${p.bounty.reward} gold${p.bounty.sp ? ' + a skill point' : ''}${p.bounty.loot ? ' + rare loot' : ''}.`,
       'quest',
     );
     saveGame();
@@ -497,7 +497,7 @@ function openBounty() {
     );
     addRep('vigil', 6);
     addRep('dread', 3);
-    state.bounty = null;
+    p.bounty = null;
     updateQuests();
     updateHUD();
     saveGame();
@@ -510,12 +510,12 @@ function openBounty() {
   );
 }
 function bountyProgress(kind, e) {
-  const b = state.bounty;
+  const b = state.player.bounty; /* P2/S12: player-carried — a kill credits the PINNED hero's own contract (every kill path pins state.player to the crediting hero), a descend credits the descender's */
   if (!b || b.progress >= b.target) return;
   const was = b.progress;
   if (b.type === 'cull' && kind === 'kill' && !(e && e.isBoss)) b.progress++;
   else if (b.type === 'elite' && kind === 'kill' && e && e.elite) b.progress++;
-  else if (b.type === 'depth' && kind === 'depth') b.progress = Math.max(b.progress, state.maxDepth);
+  else if (b.type === 'depth' && kind === 'depth') b.progress = Math.max(b.progress, state.player.maxDepth);
   if (b.progress >= b.target && was < b.target) {
     log(`Bounty ready to claim at a Bounty Board: ${b.desc}!`, 'good');
     updateQuests();
@@ -618,7 +618,7 @@ function enterDungeon() {
   }
   saveOverworld();
   state.dungeonLevel = 1;
-  state.maxDepth = Math.max(state.maxDepth, 1);
+  state.player.maxDepth = Math.max(state.player.maxDepth, 1); /* P2/S12: the depth record is the delver's own */
   setupDungeonFloor(1);
   Sound.descend();
   Sound.startMusic('dungeon');

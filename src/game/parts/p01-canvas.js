@@ -282,6 +282,15 @@ let state = {
     // scholar no longer strips every other hero's discovery XP and quest-log count).
     factions: { vigil: 0, wilds: 0, dread: 0 },
     loreFound: [],
+    // PER-HERO QUESTLINE SCALARS (P2/S12) — same Pillar-1 carrier again, retiring the last two
+    // PP_KEYS before quests itself. maxDepth = the deepest dungeon depth THIS hero has reached
+    // (Delver's Insight first-time XP, depth-bounty scaling, the victory/death score and the
+    // quest-log "Deepest depth" line all read it). bounty = the Bounty-Board contract THIS hero
+    // has accepted (openBounty replaces it wholesale; killEnemy's bountyProgress credits the
+    // pinned killer). Both persist via snapshot()'s whitelist/characterOf; maxDepth rides `me`
+    // in MP while bounty stays in the version-gated quest payload (safeClone skips it).
+    maxDepth: 0,
+    bounty: null,
   },
   inventory: {
     weapons: [
@@ -307,7 +316,7 @@ let state = {
   projectiles: [],
   owSave: null,
   dungeonLevel: 0,
-  maxDepth: 0,
+  // (maxDepth moved onto state.player — P2/S12: see the player literal above)
   dungeonEntrance: { tx: 168, ty: 196 },
   spawnTimer: 120,
   maxWildEnemies: 46,
@@ -317,7 +326,7 @@ let state = {
   pois: [],
   holdings: [],
   companions: [],
-  bounty: null,
+  // (bounty moved onto state.player — P2/S12: see the player literal above)
   // (factions/loreFound moved onto state.player — P2/S11: see the player literal above)
   allies: [],
   // (hasBoat/wayfind moved onto state.player — P2/S6; sailing — P2/S10: see the player literal above)

@@ -81,6 +81,11 @@ export const REMAP = [
   // loreFound OBJECTS are emitted once at the root spot, exactly the pre-move stream):
   { from: 'state.player.factions', to: 'state.factions' },
   { from: 'state.player.loreFound', to: 'state.loreFound' },
+  // P2/S12 — deepest-depth + the accepted bounty moved onto the player (plan §7 group 8;
+  // the LAST PP_KEYS before quests — identity-preserving like the dragon entry: a live
+  // bounty OBJECT is emitted once at the root spot, exactly the pre-move stream):
+  { from: 'state.player.maxDepth', to: 'state.maxDepth' },
+  { from: 'state.player.bounty', to: 'state.bounty' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

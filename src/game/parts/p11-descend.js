@@ -1,8 +1,8 @@
 function descend() {
   const prevTheme = dungeonTheme(state.dungeonLevel);
-  const prevMax = state.maxDepth;
+  const prevMax = state.player.maxDepth; /* P2/S12: player-carried — Delver's Insight pays each hero's OWN first visit */
   state.dungeonLevel++;
-  state.maxDepth = Math.max(state.maxDepth, state.dungeonLevel);
+  state.player.maxDepth = Math.max(state.player.maxDepth, state.dungeonLevel);
   bountyProgress('depth');
   setupDungeonFloor(state.dungeonLevel);
   Sound.descend();

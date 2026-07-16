@@ -377,6 +377,44 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   party-news events pay every hero, the world reacts to the party's extreme member, both keys now SURVIVE
   reboots (never persisted before), and every hero re-earns standings/stones once at migration (no source).
   ARCHITECTURE.md: PP_KEYS bullet + NEW reputation-seams bullet + adopt-list S11 note.
+- 2026-07-16: P2/S12 DONE — per-key retirement #8 (the LAST before quests): maxDepth + bounty moved onto
+  state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; rollBounty/openBounty/bountyProgress/
+  enterDungeon/descend/currentObjective/quest-log/computeScore/recordRun/victory/gameOver read p.*;
+  PP_KEYS 3→1 (quests only), writeBackPP's two founding-hazard lines dropped (the Math.max NUMBER and the
+  wholesale-replaced OBJECT — the mirror's whole reason to exist — are structurally dead: the game writes p
+  directly), addPlayer seeds → template; world.js _enterRift bumps p.maxDepth, _doInstant openBounty reads
+  p.bounty under the caller's pin). Save: snapshot player-block + applySnapshot player-first/root-fallback,
+  field-keyed, NO v bump; characterOf's top-level maxDepth/bounty DIE (ride snap.player) with migrate.js S12
+  fold (old-chain normalization preserved: clamped int / falsy→null / v1 forced 0/null; top-level copies
+  deleted, MOVE not dual-write); _loadCharacter's explicit assigns dropped (Object.assign lands them).
+  mp.html: adoptQuests stamps state.player.bounty/maxDepth (REPOINTED, not deleted — the ws.onmessage box
+  repaint + the me-less welcome/takeover seed); the reconcile's ghost S.maxDepth adopt DELETED per risk #7
+  (maxDepth rides `me` ON the player — the wholesale adopt IS the adoption) and bounty gains the CARRY
+  (captured before the wholesale me-adopt, re-stamped after — it never rides `me`, safeClone skips it: the
+  S6 wayfind inversion by carry instead of a second local, keeping objclient's verbatim-eval of adoptQuests
+  working). Golden dungeon scenario's descend-mirror writes p.maxDepth; harness summary reads player-first.
+  REMAP +2 (now 20) — golden 1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt
+  exactly @700). mp-golden: delta proven EXACTLY intended before re-record — (a) old-shape masking view
+  (18 pre-S12 entries + root maxDepth/bounty re-presented from the pinned hero, KEPT inline on roster heroes
+  / hidden on the boot literal, since pre-S12 heroes always carried both keys; 0/null uniformity asserted at
+  every sample so the recovery can't prove vacuously) reproduces the pre-S12 oracle BYTE-FOR-BYTE at all 124
+  samples, (b) native diverges @sample 1 on all 4 (shape only; sample 0 = the boot-literal-pin-is-the-
+  remap-view precedent), (c) old-vs-new engine per-hero end-state summaries IDENTICAL on all 4 trajectories
+  — then conscious re-record, mp-check 4/4 + mp-prove all green. Battery 41/41; new asserts SEEN FAILING vs
+  a pre-S12 HEAD-70fcfb2 worktree (own dist): 21 total — 14 migrate-roundtrip (7 fold fixtures + 4 literal
+  blocks + REMAP pin 18≠20 + characterOf S12 emission + contract-survives-reboot), 4 sp-flags-check §2i
+  (root-fallback/S12-shape/round-trip + the wayfinder-gate regex), 1 flags-pp-verify T-case via objclient's
+  carriesBountyAcrossAdopt/noGhostMaxDepthAdopt probes, 2 quest-verify (D3: the old openBounty wrote root
+  state.bounty; E4: no player.maxDepth on the row). World self-test + typecheck green; live browser smoke
+  (MP + SP off the same dist): join clean, 0 console errors, ZERO root ghosts surviving reconciles, real
+  walk-to-board [E] accept → gated payload → quest box renders the contract off state.player.bounty and
+  SURVIVES 3 s of reconciles (the carry), fresh-page reload clean; SP real-DOM accept (Depth-3 bounty
+  correctly scaled off p.maxDepth 0) → claim pays out → "Deepest depth: 17" renders off p.maxDepth +
+  snapshot/applySnapshot round-trip clean. Conscious MP deltas: NONE behavioral (both keys were already
+  per-player via the PP swap) — a pure carrier move; killEnemy's bounty credit rides the pinned killer BY
+  CONSTRUCTION now (no slice left to desync). quests(53) + SHARED_QUESTS aliasing stands alone as the final
+  per-key slice (the object-identity assert in mp-golden + the v7 stamp land there). ARCHITECTURE.md:
+  PP_KEYS chronicle + killEnemy pin bullet + adopt-list S12 carry note + safeClone skip-list note.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

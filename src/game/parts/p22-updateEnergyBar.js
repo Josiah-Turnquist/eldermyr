@@ -75,8 +75,8 @@ function updateQuests() {
         : 'Fly beyond the western peaks & slay the Mountain Kraken',
       done: q.main.done,
     });
-  if (state.bounty) {
-    const b = state.bounty;
+  if (state.player.bounty) {
+    const b = state.player.bounty; // P2/S12: YOUR contract
     const done = b.progress >= b.target;
     items.push({
       t: `Bounty: ${b.desc} (${Math.min(b.progress, b.target)}/${b.target})` + (done ? ' — claim it!' : ''),
@@ -88,7 +88,7 @@ function updateQuests() {
       t: `Realm-stones discovered: ${state.player.loreFound.length}/9`, // P2/S11: YOUR count
       done: state.player.loreFound.length >= 9,
     });
-  if (state.maxDepth > 0) items.push({ t: `Deepest depth: ${state.maxDepth}`, done: false });
+  if (state.player.maxDepth > 0) items.push({ t: `Deepest depth: ${state.player.maxDepth}`, done: false }); // P2/S12: YOUR record
   items.forEach((it) => {
     const d = document.createElement('div');
     d.className = 'q-item' + (it.done ? ' q-done' : '');

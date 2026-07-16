@@ -57,6 +57,15 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * steed-survives-reboot (characterOf('E') still emitted a top-level dragon). Same run:
  * sp-flags-check §2g 2 asserts + crash, verify_fixes FIX2 2 asserts (root ghosts existed;
  * characterOf shape), facing-mp-verify 1 (drawOthers temp-hero probe) — 11 total. (2026-07-16.)
+ * S12 vacuity: SEEN FAILING (14 asserts here) against a pre-S12 git worktree (HEAD 70fcfb2 + its
+ * own dist build) — all 7 layer-1 fold asserts (top-level maxDepth/bounty still emitted, nothing
+ * on player), 4 hand-literal blocks, the REMAP pin (18 ≠ 20 entries), the characterOf S12
+ * emission (the row still carried top-level maxDepth/bounty), and depth/contract-survives-reboot
+ * (rowE still had top-level copies). Same run: sp-flags-check §2i 3 asserts + the wayfinder-gate
+ * regex, flags-pp-verify 1 T-case via objclient's carriesBountyAcrossAdopt/noGhostMaxDepthAdopt
+ * probes (the OLD reconcile still root-adopted maxDepth and never carried bounty), quest-verify 2
+ * (D3: the old openBounty wrote root state.bounty, S.player.bounty stayed null; E4: no
+ * player.maxDepth on the row) — 21 total. (2026-07-16.)
  */
 const path = require('path');
 const fs = require('fs');
@@ -196,8 +205,12 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const m = migrateCharacter(fx);
   const old = oldInlineChains(fx);
   ok(`${name}: quests match the old inline chain`, deepEq(m.blob.quests, old.quests), diff(m.blob.quests, old.quests) || 'equal');
-  ok(`${name}: maxDepth/bounty match`, m.blob.maxDepth === old.maxDepth && deepEq(m.blob.bounty, old.bounty),
-    `depth ${m.blob.maxDepth}=${old.maxDepth} bounty ${JSON.stringify(m.blob.bounty)}=${JSON.stringify(old.bounty)}`);
+  // S12 fold: top-level maxDepth/bounty → player.* (MOVE — the old chain's exact values land on
+  // the player; the top-level copies are GONE; a live bounty is a fresh clone, never the row's ref)
+  ok(`${name}: S12 fold — depth/bounty land on player (old-chain values), top-level copies gone`,
+    m.blob.player.maxDepth === old.maxDepth && deepEq(m.blob.player.bounty, old.bounty)
+    && m.blob.maxDepth === undefined && m.blob.bounty === undefined,
+    `depth ${m.blob.player.maxDepth}=${old.maxDepth} bounty ${JSON.stringify(m.blob.player.bounty)}=${JSON.stringify(old.bounty)} top=${m.blob.maxDepth},${JSON.stringify(m.blob.bounty)}`);
   ok(`${name}: milestones match`, m.blob.player.enteredDungeon === old.milestones.enteredDungeon
     && m.blob.player.gotKey === old.milestones.gotKey && m.blob.player.enteredFrozen === old.milestones.enteredFrozen,
     JSON.stringify({ got: { d: m.blob.player.enteredDungeon, k: m.blob.player.gotKey, f: m.blob.player.enteredFrozen }, old: old.milestones }));
@@ -269,7 +282,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     JSON.stringify({ fac: m.blob.player.factions, lore: m.blob.player.loreFound }));
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
-    && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
+    && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.player.bounty !== fx.bounty)
     && m.blob.player.abilities !== fx.player.abilities);
   const m2 = migrateCharacter(m.blob);
   ok(`${name}: IDEMPOTENT (v4 in → deep-equal v4 out, fromVersion 4)`, deepEq(m2.blob, m.blob) && m2.fromVersion === 4, diff(m2.blob, m.blob) || 'stable');
@@ -286,7 +299,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const b = migrateCharacter(FIXTURES['v1-early']).blob, q = b.quests;
   ok('v1-early literals', q.talk.done === true && q.key.hidden === false && q.key.done === true
     && q.slay.done === true && q.slay.count === 5 && q.dragon.hidden === true && q.main.started === true
-    && b.maxDepth === 0 && b.bounty === null
+    && b.player.maxDepth === 0 && b.player.bounty === null
     && b.player.enteredDungeon === true && b.player.gotKey === true && b.player.enteredFrozen === false, JSON.stringify(q.slay));
 }
 //   v1-late: lvl 25 → veteran + dragon revealed (≥20); keys 0 → key.done false, and the v1
@@ -314,15 +327,15 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const b = migrateCharacter(FIXTURES['v2-depths']).blob, q = b.quests;
   ok('v2-depths literals', q.slay.count === 5 && q.legion.stage === 'camps' && q.legion.seatRegion === 3
     && deepEq(q.dragon, QUEST_TEMPLATE.dragon) && q.main.started === false
-    && b.maxDepth === 7 && b.bounty.gold === 120
+    && b.player.maxDepth === 7 && b.player.bounty.gold === 120
     && b.player.enteredDungeon === true && b.player.gotKey === true && b.player.enteredFrozen === false,
-    JSON.stringify({ dragon: q.dragon, depth: b.maxDepth }));
+    JSON.stringify({ dragon: q.dragon, depth: b.player.maxDepth }));
 }
 //   v2-edge/v2-neg: Number.isFinite('9') is false → 0; Math.max(0,-3)=0; bounty 0 → null.
 {
   const e = migrateCharacter(FIXTURES['v2-edge']).blob, n = migrateCharacter(FIXTURES['v2-neg']).blob;
-  ok('v2 hostile maxDepth/bounty edges', e.maxDepth === 0 && e.bounty === null && n.maxDepth === 0 && n.bounty === null,
-    `edge=${e.maxDepth} neg=${n.maxDepth}`);
+  ok('v2 hostile maxDepth/bounty edges', e.player.maxDepth === 0 && e.player.bounty === null && n.player.maxDepth === 0 && n.player.bounty === null,
+    `edge=${e.player.maxDepth} neg=${n.player.maxDepth}`);
   ok('v2-edge: missing quest keys template-filled', deepEq(e.quests.slay, QUEST_TEMPLATE.slay) && e.quests.talk.done === true);
 }
 //   v3-full: milestones pass through UNTOUCHED (false/false/true) even though keys 9 /
@@ -331,7 +344,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const b = migrateCharacter(FIXTURES['v3-full']).blob;
   ok('v3-full literals: milestones pass through, NOT re-synthesized',
     b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === true
-    && b.maxDepth === 12 && b.schemaVersion === 4 && b.v === 3,
+    && b.player.maxDepth === 12 && b.schemaVersion === 4 && b.v === 3,
     JSON.stringify({ d: b.player.enteredDungeon, k: b.player.gotKey, f: b.player.enteredFrozen }));
 }
 
@@ -362,8 +375,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.dragon', 'state.dragon'],                   // S10
     ['state.player.factions', 'state.factions'],               // S11
     ['state.player.loreFound', 'state.loreFound'],             // S11
+    ['state.player.maxDepth', 'state.maxDepth'],               // S12
+    ['state.player.bounty', 'state.bounty'],                   // S12
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11+S12)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
@@ -415,6 +430,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   F.activeShopTown = 2; F.activeShopName = 'Test'; F.activeStock = { weapons: [], armor: [] };   // S9: an OPEN shop session must NOT be persisted
   F.dragon = { tamed: true, mounted: true }; F.sailing = true;   // S10: the steed must ride the emission (mounted as-saved; every load re-grounds); an active sail must NOT be persisted
   F.factions = { vigil: 33, wilds: -8, dread: 21 }; F.loreFound = [1, 4];   // S11: earned standings + read stones must ride the emission too
+  F.maxDepth = 6; F.bounty = { type: 'elite', target: 3, progress: 1, reward: 400, sp: 1, desc: 'Hunt 3 Elite foes' };   // S12: the depth record + the live contract must ride the emission too
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
   ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold; the slice itself is gone since S8)',
     modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
@@ -442,6 +458,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     deepEq(modern.player.factions, { vigil: 33, wilds: -8, dread: 21 }) && deepEq(modern.player.loreFound, [1, 4])
     && modern.factions === undefined && modern.loreFound === undefined,
     JSON.stringify({ fac: modern.player.factions, lore: modern.player.loreFound }));
+  ok('characterOf (v4): maxDepth/bounty ride the PLAYER slice, nothing at the top level — while quests STAYS top-level until its own slice (S12)',
+    modern.player.maxDepth === 6 && modern.player.bounty && modern.player.bounty.reward === 400 && modern.player.bounty.sp === 1
+    && modern.maxDepth === undefined && modern.bounty === undefined && !!modern.quests,
+    JSON.stringify({ d: modern.player.maxDepth, b: modern.player.bounty, topD: modern.maxDepth, topB: modern.bounty, q: !!modern.quests }));
   // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
   // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely);
   // pre-S7 eras carried shopPurchased/cargo in the SHOP slice and lastRestDay NOWHERE (a root key
@@ -450,10 +470,12 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // pre-S9 eras carried visitedTowns NOWHERE (a shared root key outside characterOf entirely);
   // pre-S10 eras carried the steed as TOP-LEVEL dragon:{tamed} (v2+; a v1 row had none) and
   // sailing NOWHERE (a shared root key, never saved);
-  // pre-S11 eras carried factions/loreFound NOWHERE (shared root keys, outside characterOf):
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; delete r.player.factions; delete r.player.loreFound; };
-  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; return r; };
-  const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
+  // pre-S11 eras carried factions/loreFound NOWHERE (shared root keys, outside characterOf);
+  // pre-S12 eras carried maxDepth/bounty TOP-LEVEL (v2+; a v1 row had neither anywhere) —
+  // shopify hoists the player copies back up, era-honest:
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; delete r.player.factions; delete r.player.loreFound; if (r.player.maxDepth !== undefined) { r.maxDepth = r.player.maxDepth; delete r.player.maxDepth; } if (r.player.bounty !== undefined) { r.bounty = r.player.bounty; delete r.player.bounty; } };
+  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; delete r.maxDepth; delete r.bounty; return r; };   // (depth/bounty deletes AFTER shopify's hoist — a v1 row carried them nowhere)
+  const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); r.maxDepth = 7; return r; };   // (explicit depth AFTER shopify's hoist; the hoisted bounty stays — a v2 row could carry one)
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
 
   // v1 veteran (level 45, 16 keys): intro synthesized done, milestones from keys, and the
@@ -514,6 +536,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   A.visitedTowns = [0, 2, 5];   // S9: the travel list must round-trip (pre-S9 it was shared+unpersisted — every reboot wiped the room's discoveries)
   A.dragon.tamed = true; A.dragon.mounted = true; A.sailing = true;   // S10: a tamed steed must round-trip (GROUNDED — mounted/sailing are sessions)
   A.factions = { vigil: 44, wilds: -12, dread: 9 }; A.loreFound = [2, 5];   // S11: standings + read stones must round-trip (pre-S11 both were shared+unpersisted — every reboot reset the room)
+  A.maxDepth = 9; A.bounty = { type: 'cull', target: 21, progress: 21, reward: 640, desc: 'Cull the wilds: slay 21 foes' };   // S12: the depth record + a CLAIMABLE contract must round-trip via the player slice
   const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
@@ -539,6 +562,11 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('round-trip: standings + read stones SURVIVE the reboot (S11 — via the player slice; pre-S11 a scale-to-zero reset every reputation and discovery)',
     deepEq(E.factions, { vigil: 44, wilds: -12, dread: 9 }) && deepEq(E.loreFound, [2, 5]) && E.factions !== A.factions && E.loreFound !== A.loreFound,
     JSON.stringify({ fac: E.factions, lore: E.loreFound }));
+  { const rowE = JSON.parse(JSON.stringify(w.characterOf('E')));
+    ok('round-trip: the depth record + the accepted contract SURVIVE the reboot via the PLAYER slice (S12 — no top-level copies left on a fresh row)',
+      E.maxDepth === 9 && E.bounty && E.bounty.progress === 21 && E.bounty.reward === 640 && E.bounty !== A.bounty
+      && rowE.maxDepth === undefined && rowE.bounty === undefined && rowE.player.maxDepth === 9,
+      JSON.stringify({ d: E.maxDepth, b: E.bounty, rowTop: [rowE.maxDepth, rowE.bounty] })); }
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

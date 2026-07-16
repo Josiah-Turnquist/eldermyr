@@ -54,7 +54,7 @@ function freshQuests() {
     frozen:{name:'Plunder the Frozen Cache',done:false,hidden:true},
     dragon:{name:'Tame the Emberwyrm (Lv 20)',done:false,hidden:true},
     legion:{started:false,stage:'none',camps:0,sealstones:0,villages:0,seatRegion:-1} };
-  S.bounty = null; S.player.loreFound = []; S.maxDepth = 0; S.inventory.keys = 0;   // P2/S11: loreFound lives on the player
+  S.player.bounty = null; S.player.loreFound = []; S.player.maxDepth = 0; S.inventory.keys = 0;   // P2/S11: loreFound lives on the player; P2/S12: bounty/maxDepth too
 }
 // mirror startDialogue(elder) / world.js elder branch
 function talkToElder() { S.quests.talk.done = true; S.quests.main.started = true; S.quests.key.hidden = false;
@@ -159,13 +159,13 @@ ok('D2 slay quest reaches 5/5 + done', S.quests.slay.count >= 5 && S.quests.slay
 
 // D3: bounty reward still grants gold (openBounty captured)
 freshQuests();
-S.player.gold = 0; S.bounty = null;
+S.player.gold = 0; S.player.bounty = null;   // P2/S12: the contract lives on the player
 try { G.openBounty(); } catch (e) { out.push('   openBounty accept threw: ' + e.message); }
-ok('D3 bounty accepted (state.bounty set)', !!S.bounty, S.bounty && S.bounty.desc);
-if (S.bounty) { S.bounty.progress = S.bounty.target; const goldBefore = S.player.gold;
+ok('D3 bounty accepted (state.player.bounty set)', !!S.player.bounty, S.player.bounty && S.player.bounty.desc);
+if (S.player.bounty) { S.player.bounty.progress = S.player.bounty.target; const goldBefore = S.player.gold;
   try { G.openBounty(); } catch (e) { out.push('   openBounty claim threw: ' + e.message); }
   ok('D3 bounty claim paid out gold', S.player.gold > goldBefore, goldBefore + '->' + S.player.gold);
-  ok('D3 bounty cleared after claim', S.bounty === null); }
+  ok('D3 bounty cleared after claim', S.player.bounty === null); }
 
 // D4: legion / frozen / dragon display branches intact (real active quests still render)
 freshQuests(); talkToElder();
@@ -214,7 +214,7 @@ ok('E3c …while the per-player sub-objects are distinct (not a shallow clone)',
 // E4 (was the "[finding]"): the questline IS in the per-character DB slice → it survives a cold boot
 const ch = w.characterOf('P1');
 ok('E4 characterOf() persists the questline per character (survives a room COLD boot)',
-  !!(ch && ch.quests && ch.quests.talk && ch.quests.talk.done === true && ch.maxDepth !== undefined && (ch.v | 0) >= 2), ch && ('v=' + ch.v + ' quests=' + (ch.quests ? 'yes' : 'no') + ' maxDepth=' + ch.maxDepth));
+  !!(ch && ch.quests && ch.quests.talk && ch.quests.talk.done === true && ch.player && ch.player.maxDepth !== undefined && (ch.v | 0) >= 2), ch && ('v=' + ch.v + ' quests=' + (ch.quests ? 'yes' : 'no') + ' player.maxDepth=' + (ch.player && ch.player.maxDepth)));   // P2/S12: depth rides the player slice
 ok('E5 a join/takeover seed exists (welcome payload, mirrors legionPayload)',
   typeof w.questPayload === 'function' && !!(w.questPayload('P1') || {}).quests);
 

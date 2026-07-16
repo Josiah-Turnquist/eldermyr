@@ -259,7 +259,7 @@ function safeClone(v, d) {
   if (t !== 'object' || d > 6) return undefined;
   if (Array.isArray(v)) return v.map((x) => { const c = safeClone(x, d + 1); return c === undefined ? null : c; });
   const r = {};
-  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === 'activeStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client adopts it in reconcile, and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled). activeStock (P2/S9, was `_shopStock`) = the open shop session's whole weapon/armor stock — the client already got it in the ONE `shopData` payload and re-stamps its local copy after every adopt, so dragging it onto `me` at 66 Hz would be pure waste (activeShopTown/activeShopName are scalars and ride fine).
+  for (const k in v) { if (k === 'held' || k === 'actions' || k === 'input' || k === 'dg' || k === 'activeStock' || k === 'dodgeHits' || k === 'quests' || k === 'bounty' || k === '_qJson') continue; const c = safeClone(v[k], d + 1); if (c !== undefined) r[k] = c; }   // dodgeHits = LIVE enemy refs (dodge i-frame bookkeeping) — never drag into a snapshot clone. quests/bounty are per-player PROPERTIES OF THE PLAYER now, so safeClone(me) would drag ~570 B onto EVERY snapshot at 66 Hz (~37 KB/s/player) for data that changes on human timescales — they ride the version-gated block in _snapshotFor instead (the holdings/legion sizing rule). _qJson is the SERVER-SIDE stringify cache backing that very gate: measured at 603 B on the wire (24% of `me`) before it was skipped — a revision cache must never ride the payload it gates. maxDepth is a bare number and DOES ride `me` (~15 B): the client's wholesale me-adopt carries it (P2/S12 — no explicit adopt line left), and the gated copy is what repaints the box on the FIRST snapshot (before any frame has reconciled). bounty rides the gated block only, so the client re-stamps its last adopted copy across each me-adopt (the wayfind inversion). activeStock (P2/S9, was `_shopStock`) = the open shop session's whole weapon/armor stock — the client already got it in the ONE `shopData` payload and re-stamps its local copy after every adopt, so dragging it onto `me` at 66 Hz would be pure waste (activeShopTown/activeShopName are scalars and ride fine).
   return r;
 }
 
@@ -278,18 +278,17 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients; P2/S10 sailing/dragon: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
+const PP_KEYS = ['quests'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients; P2/S10 sailing/dragon; P2/S12 maxDepth/bounty: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap. quests is the LAST one standing — its own slice retires this machinery entirely.
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // (the `_shopTown → S.activeShopTown` special case died in P2/S9: the shop session lives ON state.player now — p.activeShopTown/activeStock/activeShopName — so the S.player pin IS the swap)
 // Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
 // persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
-// P2/S7. sailing/dragon likewise since P2/S10 — the boat/flight leak their shared root keys once
-// caused is dead with the keys themselves.)
-// quests/maxDepth/bounty need EXPLICIT lines — swapping in is not enough:
-// `maxDepth` is a NUMBER (enterDungeon/descend/_enterRift do `state.maxDepth = Math.max(...)`) and openBounty
-// REPLACES `state.bounty` wholesale (`state.bounty = rollBounty()`), so neither reaches p by reference.
+// P2/S7. sailing/dragon likewise since P2/S10. maxDepth/bounty — the two keys whose number/wholesale-
+// replace semantics were this mirror's whole reason to exist (`state.maxDepth = Math.max(...)` and
+// `state.bounty = rollBounty()` never reached p by reference) — moved onto the player in P2/S12:
+// the game writes p.maxDepth / p.bounty directly now, so nothing is left to mirror for them.)
 // (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
 // "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
+function writeBackPP(p) { p.quests = S.quests; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -410,7 +409,7 @@ class World {
     try {                                                            // mirror the dungeon phase: ANY failure path must restore ALL swapped slots (no dungeon fragments stranded under map==='overworld')
       S.player = p; S.inventory = p.inventory; swapInPP(p);
       G.enterDungeon();                                              // builds a floor + stashes the overworld into owSave (a throwaway floor when joining — the shared one is restored next tick)
-      if (!joining) { S.dungeonLevel = deep; S.maxDepth = Math.max(S.maxDepth | 0, deep); G.setupDungeonFloor(deep); }   // rebuild at the deep floor
+      if (!joining) { S.dungeonLevel = deep; p.maxDepth = Math.max(p.maxDepth | 0, deep); G.setupDungeonFloor(deep); }   // rebuild at the deep floor (the depth record is the breacher's own — P2/S12)
       if (S.map === 'dungeon') {
         if (joining) { if (this.dgSpawn) { p.x = this.dgSpawn.x; p.y = this.dgSpawn.y; } }
         else { this.sharedDg = grabWorld(); this.dgSpawn = { x: p.x, y: p.y }; }   // first breach → CAPTURE the deep instance
@@ -420,7 +419,7 @@ class World {
     } catch (e) { this._err('enterRift', e); }
     finally {
       putWorld(owBase);                                              // ALWAYS restore the shared overworld for everyone else
-      writeBackPP(p);                                                // this method swaps IN (above) but never wrote back — so the breach's `S.maxDepth = Math.max(…, deep)` was discarded the moment the next hero swapped in. Runs on the failure path too: swapInPP already happened, so p must not be left reading someone else's slice.
+      writeBackPP(p);                                                // this method swaps IN (above), so p must not be left reading someone else's quest slice — mirror any quest writes the breach made, on the failure path too. (The old bug this line fixed — the breach's `Math.max(…, deep)` depth bump discarded by the next hero's swap — can't recur since P2/S12: maxDepth is written on p directly.)
       // per-owner delving: the BREACHER's own alive, un-posted warband dives WITH them (keep the setupCompanions
       // teleport, re-seat near p on the deep floor, tag map='dungeon'); everyone else stays topside where they were.
       // A failed breach (entered=false) dives nobody — restore all.
@@ -510,14 +509,15 @@ class World {
     //  exactly like a fresh SP hero. sailing:false + dragon:{tamed:false,mounted:false} likewise since
     //  P2/S10 — a fresh joiner is on foot with no steed, and clone() gives each hero his OWN dragon object.
     //  factions:{vigil:0,wilds:0,dread:0} + loreFound:[] likewise since P2/S11 — a fresh joiner is
-    //  unknown to every power and has read no stones, each with his OWN objects via clone().)
+    //  unknown to every power and has read no stones, each with his OWN objects via clone().
+    //  maxDepth:0 + bounty:null likewise since P2/S12 — the depth record and the accepted
+    //  contract are the hero's own; a saved row's values re-land via _loadCharacter.)
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     // per-player questline: your OWN intro (talk/key/slay/dragon) off a deep template clone, with the
     // world-object quests (main/frozen/legion) re-aliased so the room shares ONE Kraken/Cache/war.
     p.quests = aliasSharedQuests(clone(QUEST_TEMPLATE));
-    p.maxDepth = 0; p.bounty = null;
     p._qN = 1; p._qJson = '';          // quest-sync version + its stringify cache (per-player: see _step)
     p.skin = 0; p._qSeen = 0;          // hero look (0-4) + quest-sync version last sent (0 → first snapshot carries quests)
     p._feedSeen = this.feedN | 0;      // join fresh — don't replay the room's whole event history
@@ -562,12 +562,14 @@ class World {
       // wiped the room's travel list); the shop session (activeShopTown/activeStock/activeShopName)
       // stays out of the whitelist on purpose — a session, not progress.
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
-      // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
-      // hero "Speak to the Elder" / "Slay monsters (0/5)" and offered him a Depth-3 bounty. Read straight
-      // off `p` — NOT off the G.snapshot() above: characterOf swaps only S.player/S.inventory and never
-      // calls swapInPP, so snap.quests/snap.maxDepth would be whichever hero the sim last swapped in.
-      // (Same grain as the `shop:` slice — live refs; the save chain JSON-serializes them.)
-      quests: p.quests, maxDepth: p.maxDepth | 0, bounty: p.bounty || null,
+      // `accounts`), so before this it lived only in RAM and a Railway scale-to-zero handed a level-45
+      // hero "Speak to the Elder" / "Slay monsters (0/5)". Read straight off `p` — NOT off the
+      // G.snapshot() above: characterOf swaps only S.player/S.inventory and never calls swapInPP, so
+      // snap.quests would be whichever hero the sim last swapped in. (A live ref; the save chain
+      // JSON-serializes it.) P2/S12: maxDepth/bounty FOLDED INTO `player` (plan §6 v4 mapping) — they
+      // live on p now, so snapshot()'s player whitelist emits them under the S.player swap above, like
+      // the milestones/steed; migrateCharacter maps old rows' top-level copies into player.* on load.
+      quests: p.quests,
       // P2/S10: the steed FOLDED INTO `player` (plan §6 v4 mapping) — dragon lives on p, so
       // snapshot()'s player whitelist emits it under the S.player swap above (mounted rides
       // as-saved; every load path re-grounds it). migrateCharacter maps old rows' top-level
@@ -639,9 +641,10 @@ class World {
       // ---- questline + personal milestones — APPLY ONLY (rebuild S1) ----------------------
       // The v1→v2 quest synthesis and the v2→v3 milestone synthesis now live in the PURE
       // module server/migrate.js (the WHY of each rule is documented there); the migrated
-      // blob always carries a template-complete `quests`, a normalized maxDepth/bounty, and
-      // (for every row that has a player slice — all real rows) the personal milestones,
-      // which the Object.assign above already copied onto `p` with the rest of the slice.
+      // blob always carries a template-complete `quests` and (for every row that has a player
+      // slice — all real rows) the personal milestones AND a normalized player.maxDepth/
+      // player.bounty (P2/S12 fold), which the Object.assign above already copied onto `p`
+      // with the rest of the slice.
       // This method only ATTACHES, plus the ONE side effect that must touch SHARED state:
       const q = c.quests;                              // fresh clone from migrateCharacter — safe to own
       // A returning v1 veteran has met the Elder → the room's (shared) Kraken hunt is on.
@@ -654,7 +657,7 @@ class World {
       // it describes. (Re-alias AFTER the merge — migrateCharacter kept the row's copies.)
       aliasSharedQuests(q);
       if (legacyMainStarted) q.main.started = true;    // mutates the SHARED main post-alias — the old line-642 effect, exactly
-      p.quests = q; p.maxDepth = c.maxDepth; p.bounty = c.bounty;
+      p.quests = q;                                    // (maxDepth/bounty ride the player slice since P2/S12 — landed by the Object.assign above)
       p._qJson = ''; p._qN = (p._qN | 0) + 1;          // force a re-stamp so the restored box reaches the client
 
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
@@ -861,10 +864,10 @@ class World {
   // (the game's log() only writes to the DOM, so we can't read its text server-side).
   _doInstant(p, fn) {
     if (fn === 'openBounty') {
-      const b0 = S.bounty ? { desc: S.bounty.desc, target: S.bounty.target, progress: S.bounty.progress, done: S.bounty.progress >= S.bounty.target } : null;
+      const b0 = p.bounty ? { desc: p.bounty.desc, target: p.bounty.target, progress: p.bounty.progress, done: p.bounty.progress >= p.bounty.target } : null;   // P2/S12: the contract lives ON the player (our caller pinned S.player = p, so the game writes p directly — same as buyBoat below)
       const g0 = p.gold | 0;
       if (typeof G.openBounty === 'function') G.openBounty();
-      const b = S.bounty, dg = (p.gold | 0) - g0;
+      const b = p.bounty, dg = (p.gold | 0) - g0;
       let text;
       if (!b0) text = b ? `Bounty accepted — ${b.desc}. Reward: ${b.reward} gold${b.sp ? ' + a skill point' : ''}${b.loot ? ' + rare loot' : ''}.` : 'No bounty available right now.';
       else if (b0.done) text = `Bounty complete!${dg > 0 ? ' +' + dg + ' gold' : ''} — a new one awaits.`;
@@ -901,9 +904,10 @@ class World {
     this._maybeRift();                // #14: open/close ephemeral deep-dungeon rifts
     G.updateTime();
     // Quest sync: version-stamp EACH HERO'S OWN quest state so snapshots only carry it when it CHANGES.
-    // Per-player, not room-wide: quests/bounty/maxDepth are a PP slice now, and this block runs OUTSIDE the
-    // rotation (S.player is pinned to whoever the last phase left), so stringifying `S.quests` here would
-    // version-stamp one arbitrary hero's quests on behalf of the whole room. Read each p directly instead.
+    // Per-player, not room-wide: quests is a PP slice and bounty/maxDepth live ON the player (P2/S12), and
+    // this block runs OUTSIDE the rotation (S.player is pinned to whoever the last phase left), so
+    // stringifying `S.quests` here would version-stamp one arbitrary hero's quests on behalf of the whole
+    // room. Read each p directly instead.
     // loreFound is per-HERO since P2/S11 (p.loreFound — your own Realm-stone discoveries), so a stone read
     // re-syncs only the READER's box. Cost: one stringify per player per 40 ticks (~2/s/player, ~0.001 ms).
     if (S.time % 40 === 0) {
@@ -935,7 +939,7 @@ class World {
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
-      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is NOT skippable: enterDungeon() sets state.maxDepth=1 on THIS tick and `continue` used to throw it away (as did every other PP write the entering slice made). The overworld-only work below (the exhaustion edge) is what we're skipping, not the slice.
+      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is NOT skippable: any quest write the entering slice made must be mirrored before `continue` (the original hole this fixed — enterDungeon's maxDepth=1 thrown away — can't recur since P2/S12: the game writes p.maxDepth directly). The overworld-only work below (the exhaustion edge) is what we're skipping, not the slice.
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
       // (P2/S3) The winter snow-chill replica died here: updateWeather itself now chills every
       // overworld hero (it loops the game's world-scoped partyIn()), so the shared phase covers all.
@@ -967,7 +971,7 @@ class World {
       const survivors = [];
       global.__libGate = () => false;       // S.enemies is one bucket — killEnemy's inline liberation is blind; the _seen sweep below owns it
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p);   // keep the bag AND the PP slice in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy writes state.quests.slay / bountyProgress() / a boss-drop key straight into the swapped-in slice, so without swapInPP every kill in this bucket credits whichever hero the previous phase happened to leave behind
+        S.player = p; S.inventory = p.inventory; swapInPP(p);   // keep the bag AND the PP slice in sync with the acting hero — combat-time gear reads (melee riposte's equippedWeapon(), future on-hit gear checks) must see p's inventory, not a stale one; and killEnemy writes state.quests.slay straight into the swapped-in slice while bountyProgress()/gold/a boss-drop key credit the PINNED state.player (bounty is player-native since P2/S12), so without this pin+swap every kill in this bucket credits whichever hero the previous phase happened to leave behind
         S.enemies = buckets.get(p);         // this player's assigned foes target HIM
         try { G.updateEnemies(); } catch (e) { this._err('updateEnemies', e); }
         survivors.push(...S.enemies);        // killEnemy() may have spliced some out
@@ -998,7 +1002,7 @@ class World {
       }
       const aSurvivors = [];
       for (const p of players) {
-        S.player = p; S.inventory = p.inventory; swapInPP(p); S.allies = aBuckets.get(p);   // swapInPP: updateAllies → killEnemy credits state.player, and its quest/bounty writes land in the swapped-in slice
+        S.player = p; S.inventory = p.inventory; swapInPP(p); S.allies = aBuckets.get(p);   // swapInPP: updateAllies → killEnemy credits state.player — its quest writes land in the swapped-in slice, its bounty writes on the pinned hero (P2/S12)
         try { G.updateAllies(); } catch (e) { this._err('updateAllies', e); }
         aSurvivors.push(...S.allies);
       }
@@ -1027,7 +1031,7 @@ class World {
         byOwner.get(o).push(c);
       }
       for (const [o, list] of byOwner) {
-        S.player = o; S.inventory = o.inventory; swapInPP(o); S.companions = list;   // swapInPP: a companion kill routes through killEnemy → quests.slay/bountyProgress land on the OWNER's slice
+        S.player = o; S.inventory = o.inventory; swapInPP(o); S.companions = list;   // swapInPP: a companion kill routes through killEnemy → quests.slay lands on the OWNER's slice, bountyProgress on the pinned owner (P2/S12)
         try { G.updateCompanions(); } catch (e) { this._err('updateCompanions', e); }
       }
       S.companions = all;

@@ -597,16 +597,20 @@ function snapshot() {
          a room reboot wiped every hero's standings and discoveries; now they persist per-hero. */
       factions: { ...(p.factions || { vigil: 0, wilds: 0, dread: 0 }) },
       loreFound: [...(p.loreFound || [])],
+      /* P2/S12: deepest-depth + the accepted bounty ride the player slice (same doctrine —
+         field-keyed readers, root fallback for pre-move saves, no version gate). The bounty
+         object is spread exactly like the old root emission. */
+      maxDepth: p.maxDepth | 0,
+      bounty: p.bounty ? { ...p.bounty } : null,
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
     flags: { ...state.flags },
     dungeonLevel: state.dungeonLevel,
-    maxDepth: state.maxDepth,
+    /* (maxDepth moved into the player block above — P2/S12) */
     map: state.map,
     /* (tonics/sharpenLevel moved into the player block above — P2/S5; shopPurchased — P2/S7;
-       visitedTowns — P2/S9) */
-    bounty: state.bounty ? { ...state.bounty } : null,
+       visitedTowns — P2/S9; bounty — P2/S12) */
     /* (factions moved into the player block above — P2/S11) */
     legion: state.legion ? JSON.parse(JSON.stringify(state.legion)) : null,
     /* (hasBoat moved into the player block above — P2/S6) */

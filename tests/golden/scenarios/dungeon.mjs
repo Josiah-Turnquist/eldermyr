@@ -72,11 +72,11 @@ export default {
       if (tgt && tgt.dist2 < (52 * 52)) { try { G.tryAttack(); } catch (_e) {} }
 
       // Descend on a fixed cadence via the captured floor generator. We mirror
-      // descend()'s core (bump level + maxDepth, regenerate the floor) without
-      // the uncaptured descend() wrapper.
+      // descend()'s core (bump level + the PLAYER's maxDepth — player-carried
+      // since P2/S12, regenerate the floor) without the uncaptured descend() wrapper.
       if (t - lastDescend >= DESCEND_EVERY) {
         S.dungeonLevel = (S.dungeonLevel | 0) + 1;
-        S.maxDepth = Math.max(S.maxDepth | 0, S.dungeonLevel);
+        S.player.maxDepth = Math.max(S.player.maxDepth | 0, S.dungeonLevel);
         try { G.setupDungeonFloor(S.dungeonLevel); } catch (_e) {}
         lastDescend = t;
       }

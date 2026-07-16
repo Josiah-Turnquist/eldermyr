@@ -506,7 +506,7 @@ function currentObjective() {
         color: '#ffe28a',
       };
   }
-  if (q.key.done && !state.player.enteredDungeon && !(state.maxDepth > 0) && state.dungeonEntrance)
+  if (q.key.done && !state.player.enteredDungeon && !(state.player.maxDepth > 0) && state.dungeonEntrance)
     return {
       tx: state.dungeonEntrance.tx,
       ty: state.dungeonEntrance.ty,

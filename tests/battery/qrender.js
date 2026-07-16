@@ -49,9 +49,9 @@ function renderQuestBox(s, inventory) {
   const st = CG.state;
   // --- exactly what client/mp.html adoptQuests() does (mp.html:158-167) ---
   if (s.quests) st.quests = JSON.parse(JSON.stringify(s.quests));
-  st.bounty = s.bounty || null;
+  if (st.player) st.player.bounty = s.bounty || null;   // P2/S12: the real adoptQuests stamps the PLAYER (updateQuests reads state.player.bounty)
   if (s.loreFound && st.player) st.player.loreFound = s.loreFound;   // P2/S11: the real adoptQuests stamps the PLAYER (updateQuests reads state.player.loreFound)
-  if (s.maxDepth != null) st.maxDepth = s.maxDepth;
+  if (s.maxDepth != null && st.player) st.player.maxDepth = s.maxDepth;   // P2/S12: likewise
   // --- whatever the client's state.inventory happens to be when the box paints ---
   st.inventory = inventory;
 

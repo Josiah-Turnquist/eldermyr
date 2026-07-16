@@ -344,7 +344,7 @@ function computeScore() {
   const p = state.player;
   return Math.round(
     (p.level * 120 +
-      state.maxDepth * 600 +
+      p.maxDepth * 600 + /* P2/S12: player-carried */
       p.gold +
       ((state.legion && state.legion.kills) || 0) * 1000 +
       (state.won ? 6000 : 0)) *
@@ -355,7 +355,7 @@ function recordRun(won) {
   const sc = computeScore();
   const newBest = sc > legacy.bestScore;
   if (newBest) legacy.bestScore = sc;
-  if (state.maxDepth > legacy.bestDepth) legacy.bestDepth = state.maxDepth;
+  if (state.player.maxDepth > legacy.bestDepth) legacy.bestDepth = state.player.maxDepth;
   if (won) {
     legacy.wins++;
     legacy.ascension = Math.max(legacy.ascension, (state.ascension || 0) + 1);
@@ -381,7 +381,7 @@ function victory() {
   ov.className = '';
   ov.style.display = 'flex';
   const bestTag = r.newBest ? ' <span style="color:#90ff90">(NEW BEST!)</span>' : '';
-  ov.innerHTML = `<h1 style="color:#90ffa0">VICTORY</h1><div class="subtitle">~ Morthrax the Deathless is undone ~</div><div class="intro-text">You descended to Depth ${state.maxDepth} and felled Morthrax at level ${state.player.level}.<br><b style="color:#f0d050">Score: ${r.score}${bestTag}</b><br>The realm draws breath — yet darker depths await those who would ascend.</div><div><button class="start-btn continue-btn" onclick="resumeAfterVictory()">DESCEND ONWARD</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME+ (Ascension ${legacy.ascension})</button></div>`;
+  ov.innerHTML = `<h1 style="color:#90ffa0">VICTORY</h1><div class="subtitle">~ Morthrax the Deathless is undone ~</div><div class="intro-text">You descended to Depth ${state.player.maxDepth} and felled Morthrax at level ${state.player.level}.<br><b style="color:#f0d050">Score: ${r.score}${bestTag}</b><br>The realm draws breath — yet darker depths await those who would ascend.</div><div><button class="start-btn continue-btn" onclick="resumeAfterVictory()">DESCEND ONWARD</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME+ (Ascension ${legacy.ascension})</button></div>`;
 }
 function resumeAfterVictory() {
   document.getElementById('overlay').style.display = 'none';
@@ -396,7 +396,7 @@ function gameOver() {
   const ov = document.getElementById('overlay');
   ov.className = 'death-screen';
   ov.style.display = 'flex';
-  const depthLine = state.maxDepth > 0 ? ` You delved to dungeon depth ${state.maxDepth}.` : '';
+  const depthLine = state.player.maxDepth > 0 ? ` You delved to dungeon depth ${state.player.maxDepth}.` : '';
   ov.innerHTML = `<h1>YOU HAVE FALLEN</h1><div class="subtitle">~ Darkness claims Eldermyr ~</div><div class="intro-text">You reached level ${state.player.level} with ${state.player.gold} gold before falling.${depthLine}<br><b style="color:#f0d050">Score: ${_run.score}${_run.newBest ? ' <span style="color:#90ff90">(NEW BEST!)</span>' : ''}</b><br>Your last save endures — continue to fight on.</div><div><button class="start-btn continue-btn" onclick="location.reload()">CONTINUE FROM SAVE</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME</button></div>`;
 }
 async function clearSaveAndRestart() {

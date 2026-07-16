@@ -61,7 +61,10 @@ function applySnapshot(s) {
     p.enteredFrozen = s.player.enteredFrozen !== undefined ? !!s.player.enteredFrozen : !!_of.enteredFrozen;
   }
   state.dungeonLevel = s.dungeonLevel;
-  state.maxDepth = s.maxDepth;
+  /* P2/S12 player-carried (same doctrine as the moves below): a new save holds it in s.player,
+     a pre-move save at the root — read back LOSSLESSLY, explicit so a stale session value can
+     never survive loading an old save (the bare assign mirrors the old root read exactly). */
+  p.maxDepth = s.player.maxDepth !== undefined ? s.player.maxDepth : s.maxDepth;
   state.map = s.map;
   /* P2/S5: tonics/sharpenLevel live on the PLAYER now. New saves carry them in s.player (the
      Object.assign above already landed them); a pre-move save holds them at the root — read them
@@ -76,7 +79,8 @@ function applySnapshot(s) {
      saves at the root — read back LOSSLESSLY, explicit so a stale session value can never
      survive loading an old save. */
   p.visitedTowns = s.player.visitedTowns !== undefined ? s.player.visitedTowns : s.visitedTowns || [];
-  state.bounty = s.bounty || null;
+  p.bounty = (s.player.bounty !== undefined ? s.player.bounty : s.bounty) || null;
+  /* P2/S12 player-carried contract (root fallback; keeps the old `|| null`) */
   /* P2/S11 player-carried reputation (same doctrine as the moves above): a new save holds it
      in s.player, a pre-move save at the root — read back LOSSLESSLY, explicit so a stale
      session value can never survive loading an old save. */
@@ -309,7 +313,7 @@ function startGame() {
   state.ascension = legacy.ascension || 0;
   state.player.visitedTowns = []; // P2/S9: player-carried (fresh start = no towns discovered; markTownVisited below re-earns the spawn town)
   state.player.factions = { vigil: 0, wilds: 0, dread: 0 }; // P2/S11: player-carried (fresh start = unknown to every power)
-  state.bounty = null;
+  state.player.bounty = null; // P2/S12: player-carried (fresh start = no contract; the depth record deliberately isn't reset here — the old root key never was either)
   state.huntsSlain = [];
   state.huntCycle = 0;
   state.huntRespawnDay = null;

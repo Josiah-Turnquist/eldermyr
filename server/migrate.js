@@ -29,8 +29,9 @@
  *       field-keyed, never version-keyed). Reader rule: schemaVersion ?? v ?? 1.
  *   Later P2 slices fold shop/quests/maxDepth/bounty/dragon INTO the player
  *   slice as those keys move onto p (plan §6 mapping) — each adds its default
- *   here in the same slice. The v4 stamp does NOT change per fold: readers stay
- *   FIELD-keyed throughout (a row is defined by what it carries).
+ *   here in the same slice; after S12 only `quests` remains top-level. The v4
+ *   stamp does NOT change per fold: readers stay FIELD-keyed throughout (a row
+ *   is defined by what it carries).
  *     · S5: shop.tonics/shop.sharpenLevel → player.tonics/player.sharpenLevel
  *       (defaults 0/0); player.seenHeatTip default false (no historical source —
  *       the aura teach re-shows once per hero, intended).
@@ -63,6 +64,11 @@
  *       outside characterOf entirely, wiped on every reboot; the reset is the
  *       honest floor and is called out in the cutover notes: standings re-earn
  *       through play, stones re-read for their +40 XP once each per hero).
+ *     · S12: top-level maxDepth/bounty → player.maxDepth/player.bounty (MOVE —
+ *       same semantics as the dragon fold: player-first, top-level copies deleted;
+ *       normalization is the old chain's own, computed above the fold: maxDepth
+ *       clamped int ≥ 0, falsy bounty → null, and a v1 row synthesizes 0/null
+ *       exactly as the old chain forced them).
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -203,11 +209,19 @@ function migrateCharacter(oldBlob) {
     // so there is nothing to fold: defaults only, pass-through when a v4 row already has them.
     if (out.player.factions === undefined) out.player.factions = { vigil: 0, wilds: 0, dread: 0 };
     if (out.player.loreFound === undefined) out.player.loreFound = [];
+    // ---- S12 fold: deepest-depth + the accepted bounty move onto the player (same MOVE
+    // semantics as the dragon fold — player-first, one owner per value, top-level copies
+    // deleted; idempotent because pass 2 finds them on player and no top-level copies).
+    // mDepth/bnty above carry the old chain's exact normalization (clamped int / falsy →
+    // null; a v1 row forced 0/null), so the fold lands the SAME values the old top-level
+    // emission held. Deletes stay inside this player-guard: a playerless blob has nowhere
+    // to move them, and this module never drops data it can't relocate.
+    if (out.player.maxDepth === undefined) out.player.maxDepth = mDepth;
+    if (out.player.bounty === undefined) out.player.bounty = bnty;
+    delete out.maxDepth; delete out.bounty;
   }
 
   out.quests = q;
-  out.maxDepth = mDepth;
-  out.bounty = bnty;
   out.schemaVersion = SCHEMA_VERSION;
   return { blob: out, fromVersion, toVersion: SCHEMA_VERSION };
 }

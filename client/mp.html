@@ -182,9 +182,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       // (reconcile re-assigns this same object moments later — idempotent, not a second source of truth.)
       if (s.me && s.me.inventory) G.state.inventory = s.me.inventory;
       G.state.quests = s.quests;
-      G.state.bounty = s.bounty || null;
+      if (G.state.player) G.state.player.bounty = s.bounty || null;   // P2/S12: bounty lives ON the player now (updateQuests reads state.player.bounty). Stamp the PLAYER, not a root ghost (risk #7); it never rides `me` (safeClone skips it), so the frame-loop reconcile carries THIS value across every wholesale me-adopt.
       if (s.loreFound && G.state.player) G.state.player.loreFound = s.loreFound;   // P2/S11: loreFound lives ON the player now (updateQuests reads state.player.loreFound). Stamp the PLAYER, not a root ghost (risk #7); the payload copy is per-hero and beats the frame-loop me-adopt to the repaint below, same reason as the bag line above. On `welcome` there is no snap.me yet — this seed is what covers a takeover.
-      if (s.maxDepth != null) G.state.maxDepth = s.maxDepth;
+      if (s.maxDepth != null && G.state.player) G.state.player.maxDepth = s.maxDepth;   // P2/S12: maxDepth lives ON the player too — this gated stamp is what repaints the box BEFORE the first frame reconcile (it rides `me` thereafter, so the wholesale adopt keeps it honest).
       window.updateQuests && window.updateQuests();
     } catch (e) { edgeErr('quests', e); }
   }
@@ -971,10 +971,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // adopt authoritative state, but render MY player at the predicted position
     let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
     try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
+    const _pb = S.player.bounty;   // P2/S12: capture the contract BEFORE the wholesale adopt — bounty lives ON the player but never rides `me` (safeClone skips it; gated-only), so the adopt below would blank it every frame
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
     S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
     if (localShop) { S.player.activeShopTown = localShop.town; S.player.activeShopName = localShop.name; S.player.activeStock = localShop.stock; }   // P2/S9: same inversion for the shop session — activeStock never rides `me` (safeClone skips it), so the adopt above would blank the open panel's stock; re-stamp the shopData copy (town/name ride `me` too, but the local session is authoritative on this tab)
+    S.player.bounty = _pb || null;   // P2/S12: re-stamp the last adopted contract (adoptQuests stamps it in ws.onmessage — the S6 wayfind inversion, carried across the adopt instead of a second local). maxDepth needs no line: it rides `me` (~15 B), so the wholesale adopt above IS its adoption — the old explicit S.maxDepth root adopt died with the move (risk #7), and the gated copy still repaints the box on the FIRST snapshot via adoptQuests.
     if (snap.me.inventory) S.inventory = snap.me.inventory;
     // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a
@@ -982,7 +984,9 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // (ingredients adopt DELETED in P2/S8: the pantry lives ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — a leftover S.ingredients copy would be a ghost
     //  the cook/shop panels could read stale, risk #7.)
-    if (snap.me.maxDepth != null) S.maxDepth = snap.me.maxDepth;   // per-player deepest depth: a state.X field riding `me`, so NOT auto-applied (the tonics/floorMod lesson). The quest BOX still repaints off the gated snap.maxDepth in adoptQuests — this keeps state.maxDepth itself honest between quest changes. (quests/bounty do NOT ride `me`: too big at 66 Hz, so they are gated-only — see safeClone's skip-list.)
+    // (maxDepth adopt DELETED in P2/S12: it lives ON the player and rides `me`, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.maxDepth copy would be a ghost the
+    //  panels could read stale, risk #7. bounty is gated-only and re-stamped above.)
     // (sailing + dragon adopts DELETED in P2/S10: they live ON the player now, so the wholesale
     //  S.player = snap.me above IS the adoption — drawPlayer/HUD/prediction read state.player.
     //  A leftover S.sailing/S.dragon copy would be a ghost the panels could read stale, risk #7.)
