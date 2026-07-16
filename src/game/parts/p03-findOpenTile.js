@@ -199,76 +199,13 @@ function generateDungeon(level) {
 
 // ================= ENTITIES =================
 function makeEnemy(tx, ty, type) {
-  const base = {
-    slime: { hp: 11, atk: 4, def: 0, speed: 0.7, xp: 8, gold: 5, color: '#60d060', size: 20, name: 'Slime' },
-    bat: { hp: 8, atk: 5, def: 0, speed: 1.5, xp: 10, gold: 6, color: '#a060d0', size: 18, name: 'Cave Bat' },
-    skeleton: {
-      hp: 20,
-      atk: 7,
-      def: 2,
-      speed: 1.05,
-      xp: 18,
-      gold: 12,
-      color: '#e0e0d0',
-      size: 22,
-      name: 'Skeleton',
-    },
-    mage: {
-      hp: 15,
-      atk: 6,
-      def: 1,
-      speed: 0.9,
-      xp: 18,
-      gold: 16,
-      color: '#60a0ff',
-      size: 22,
-      name: 'Dark Caster',
-    },
-    charger: {
-      hp: 17,
-      atk: 7,
-      def: 1,
-      speed: 1.0,
-      xp: 16,
-      gold: 12,
-      color: '#e08040',
-      size: 22,
-      name: 'Dire Hound',
-    },
-    archer: {
-      hp: 13,
-      atk: 6,
-      def: 1,
-      speed: 0.95,
-      xp: 16,
-      gold: 14,
-      color: '#9aa860',
-      size: 20,
-      name: 'Bone Archer',
-    },
-    healer: {
-      hp: 15,
-      atk: 3,
-      def: 1,
-      speed: 0.9,
-      xp: 22,
-      gold: 20,
-      color: '#60e0a0',
-      size: 20,
-      name: 'Acolyte',
-    },
-    serpent: {
-      hp: 26,
-      atk: 9,
-      def: 2,
-      speed: 1.15,
-      xp: 24,
-      gold: 18,
-      color: '#2aa0a0',
-      size: 26,
-      name: 'Sea Serpent',
-    },
-  }[type];
+  // P3/S2: the kind rows + per-type init hooks live in src/content/enemies.ts — read
+  // through CONTENT.enemies[type] (the compiled content chunk at the head of this
+  // program). Same fields, same values; only primitives are copied off the shared row, so
+  // no registry object can land in live sim data. The instance literal below keeps its
+  // wobble draw FIRST, then the entry's init hook makes exactly the Math.random() draws
+  // the old inline type blocks made — same count, same order.
+  const base = CONTENT.enemies[type];
   const e = {
     x: tx * TILE + (TILE - base.size) / 2,
     y: ty * TILE + (TILE - base.size) / 2,
@@ -291,29 +228,7 @@ function makeEnemy(tx, ty, type) {
     isBoss: false,
     wobble: Math.random() * 6.28,
   };
-  if (type === 'mage') {
-    e.caster = true;
-    e.castCd = 60 + Math.floor(Math.random() * 40);
-  }
-  if (type === 'archer') {
-    e.archer = true;
-    e.attackCd = 30 + Math.floor(Math.random() * 40);
-  }
-  if (type === 'charger') {
-    e.charger = true;
-    e.chargeCd = 70 + Math.floor(Math.random() * 60);
-    e.chargeState = 0;
-    e.chargeT = 0;
-    e.dvx = 0;
-    e.dvy = 0;
-  }
-  if (type === 'healer') {
-    e.healer = true;
-    e.healCd = 90 + Math.floor(Math.random() * 60);
-  }
-  if (type === 'serpent') {
-    e.aquatic = true;
-  }
+  if (base.init) base.init(e);
   return e;
 }
 function makeBoss(tx, ty) {
@@ -352,28 +267,19 @@ function makeWildEnemy(tx, ty, biome) {
     lava = biome === 2;
   let type;
   // Enemy TYPE is gated by ring, not just player level: the Vale stays gentle even for veterans, the Frontier is brutal at any level.
-  if (lava) type = r < 0.3 ? 'charger' : r < 0.6 ? 'skeleton' : r < 0.85 ? 'mage' : 'bat';
-  else if (frozen) type = r < 0.34 ? 'skeleton' : r < 0.62 ? 'charger' : r < 0.86 ? 'mage' : 'bat';
+  // P3/S2: the threshold tables live in src/content/enemies.ts (CONTENT.wildSpawn); the
+  // ring/level BRANCHING is game logic and stays here. pick() walks `r < t` rows exactly
+  // like the old ternary chains — same constants, same order, same single r drawn above.
+  const WS = CONTENT.wildSpawn;
+  if (lava) type = WS.pick(r, WS.tables.lava);
+  else if (frozen) type = WS.pick(r, WS.tables.frozen);
   else if (df < RING_SAFE)
-    type = r < 0.55 ? 'slime' : r < 0.9 ? 'bat' : 'skeleton'; // Vale — easy lowland, no chargers
+    type = WS.pick(r, WS.tables.vale); // Vale — easy lowland, no chargers
   else if (df >= RING_MID)
-    type =
-      r < 0.14
-        ? 'slime'
-        : r < 0.34
-          ? 'skeleton'
-          : r < 0.56
-            ? 'charger'
-            : r < 0.7
-              ? 'archer'
-              : r < 0.82
-                ? 'mage'
-                : r < 0.92
-                  ? 'healer'
-                  : 'bat'; // Frontier — hardest, widest variety (ranged archers + healers appear here)
-  else if (lvl < 3) type = r < 0.5 ? 'slime' : r < 0.88 ? 'bat' : 'skeleton';
-  else if (lvl < 6) type = r < 0.38 ? 'slime' : r < 0.68 ? 'bat' : r < 0.9 ? 'skeleton' : 'charger';
-  else type = r < 0.28 ? 'slime' : r < 0.52 ? 'bat' : r < 0.78 ? 'skeleton' : 'charger';
+    type = WS.pick(r, WS.tables.frontier); // Frontier — hardest, widest variety (ranged archers + healers appear here)
+  else if (lvl < 3) type = WS.pick(r, WS.tables.midEarly);
+  else if (lvl < 6) type = WS.pick(r, WS.tables.midCore);
+  else type = WS.pick(r, WS.tables.midLate);
   const e = makeEnemy(tx, ty, type);
   const biomeMul = frozen ? 1.3 : lava ? 1.6 : 1;
   // Distance→difficulty via diffMul(df): easier CORE (~0.71×) → fast climb → gentle mid plateau → STEEP Frontier ramp (~4× at the edge).
@@ -392,8 +298,9 @@ function makeWildEnemy(tx, ty, biome) {
 function makeDungeonEnemy(tx, ty, level) {
   const theme = state.dungeonThemeData || dungeonTheme(level);
   let pool = theme && theme.pool ? theme.pool.slice() : ['slime', 'bat', 'skeleton', 'skeleton'];
-  if (level >= 3) pool = pool.concat(['archer']);
-  if (level >= 4) pool = pool.concat(['healer']);
+  // P3/S2: level-gated pool growth (archer@3 / healer@4) is a registry knob —
+  // src/content/dungeons.ts. Row order = the old if-order, so the pool is identical.
+  for (const g of CONTENT.dungeons.poolGrowth) if (level >= g.minLevel) pool = pool.concat([g.add]);
   const type = pool[Math.floor(Math.random() * pool.length)];
   const e = makeEnemy(tx, ty, type);
   const f = (1 + (level - 1) * 0.4) * (1 + (state.ascension || 0) * 0.2);

@@ -13,9 +13,16 @@
 // plus the content-purity battery canary (live CONTENT deep-equals a fresh re-eval of
 // the chunk after a headless run).
 import { ELEMENTS } from './elements';
+import { ENEMIES, WILD_SPAWN } from './enemies';
+import { DUNGEONS } from './dungeons';
 
 const CONTENT = {
   elements: ELEMENTS,
+  // P3/S2: CONTENT.enemies stays the bare kind→entry map so dispatch sites can do
+  // CONTENT.enemies[e.type] (plan §1.3); the wild-spawn tables ride a sibling key.
+  enemies: ENEMIES,
+  wildSpawn: WILD_SPAWN,
+  dungeons: DUNGEONS,
 };
 
 export type Content = typeof CONTENT;
