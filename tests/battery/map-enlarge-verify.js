@@ -14,10 +14,10 @@ function ok(name, cond, extra) { if (cond) { pass++; } else { fail++; fails.push
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (extra != null ? '   [' + extra + ']' : '')); }
 
 // ---- HOLD_SITES is a lexical const not in CAPTURE — extract it from source (verifies the real values) ----
-const html = fs.readFileSync(REPO + '/eldermyr-rpg.html', 'utf8');
-const holdSrc = html.match(/const HOLD_SITES=\[[^\]]*\];/)[0];
+const html = fs.readFileSync(require(REPO + '/tests/battery/game-file.js').gameFilePath(), 'utf8');
+const holdSrc = html.match(/const HOLD_SITES = \[[^\]]*\];/)[0];
 // eslint-disable-next-line no-new-func
-const HOLD_SITES = (new Function('return ' + holdSrc.replace(/^const HOLD_SITES=/, '').replace(/;$/, '')))();
+const HOLD_SITES = (new Function('return ' + holdSrc.replace(/^const HOLD_SITES = /, '').replace(/;$/, '')))();
 
 // ---- boot the SP game ----
 let bootErr = null; try { G.startGame(); } catch (e) { bootErr = String(e && e.stack || e); }

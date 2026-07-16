@@ -262,10 +262,12 @@ const TESTS = {
     // …and the source-level half: both world facts must still be SHARED state.flags, and `flags`
     // must never appear in PP_KEYS. (completeLegionQuest is not captured, so legionBroken is
     // asserted at its real read/write sites instead of by driving it.)
-    const game = fs.readFileSync(path.join(REPO, 'eldermyr-rpg.html'), 'utf8');
+    const gamePath = process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE ||
+      [path.join(REPO, 'dist', 'eldermyr.html'), path.join(REPO, 'eldermyr-rpg.html')].find((p) => fs.existsSync(p));
+    const game = fs.readFileSync(gamePath, 'utf8');
     const wsrc = fs.readFileSync(path.join(REPO, 'server', 'world.js'), 'utf8');
     const legionSetShared = /state\.flags\.legionBroken\s*=\s*true/.test(game);
-    const legionReadShared = /if\(state\.flags\.legionBroken\)/.test(game);
+    const legionReadShared = /if\s*\(state\.flags\.legionBroken\)/.test(game);
     const krakenSetShared = /state\.flags\.krakenDead\s*=\s*true/.test(game);
     const ppKeys = (wsrc.match(/const PP_KEYS = \[[^\]]*\]/) || [''])[0];
     const flagsNotPP = !/'flags'/.test(ppKeys);

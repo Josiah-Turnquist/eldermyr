@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /*
- * harness.mjs — golden-master determinism harness for eldermyr-rpg.html.
+ * harness.mjs — golden-master determinism harness for the game artifact
+ * (default: dist/eldermyr.html — the single source since the P1 wrap).
  * ============================================================================
- * WHY: an upcoming refactor splits the 443 KB single-file game into modules.
- * This harness records state-hash trajectories from TODAY's engine; every
- * refactor step must reproduce them byte-for-byte. It is the regression oracle.
+ * WHY: the rebuild splits the single-file game into modules. This harness
+ * records state-hash trajectories from the pre-split engine; every refactor
+ * step must reproduce them byte-for-byte. It is the regression oracle.
  *
  * HOW (worker mode, `run`): BEFORE the game is loaded we (1) replace Math.random
  * with a seeded mulberry32 and (2) freeze the wall clock to a fixed epoch that
@@ -337,15 +338,15 @@ function cmdProve() {
 
 // The game file under test. ELDERMYR_GAME_FILE (absolute, or relative to the CWD —
 // the SAME semantics as server-spike/load-game.js's override) points the whole
-// harness at a rebuilt artifact, e.g.:
-//   ELDERMYR_GAME_FILE=dist/eldermyr.html node tests/golden/harness.mjs check
-// The actual game LOAD honors it inside load-game.js (in each child process — the
-// env rides spawnRun's inherited environment); this resolver is for the harness's
-// own direct read (version stamp).
+// harness at another artifact. Default (P1 wrap): the built dist/eldermyr.html,
+// repo-root-resolved — the single source; the frozen monolith is deleted (v2-final tag).
+// The actual game LOAD honors the same chain inside load-game.js (in each child
+// process — the env rides spawnRun's inherited environment); this resolver is for the
+// harness's own direct read (version stamp).
 function gameFilePath() {
   return process.env.ELDERMYR_GAME_FILE
     ? path.resolve(process.env.ELDERMYR_GAME_FILE)
-    : path.resolve(__dirname, '../../eldermyr-rpg.html');
+    : path.resolve(__dirname, '../../dist/eldermyr.html');
 }
 
 function gameVersion() {

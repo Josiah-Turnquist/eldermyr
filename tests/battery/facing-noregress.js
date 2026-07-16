@@ -1,13 +1,14 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 /* ZERO-REGRESSION PROOF: a creature facing RIGHT (_faceL falsy — the default, and what HEAD always drew)
-   must be drawn EXACTLY as the shipped build drew it. Renders each creature under git-HEAD's game file
-   and under the working tree through the same counting canvas, then diffs the op streams op-for-op.
+   must be drawn EXACTLY as the last committed build drew it. Renders each creature under the game
+   ASSEMBLED FROM git-HEAD's src/game/ and under one assembled from the working tree, through the same
+   counting canvas, then diffs the op streams op-for-op. (P1 wrap: the monolith is deleted — both sides
+   assemble shell + parts in manifest order; draw ops have no other guard, golden hashes {state,maps}.)
    Run as: node facing-noregress.js <HEAD|WT>  — the parent forks both and compares the JSON. */
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), Module = require('module');
 
 const MODE = process.argv[2];
-const REPO = '' + __RR + '/eldermyr-rpg.html';
 const LG = '' + __RR + '/server-spike/load-game.js';
 
 if (!MODE) {
@@ -27,10 +28,14 @@ if (!MODE) {
 }
 
 // ---- child: render one build and print the op stream --------------------------------------------
+// Both sides are the build's head+concat(parts)+tail (no namespace epilogue needed — load-game
+// falls back to lexical capture, which every artifact supports).
 const TMP = path.join(os.tmpdir(), `nr-${MODE}-${process.pid}.html`);
-let src = MODE === 'HEAD'
-  ? cp.execSync(`git -C ${__RR} show HEAD:eldermyr-rpg.html`, { maxBuffer: 1e9 }).toString()
-  : fs.readFileSync(REPO, 'utf8');
+const read = MODE === 'HEAD'
+  ? (f) => cp.execSync(`git -C ${__RR} show HEAD:${f}`, { maxBuffer: 1e9 }).toString()
+  : (f) => fs.readFileSync(path.join(__RR, f), 'utf8');
+const manifest = JSON.parse(read('src/game/manifest.json'));
+let src = read('src/game/shell-head.html') + manifest.map((f) => read('src/game/parts/' + f)).join('') + read('src/game/shell-tail.html');
 const ANCHOR = "const ctx = canvas.getContext('2d');";
 if (!src.includes(ANCHOR)) throw new Error('ctx anchor drifted');
 src = src.replace(ANCHOR, "const ctx = globalThis.__COUNT_CTX(canvas.getContext('2d'));");

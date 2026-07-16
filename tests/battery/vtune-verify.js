@@ -11,11 +11,13 @@ const S = G.state;
 let pass = 0, fail = 0; const out = [];
 const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL ') + n + (x != null ? '  [' + x + ']' : '')); };
 
-// ---- pull the two PURE functions verbatim from the shipped html ----
-const html = fs.readFileSync(REPO + '/eldermyr-rpg.html', 'utf8');
+// ---- pull the two PURE functions verbatim from the shipped artifact ----
+// (P1 wrap: the artifact is the prettier-formatted dist assembly — top-level functions start
+// at column 0 and end at the first column-0 `}`, so extraction is line-anchored.)
+const html = fs.readFileSync(require(REPO + '/tests/battery/game-file.js').gameFilePath(), 'utf8');
 const grab = (re, name) => { const m = html.match(re); if (!m) throw new Error('extract failed: ' + name); return m[0]; };
-const diffMul = (new Function(grab(/function diffMul\(df\)\{[\s\S]*?\*2\.4\)\)\s*;?\s*\}/, 'diffMul') + '; return diffMul;'))();
-const rollRarity = (new Function(grab(/function rollRarity\(level, boss\)\{[\s\S]*?return 4; \}/, 'rollRarity') + '; return rollRarity;'))();
+const diffMul = (new Function(grab(/^function diffMul\(df\) \{[\s\S]*?\n\}/m, 'diffMul') + '; return diffMul;'))();
+const rollRarity = (new Function(grab(/^function rollRarity\(level, boss\) \{[\s\S]*?\n\}/m, 'rollRarity') + '; return rollRarity;'))();
 const oldDiffMul = df => (1.18 + df * 1.05 + df * df * 1.5);
 const oldRollRarity = (level, boss) => { let r = Math.random(); const shift = (boss ? 0.18 : 0) + Math.min(0.10, level * 0.006); r = Math.max(0, r - shift); if (r > 0.42) return 0; if (r > 0.15) return 1; if (r > 0.045) return 2; if (r > 0.010) return 3; return 4; };
 

@@ -47,10 +47,11 @@
 <script>
 /* =============================================================================
  * Multiplayer client — the "load-and-render" fork.
- * Fetches the UNTOUCHED single-player game (eldermyr-rpg.html), boots it so all
+ * Fetches the UNMODIFIED game artifact from the server (route '/eldermyr-rpg.html',
+ * which serves the built dist/eldermyr.html since the P1 wrap), boots it so all
  * its sprite/HUD/audio machinery initializes, stubs its simulation loop, then
  * drives its REAL renderer with authoritative snapshots from the server.
- * Nothing about eldermyr-rpg.html is copied or modified.
+ * Nothing about the game file is copied or modified.
  * ========================================================================== */
 const MP_PORT = 8138;
 // The node server serves this page AND the ws on ONE port → same-origin works everywhere

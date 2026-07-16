@@ -17,7 +17,7 @@ const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL '
 //      real source (with my edits) in global scope, wiring their free vars to captured
 //      symbols. Only the talk/key branches are exercised, so the legion/holdings deps
 //      are harmless stubs. -----------------------------------------------------------
-const html = fs.readFileSync(REPO + '/eldermyr-rpg.html', 'utf8');
+const html = fs.readFileSync(require(REPO + '/tests/battery/game-file.js').gameFilePath(), 'utf8');
 function slice(startSig, endSig) {
   const a = html.indexOf(startSig); const b = html.indexOf(endSig, a + 1);
   if (a < 0 || b < 0) throw new Error('cannot slice ' + startSig);
@@ -28,8 +28,8 @@ global.OW_W = G.OW_W; global.OW_H = G.OW_H;
 global.HOLD_SITES = []; global.dist2ToPlayerTile = () => 1e9;
 global.REGION_NAMES = ['n','e','s','w','ne','se','sw','nw','c'];
 global.POI_KINDS = { camp: { mark: '#fff' }, keep: { mark: '#fff' } };
-const coSrc = slice('function currentObjective(){', '\nfunction drawWayfinder(');
-const uqSrc = slice('function updateQuests(){', '\nfunction tameDragon(');
+const coSrc = slice('function currentObjective() {', '\nfunction drawWayfinder(');
+const uqSrc = slice('function updateQuests() {', '\nfunction tameDragon(');
 (0, eval)('global.currentObjective = ' + coSrc.replace('function currentObjective', 'function'));
 (0, eval)('global.updateQuests = '     + uqSrc.replace('function updateQuests',     'function'));
 

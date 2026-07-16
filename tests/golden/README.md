@@ -1,8 +1,10 @@
 # Golden-master determinism harness
 
-Regression oracle for the coming split of `eldermyr-rpg.html` into modules. It records
-sha256 **state-hash trajectories** from today's engine; every refactor step must reproduce
-them byte-for-byte. A pure module split changes no values, so it must not move a single hash.
+Regression oracle for the split of the single-file game into modules. It records
+sha256 **state-hash trajectories** from the pre-split engine; every refactor step must
+reproduce them byte-for-byte. A pure module split changes no values, so it must not move a
+single hash. The harness drives the built artifact `dist/eldermyr.html` by default (the
+single source since the P1 wrap; override with `ELDERMYR_GAME_FILE`).
 
 ## Run
 

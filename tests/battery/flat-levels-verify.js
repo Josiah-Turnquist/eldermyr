@@ -17,7 +17,7 @@ const G = require('./flat-loader.js');
 const S = G.state, TILE = G.TILE;
 let LOG = []; global.__onLog = (m) => { LOG.push(String(m)); }; global.__onGameOver = () => {};
 
-const TREE = process.env.GAME_HTML ? 'OLD (' + require('path').basename(process.env.GAME_HTML) + ')' : 'NEW (repo eldermyr-rpg.html)';
+const TREE = process.env.GAME_HTML ? 'OLD (' + require('path').basename(process.env.GAME_HTML) + ')' : 'NEW (dist/eldermyr.html)';
 let pass = 0, fail = 0; const out = [];
 const ok = (tag, n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL ') + tag + ' ' + n + (x != null ? '  [' + x + ']' : '')); };
 const near = (a, b, tol) => Math.abs(a - b) <= tol;

@@ -14,10 +14,11 @@ const fs = require('fs'), path = require('path'), Module = require('module');
 const SRC = '' + __RR + '/server-spike/load-game.js';
 let src = fs.readFileSync(SRC, 'utf8');
 
-// load-game.js now honors GAME_HTML natively (P1: it also honors ELDERMYR_GAME_FILE, at
-// LOWER precedence, so ambient dist-battery runs can't override a suite's throwaway copy).
+// load-game.js honors GAME_HTML natively (P1: it also honors ELDERMYR_GAME_FILE, at
+// LOWER precedence, so ambient battery runs can't override a suite's throwaway copy), and
+// since the P1 wrap it DEFAULTS to the built artifact dist/eldermyr.html (single source).
 // Patch (1) is therefore an identity check: assert the anchor line still exists as-is.
-const A0 = "const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'eldermyr-rpg.html'));";
+const A0 = "const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'dist', 'eldermyr.html'));";
 const A1 = A0;
 const B0 = 'const CAPTURE = [';
 const B1 = "const CAPTURE = [ 'makeWildDragon', 'makePinnacleAdd', 'makeEnemy', 'MASTERY_LVLS', 'partyLvl', 'partyN', 'makeBoss', 'isNight',";

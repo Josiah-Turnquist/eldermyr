@@ -71,9 +71,12 @@ npm scripts, GitHub Actions CI).
 Extract into `src/` modules, behavior-frozen: golden hashes must stay identical at every
 step. Order: constants → content data → sim systems → render → ui/audio → boot. Sim's
 `Sound.*`/`floatDamage`/HUD-in-tick calls become `events[]` at the seam. Harness gains
-`--engine=legacy|modular` so both load paths hit the same oracle. At end of P1 the
-server imports sim directly — `CAPTURE`/`NAMES` lists deleted (still swap-multiplexing);
-`eldermyr-rpg.html` deleted (lives on in the `v2-final` tag).
+`--engine=legacy|modular` so both load paths hit the same oracle. End state (P1 wrap,
+DONE): `eldermyr-rpg.html` deleted (lives on in the `v2-final` tag) — `src/game/` parts +
+`npm run build` → `dist/eldermyr.html` are THE single source, and every loader/suite/route
+defaults to the built artifact. `CAPTURE`/`NAMES` still exist but are BUILD-VERIFIED via
+the generated Eldermyr namespace (unknown name = build error); their literal deletion is
+deferred to the P2/P3 module-migration slices, where server imports land naturally.
 *Gate: golden identical on modular engine; battery green; server self-test green; game
 boots in browser from the built bundle.*
 
@@ -134,3 +137,16 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   control). load-game.js + client/mp.html prefer namespace/holder, fall back to lexical —
   all four gates green on both files after each stage; world.js self-test + index.js boot
   green on both files.
+- 2026-07-15: P1 WRAP (single source) — `eldermyr-rpg.html` DELETED (v2-final tag keeps
+  it); `dist/eldermyr.html` is the one artifact. load-game.js + golden harness default to
+  it (repo-root-resolved; GAME_HTML > ELDERMYR_GAME_FILE overrides kept); flat-loader +
+  facing-verify anchors updated in step. Monolith-hardcoded suites repointed: qrender/
+  objclient (dual autosave latch + save/restore of globalThis.__g/Eldermyr around their
+  second eval), and the textual probes (sp-flags-check / quest-verify / vtune / map-enlarge
+  / flags-pp) re-anchored to the prettier-formatted artifact. facing-noregress REPOINTED,
+  not retired: both sides now assemble shell+parts (HEAD via `git show`, WT from disk) —
+  it stays the only draw-op regression guard through the render split. index.js serves
+  /eldermyr-rpg.html (route name frozen for the client) from dist, fails LOUDLY at boot if
+  missing; `npm start` gained a prestart build. split-monolith.mjs retired to an error
+  stub; ast-equal.mjs deleted. Battery 38/38 ×2, golden 8/8 ×2 from clean `rm -rf dist`
+  rounds; prestart proven end-to-end (clean tree → npm start → route serves the artifact).

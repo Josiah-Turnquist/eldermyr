@@ -1,8 +1,8 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 /*
- * qrender.js — get the REAL updateQuests() out of the untouched game file and record
- * what it actually paints. NOT a formula mirror: this evals eldermyr-rpg.html's own
+ * qrender.js — get the REAL updateQuests() out of the game artifact and record
+ * what it actually paints. NOT a formula mirror: this evals the artifact's own
  * <script> (same extraction load-game.js uses) and calls the game's own function.
  *
  * The server's CAPTURE list has no 'updateQuests' (the server never renders the box —
@@ -16,17 +16,28 @@ const path = require('path');
 // requiring load-game installs the browser stubs (window/document/localStorage/timers) globally
 require(path.join(__RR, 'server-spike', 'load-game.js'));
 
-const htmlPath = path.join(__RR, 'eldermyr-rpg.html');
+const htmlPath = require(path.join(__dirname, 'game-file.js')).gameFilePath();   // dist/eldermyr.html since the P1 wrap
 const html = fs.readFileSync(htmlPath, 'utf8');
 const a = html.indexOf('<script>'); const b = html.indexOf('</script>', a);
 let code = html.slice(a + '<script>'.length, b);
 code += '\n;try{ autosaveStarted = true; }catch(_e){}\n';
+// The artifact keeps autosaveStarted on the __g globals holder (the bare latch above throws
+// there, caught) — latch the holder too, same dual path load-game.js uses.
+code += '\n;try{ if (globalThis.__g && ("autosaveStarted" in globalThis.__g)) globalThis.__g.autosaveStarted = true; }catch(_e){}\n';
 code += '\n;try{ Sound.startMusic = function(){}; }catch(_e){}\n';
 // capture ONLY what the client's adoptQuests touches + the renderer itself
 code += '\n;globalThis.__cg = {};' +
   ['state', 'updateQuests'].map((n) => `try{ globalThis.__cg[${JSON.stringify(n)}] = ${n}; }catch(_e){}`).join('\n');
 
-(function () { eval(code); })();   // eslint-disable-line no-eval
+// This SECOND eval of the artifact re-runs its `globalThis.__g = __g` and
+// `globalThis.Eldermyr = {…}` lines, which would clobber the FIRST (load-game) instance's
+// holder/namespace for anything reading them later in this process. The second instance
+// only needs its own lexical bindings, so save and restore the globals around the eval.
+{
+  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr;
+  (function () { eval(code); })();   // eslint-disable-line no-eval
+  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns;
+}
 const CG = globalThis.__cg;
 if (typeof CG.updateQuests !== 'function') throw new Error('failed to capture the real updateQuests');
 

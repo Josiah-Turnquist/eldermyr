@@ -39,7 +39,10 @@ stays stubbed forever (the server drives ticks manually). The game's own repeati
 no-ops behind `G.fn && G.fn()` guards — this class of bug hid the event feed and the travel
 marker for weeks.
 
-**v3-rebuild dual path (P1c/P1d — applies to the rebuilt `dist/eldermyr.html` only):** the
+**v3-rebuild dual path (P1c/P1d; since the P1 wrap `dist/eldermyr.html` — assembled by
+`npm run build` from `src/game/` — IS the game file everywhere: loaders and the golden
+harness default to it, `eldermyr-rpg.html` is deleted and lives in the `v2-final` tag,
+and the lexical-capture fallback below remains only for pre-wrap artifacts):** the
 assembled artifact differs from the frozen monolith in two machine-made ways. (1) Every
 module-level `let` that is REBOUND after init (27 names: townZones, biomeMap, VIEW_W, hitStop,
 …) lives as a slot on a globals holder — `const __g = {…}` in the first part, exposed as

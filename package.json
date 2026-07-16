@@ -4,6 +4,7 @@
   "private": true,
   "description": "Realms of Eldermyr — authoritative multiplayer server (reuses the single-player sim headless).",
   "scripts": {
+    "prestart": "node scripts/build.mjs",
     "start": "node server/index.js",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",

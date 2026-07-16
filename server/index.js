@@ -61,8 +61,16 @@ const STATIC = {
   '/': ['client/mp.html', 'text/html; charset=utf-8'],
   '/mp': ['client/mp.html', 'text/html; charset=utf-8'],
   '/mp.html': ['client/mp.html', 'text/html; charset=utf-8'],
-  '/eldermyr-rpg.html': ['eldermyr-rpg.html', 'text/html; charset=utf-8'],
+  // Route NAME is frozen (client/mp.html fetches '/eldermyr-rpg.html'); the FILE behind it is
+  // the built artifact — the single source since the P1 wrap (monolith deleted, tag v2-final).
+  '/eldermyr-rpg.html': ['dist/eldermyr.html', 'text/html; charset=utf-8'],
 };
+// Fail LOUDLY at boot if the artifact is missing — otherwise every client would get a silent
+// 500/404 on the game fetch. `npm start` can't hit this (its prestart runs the build); a bare
+// `node server/index.js` can.
+if (!fs.existsSync(path.join(ROOT, 'dist', 'eldermyr.html'))) {
+  throw new Error('[index] dist/eldermyr.html not found — run `npm run build` first (or use `npm start`, whose prestart builds it)');
+}
 
 // Minimal HTML escaper for the server-rendered changelog (release text is author-controlled,
 // but escaping keeps the page correct if a stray < or & ever lands in a note).

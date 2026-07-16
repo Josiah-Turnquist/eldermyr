@@ -135,7 +135,8 @@ global.setTimeout = () => 0; global.clearTimeout = noop;
 // ============================================================================
 // 2. LOAD THE REAL GAME CODE (extract <script> from the HTML)
 // ============================================================================
-const htmlPath = path.join(__dirname, '..', 'eldermyr-rpg.html');
+// P1 wrap: the monolith is deleted — default to the built artifact (same env chain as load-game.js).
+const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'dist', 'eldermyr.html'));
 const html = fs.readFileSync(htmlPath, 'utf8');
 const a = html.indexOf('<script>');
 const b = html.indexOf('</script>', a);

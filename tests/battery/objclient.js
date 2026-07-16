@@ -27,16 +27,32 @@ const path = require('path');
 const REPO = process.env.EM_REPO || __RR;
 require(path.join(REPO, 'server-spike', 'load-game.js'));   // installs window/document/localStorage stubs
 const MP = fs.readFileSync(path.join(REPO, 'client', 'mp.html'), 'utf8');
-const html = fs.readFileSync(path.join(REPO, 'eldermyr-rpg.html'), 'utf8');
+// The game artifact: env overrides first (same chain as load-game.js), then the REPO's built
+// dist/eldermyr.html (single source since the P1 wrap), then the REPO's monolith as a
+// back-compat fallback so EM_REPO can still point at a pre-wrap checkout.
+const gamePath = process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE ||
+  [path.join(REPO, 'dist', 'eldermyr.html'), path.join(REPO, 'eldermyr-rpg.html')].find((p) => fs.existsSync(p));
+if (!gamePath) throw new Error('objclient: no game artifact in ' + REPO + ' — run `npm run build` there first');
+const html = fs.readFileSync(gamePath, 'utf8');
 
 // ---- a SECOND, independent instance of the real game = one fresh MP page ----
 const a = html.indexOf('<script>'), b = html.indexOf('</script>', a);
 let code = html.slice(a + '<script>'.length, b);
 code += '\n;try{ autosaveStarted = true; }catch(_e){}\n';
+// Artifact path: autosaveStarted lives on the __g globals holder (the bare latch above throws
+// there, caught) — latch the holder too, same dual path load-game.js uses.
+code += '\n;try{ if (globalThis.__g && ("autosaveStarted" in globalThis.__g)) globalThis.__g.autosaveStarted = true; }catch(_e){}\n';
 code += '\n;try{ Sound.startMusic = function(){}; }catch(_e){}\n';
 code += '\n;globalThis.__og = {};' +
   ['state', 'currentObjective', 'updateQuests'].map((n) => `try{ globalThis.__og[${JSON.stringify(n)}] = ${n}; }catch(_e){}`).join('\n');
-(function () { eval(code); })();   // eslint-disable-line no-eval
+// The second eval re-runs the artifact's `globalThis.__g = __g` / `globalThis.Eldermyr = {…}`
+// lines — save and restore them so the FIRST (load-game) instance's holder/namespace stay
+// authoritative for the rest of this process.
+{
+  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr;
+  (function () { eval(code); })();   // eslint-disable-line no-eval
+  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns;
+}
 const CG = globalThis.__og;
 if (typeof CG.currentObjective !== 'function') throw new Error('failed to capture the real currentObjective');
 

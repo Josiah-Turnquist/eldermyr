@@ -68,18 +68,23 @@ try { G.applySnapshot(vNoFlags); } catch (e) { threw = true; }
 ok('a save with NO flags object at all still loads', !threw && S.flags && S.flags.krakenDead === false, threw ? 'THREW' : JSON.stringify(S.flags));
 
 // ---------------------------------------------------------------- 3. the SP no-op proof
-const game = fs.readFileSync(path.join(REPO, 'eldermyr-rpg.html'), 'utf8');
-// call sites only: skip the `function enterDungeon(){` declaration. (tryEnterDungeon can't match —
-// it spells the name with a capital E.)
-const calls = (game.match(/(?<!function )\benterDungeon\(\)/g) || []).length;
-const insideTry = /state\.player\.enteredDungeon=true; \} enterDungeon\(\);/.test(game);
+// The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
+// pre-wrap checkout, so fall back to its monolith).
+const gamePath = process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE ||
+  [path.join(REPO, 'dist', 'eldermyr.html'), path.join(REPO, 'eldermyr-rpg.html')].find((p) => fs.existsSync(p));
+if (!gamePath) throw new Error('sp-flags-check: no game artifact in ' + REPO + ' — run `npm run build` there first');
+const game = fs.readFileSync(gamePath, 'utf8');
+// call sites only: skip the `function enterDungeon() {` declaration and the build-generated
+// namespace's `get enterDungeon() {` accessor. (tryEnterDungeon can't match — capital E.)
+const calls = (game.match(/(?<!function )(?<!get )\benterDungeon\(\)/g) || []).length;
+const insideTry = /state\.player\.enteredDungeon = true;\s*\}\s*enterDungeon\(\);/.test(game);
 ok('currentObjective\'s new maxDepth clause is a no-op in SP: enterDungeon() has exactly ONE call site…', calls === 1, 'callSites=' + calls);
 ok('…and it is inside tryEnterDungeon, AFTER the milestone is set (so maxDepth>0 ⇒ enteredDungeon)', insideTry);
-ok('the wayfinder gate reads the PLAYER milestone, not the shared flags', /!state\.player\.enteredDungeon&&!\(state\.maxDepth>0\)/.test(game));
+ok('the wayfinder gate reads the PLAYER milestone, not the shared flags', /!state\.player\.enteredDungeon && !\(state\.maxDepth > 0\)/.test(game));
 ok('no personal milestone is left on state.flags anywhere in the game file',
   !/state\.flags\.(enteredDungeon|gotKey|enteredFrozen)/.test(game));
 ok('the WORLD facts are still on the shared state.flags',
-  /state\.flags\.krakenDead=true/.test(game) && /state\.flags\.legionBroken=true/.test(game) && /if\(state\.flags\.legionBroken\)/.test(game));
+  /state\.flags\.krakenDead\s*=\s*true/.test(game) && /state\.flags\.legionBroken\s*=\s*true/.test(game) && /if\s*\(state\.flags\.legionBroken\)/.test(game));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

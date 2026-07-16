@@ -2,7 +2,8 @@
  * server/world.js — authoritative shared World (transport-agnostic).
  * =============================================================================
  * The "fork" that never drifts: this does NOT copy the game's sim. It loads the
- * UNTOUCHED eldermyr-rpg.html through the headless loader and REUSES its logic
+ * game artifact (dist/eldermyr.html since the P1 wrap) through the headless
+ * loader and REUSES its logic
  * (killEnemy, combat math, world-gen, items, spawns...). The only thing this
  * file owns is ORCHESTRATION of N players over that single-player sim:
  *

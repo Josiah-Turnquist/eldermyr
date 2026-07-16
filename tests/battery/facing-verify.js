@@ -8,7 +8,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
    The repo file is never touched (proven by a git-diff check in run-facing-battery.sh). */
 const fs = require('fs'), path = require('path'), os = require('os');
 
-const REPO = '' + __RR + '/eldermyr-rpg.html';
+const REPO = require(path.join(__dirname, 'game-file.js')).gameFilePath();   // dist/eldermyr.html since the P1 wrap
 const TMP = path.join(os.tmpdir(), 'facing-throwaway-' + process.pid + '.html');
 const ANCHOR = "const ctx = canvas.getContext('2d');";
 let src = fs.readFileSync(REPO, 'utf8');
@@ -52,9 +52,10 @@ const reset = () => { R.depth = 0; R.maxDepth = 0; R.underflow = false; R.saves 
 const Module = require('module');
 const LG = '' + __RR + '/server-spike/load-game.js';
 let lg = fs.readFileSync(LG, 'utf8');
-// load-game.js honors GAME_HTML natively (highest precedence) since P1 — no htmlPath
-// patch needed; the anchor assertion below still guards against silent drift.
-const A0 = "const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'eldermyr-rpg.html'));";
+// load-game.js honors GAME_HTML natively (highest precedence) since P1, defaulting to
+// dist/eldermyr.html since the P1 wrap — no htmlPath patch needed; the anchor assertion
+// below still guards against silent drift.
+const A0 = "const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'dist', 'eldermyr.html'));";
 const B0 = 'const CAPTURE = [';
 if (!lg.includes(A0) || !lg.includes(B0)) throw new Error('load-game.js anchors drifted — patch would be vacuous');
 lg = lg.replace(B0, "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon',");

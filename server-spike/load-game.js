@@ -2,9 +2,9 @@
  * load-game.js — reusable HEADLESS LOADER for the Eldermyr sim.
  * -----------------------------------------------------------------------------
  * Stubs the whole browser environment, then loads the REAL game code straight
- * out of ../eldermyr-rpg.html (extracts the single <script>, appends an epilogue
- * capturing the lexical symbols) and returns them. The spikes AND the eventual
- * Colyseus server all import this — one source of truth for "run the sim in Node".
+ * out of the built artifact ../dist/eldermyr.html (extracts the single <script>,
+ * appends an epilogue capturing the symbols) and returns them. The spikes AND the
+ * server all import this — one source of truth for "run the sim in Node".
  *
  *   const G = require('./load-game');   // { state, keys, maps, startGame, update*, ... }
  */
@@ -145,13 +145,19 @@ const CAPTURE = [
 function loadGame() {
   if (global.__game) return global.__game;
   installBrowserStubs();
-  // Test-rig overrides: GAME_HTML (suite-internal, e.g. a patched throwaway copy) beats
-  // ELDERMYR_GAME_FILE (ambient, e.g. the whole battery aimed at dist/eldermyr.html).
-  // Single line — tests/battery/flat-loader.js anchors on it textually.
-  const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'eldermyr-rpg.html'));
+  // The artifact under load. Overrides: GAME_HTML (suite-internal, e.g. a patched throwaway
+  // copy) beats ELDERMYR_GAME_FILE (ambient, e.g. CI aiming everything at another build).
+  // Default (P1 wrap): the BUILT artifact dist/eldermyr.html, repo-root-resolved — the single
+  // source; the frozen monolith is deleted (it lives in the v2-final tag). Single line —
+  // tests/battery/flat-loader.js and tests/battery/facing-verify.js anchor on it textually.
+  const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'dist', 'eldermyr.html'));
+  if (!fs.existsSync(htmlPath)) {
+    throw new Error('[load-game] game artifact not found: ' + htmlPath +
+      (process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE ? '' : ' — run `npm run build` first (dist/eldermyr.html is the single source since the P1 wrap)'));
+  }
   const html = fs.readFileSync(htmlPath, 'utf8');
   const a = html.indexOf('<script>'); const b = html.indexOf('</script>', a);
-  if (a < 0 || b < 0) throw new Error('Could not locate <script> block in eldermyr-rpg.html');
+  if (a < 0 || b < 0) throw new Error('Could not locate <script> block in ' + htmlPath);
   let code = html.slice(a + '<script>'.length, b);
   // Route the game's own log() through an overridable hook so the server can capture
   // every in-world message (kills, drops, fishing, quests…) and stream it to MP clients.
