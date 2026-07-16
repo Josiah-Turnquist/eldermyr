@@ -46,6 +46,9 @@ const SUITES = [
   // the enemy partition internalized (rebuild P2/S15): updateEnemies buckets by nearest hero in-sim,
   // full-roster state.enemies (inline liberation correct, __libGate retired), killer-credit discipline
   'enemies-mp-verify',
+  // the projectile partition internalized (rebuild P2/S16): updateProjectiles buckets by shooter in-sim
+  // (first-shot order, per-bucket owner pins incl. INVENTORY, parked-shots rule, bucket-order recombine)
+  'projectiles-mp-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

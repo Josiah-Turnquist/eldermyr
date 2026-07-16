@@ -27,7 +27,7 @@ const TILE = G.TILE || 32;
 let failed = false;
 const A1 = (name, cond, extra) => { const ok = !!cond; if (!ok) failed = true; console.log((ok ? '  PASS ' : '  FAIL ') + name + (extra !== undefined ? '  [' + extra + ']' : '')); };
 const mk = (px, py) => { let e = null; for (let d = 0; d < 10 && !e; d++) e = G.makeWildEnemy(Math.floor(px / TILE) + d, Math.floor(py / TILE)); return e; };
-const plainMelee = (e) => { e.archer = e.flee = e.caster = e.healer = e.charger = false; e.isBoss = e.isNemesis = e.isGreatBeast = e.isWildDragon = false; e.night = false; e.windup = 0; e.stunT = 0; e.burnT = 0; e.poisonT = 0; e.chillT = 0; return e; };
+const plainMelee = (e) => { e.archer = e.flee = e.caster = e.healer = e.charger = false; e.isBoss = e.isNemesis = e.isGreatBeast = e.isWildDragon = false; e.night = false; e.windup = 0; e.stunT = 0; e.burnT = 0; e.poisonT = 0; e.chillT = 0; e.aquatic = false; e.homeDf = undefined; return e; };   // aquatic=false + homeDf=undefined: the probes TELEPORT mk()'s foe (created 0-9 tiles away, where the unseeded type/footprint roll decides WHICH tile succeeded), so near B's steep eastern ring the LEASH branch (homeDf stamped at creation) could trip and its amble-home step into coastal water be blocked — a foe frozen at 0px movement, ~1/4 flake observed on the pre-S16 tree too. Probe foes are leash-exempt (homeDf undefined, the boss rule) and never aquatic (canSailTo refuses every land step).
 const burnKill = (e) => { e.hp = 1; e.burnT = 18; e.burnDmg = 99999; };
 const d2 = (e, p) => (e.x + e.w / 2 - (p.x + p.w / 2)) ** 2 + (e.y + e.h / 2 - (p.y + p.h / 2)) ** 2;
 const drop = (e) => { const i = S.enemies.indexOf(e); if (i >= 0) S.enemies.splice(i, 1); };
@@ -37,9 +37,22 @@ const A = w.addPlayer('A', 'Ava');
 const B = w.addPlayer('B', 'Bo');
 for (const p of [A, B]) { p.def = 99999; p.maxHp = 999999; p.hp = 999999; }
 const SPAWN = { x: A.x, y: A.y };   // A joins at the boot spawn (main-town center-ish)
+// Worldgen is UNSEEDED here, so a blind teleport target (SPAWN + N tiles) lands in water/rock on
+// some boots — probe foes then can't STEP toward their hero (canMoveTo refuses) and the movement
+// asserts flaked ~1/4 (observed identically on the pre-S16 tree). Find the nearest OPEN 3x3 pocket
+// (all non-SOLID; WATER is in SOLID) around the intended spot instead; search radius stays small so
+// the placement's INTENT (far apart / outside the 20t town bubble) is preserved.
+const openNear = (tx, ty, maxR, half) => {
+  half = half || 1;
+  const clear = (cx, cy) => { for (let dy = -half; dy <= half; dy++) for (let dx = -half; dx <= half; dx++) { let t; try { t = G.getTile('overworld', cx + dx, cy + dy); } catch (_e) { return false; } if (t === undefined || t === null || G.SOLID.has(t)) return false; } return true; };
+  for (let r = 0; r <= maxR; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; if (clear(tx + dx, ty + dy)) return { x: (tx + dx) * TILE + 4, y: (ty + dy) * TILE + 4 }; }
+  return { x: tx * TILE + 4, y: ty * TILE + 4 };   // absurd fallback: the raw target (old behavior)
+};
+const STX = Math.floor(SPAWN.x / TILE), STY = Math.floor(SPAWN.y / TILE);
+const FAR = openNear(STX + 150, STY, 30, 3);       // B's far-east arena: a 7x7 open pocket (>=120t out on any boot) — probe foes 3t from B step freely
 
 // ---------- 1. per-foe nearest-hero targeting + regroup order + the pin ----------
-B.x = SPAWN.x + 150 * TILE; B.y = SPAWN.y;                       // far apart -> unambiguous nearest
+B.x = FAR.x; B.y = FAR.y;                                        // far apart -> unambiguous nearest
 const FB = plainMelee(mk(B.x + 3 * TILE, B.y));                  // pushed FIRST (pre-S15 array order: FB before FA)
 const FA = plainMelee(mk(SPAWN.x + 3 * TILE, SPAWN.y));
 A1('two probe foes crafted', !!FA && !!FB);
@@ -79,8 +92,8 @@ S.enemies.push(BOSSY);
 S.player = A; S.inventory = A.inventory;
 G.updateEnemies();
 A1('target-less boss dropped its wind-up (tele/chargeState cleared -> wandering home)', BOSSY.tele === null && BOSSY.chargeState === 0, `tele=${JSON.stringify(BOSSY.tele)} charge=${BOSSY.chargeState}`);
-B.x = SPAWN.x + 40 * TILE;                                        // B leaves town (bubble is 20t); boss sits 15t from B
-BOSSY.x = B.x - 15 * TILE; BOSSY.y = B.y;
+{ const OUT = openNear(STX + 40, STY, 8, 1); B.x = OUT.x; B.y = OUT.y; }   // B leaves town (bubble is 20t; pocket search keeps >=32t); boss sits ~15t from B
+{ const BP = openNear(Math.floor(B.x / TILE) - 15, Math.floor(B.y / TILE), 8, 1); BOSSY.x = BP.x; BOSSY.y = BP.y; }   // the boss too starts in an open pocket, or a rocky boot pins it and the chase assert flakes
 const dBoss0 = d2(BOSSY, B);
 S.player = A; S.inventory = A.inventory;                          // A (in town, nearer the old spot) stays pinned — the trap
 G.updateEnemies();
@@ -88,7 +101,7 @@ A1('boss chases the OUT-of-town hero (in-town A is invisible to it)', d2(BOSSY, 
 drop(BOSSY);
 
 // ---------- 4. downed heroes are invisible to foes ----------
-B.x = SPAWN.x + 150 * TILE; B.y = SPAWN.y;
+B.x = FAR.x; B.y = FAR.y;
 B.downed = true;
 const FD = plainMelee(mk(B.x + 4 * TILE, B.y));
 A1('downed-probe foe crafted', !!FD);
@@ -132,7 +145,7 @@ A1('artifact carries the in-sim partition helpers', /function nearestHeroTo\s*\(
 // ---------- 7. regression floor: the real w.tick() path engages BOTH heroes' foes ----------
 const TA = plainMelee(mk(SPAWN.x + 4 * TILE, SPAWN.y + 3 * TILE)), TB = plainMelee(mk(B.x + 4 * TILE, B.y + 3 * TILE));
 A1('two tick-probe foes crafted', !!TA && !!TB);
-TA.x = A.x + 128; TA.y = A.y; TB.x = B.x + 128; TB.y = B.y;
+TA.x = A.x + 96; TA.y = A.y; TB.x = B.x + 96; TB.y = B.y;   // 3t: inside each hero's open pocket (FAR is 7x7-clear), outside strike range — the foe must WALK
 S.enemies.push(TA, TB);
 const tA0 = d2(TA, A), tB0 = d2(TB, B);
 A.held = {}; B.held = {};

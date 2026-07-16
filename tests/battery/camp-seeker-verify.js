@@ -115,6 +115,7 @@ out.push('\n=== FIX 1 (MP) — world.js doCamp handler ===');
 out.push('\n=== FIX 2 — Seeker Bolt (SP) ===');
 (function seeker() {
   const p = S.player; S.map = 'dungeon'; clearKeys();
+  p.map = 'dungeon';   // P2/S16: the MP block above put a roster hero on state.players, and updateProjectiles is world-scoped now (the parked-shots rule lives IN the sim) — an acting hero not tagged into the probed world would leave these bolts parked instead of stepped
   p.camping = false; p.campHealLeft = 0; p.x = 20 * TILE; p.y = 20 * TILE; p.w = 22; p.h = 22;
   p.energy = 1000; p.maxEnergy = 1000; p.heat = 0;
   const cast = () => { S.projectiles = []; p.attackCooldown = 0; p.energy = 1000; p.dir = 'right'; clearKeys(); G.tryAttack(); return S.projectiles[0]; };
@@ -195,6 +196,7 @@ out.push('\n=== FIX 2 — Seeker Bolt (SP) ===');
   equipMagic(10); S.enemies = [];
   pr = cast();
   ok('perk but no foe: NO seek target (straight shot)', !!pr && pr.seek === null);
+  p.map = 'overworld';   // restore the roster tag for the MP block below (its partyIn roster is overworld-scoped)
 })();
 
 // ============================================================================

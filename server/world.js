@@ -13,7 +13,10 @@
  *                      partitions foes by nearest hero and pins each hero for
  *                      their bucket (P2/S15; state.enemies stays the full roster,
  *                      so killEnemy's inline liberation checks see the whole world).
- *   - shared world   : projectiles / spawns / weather / nemesis run once.
+ *   - projectiles    : ONE G.updateProjectiles() call per world — the game itself
+ *                      buckets shots by shooter and pins each owner for their
+ *                      bucket (P2/S16; parked-shots rule included).
+ *   - shared world   : spawns / weather / nemesis run once.
  *   - serialize      : per-player, interest-culled snapshot (map sent once).
  *
  * SCOPE (co-op): per-player = position + all combat stats + inventory + the QUESTLINE
@@ -406,44 +409,13 @@ class World {
     }
   }
 
-  // PROJECTILES, partitioned by SHOOTER (the last world.js partition standing — the enemy one
-  // moved into the game's own updateEnemies at P2/S15; this one follows in the projectile slice).
-  // updateProjectiles re-pins `state.player` to each friendly shot's ownerRef itself, so a hit credits the
-  // shooter's crit/lifesteal/prof/XP. Since P2/S13 every per-hero key (incl. quests) rides state.player,
-  // so that per-projectile re-pin IS the full acting context — killEnemy's `state.player.quests.slay.count++`
-  // and bountyProgress() land on the shooter by construction. The owner BUCKETS stay: they fix the
-  // projectile STEP ORDER per owner (the determinism the 2p baselines freeze) until the next slice
-  // internalizes the loops; the pin below (player + inventory) is the whole acting context (P2/S14).
-  // Hostile + unowned shots ride one final pass under pool[0] — (P2/S3) their player-hit test loops the
-  // game's world-scoped partyIn() itself, so every hero of the swapped-in world is a target (the old
-  // players[1..N] patches are gone). Every projectile is stepped exactly once:
-  // buckets are disjoint, each pass walks its own array backwards, and shots spawned mid-pass (the Quarry-Mark
-  // frost lance, `ownerRef: po`) land in that owner's bucket and are recombined below.
-  _projectilesByShooter(pool) {
-    if (!G.updateProjectiles) return;
-    const all = S.projectiles;
-    if (!all.length) return;                       // nothing to step (updateProjectiles is a pure loop over the array)
-    // Nobody in this world (every hero is delving) → leave the overworld's in-flight shots parked until
-    // someone surfaces. Previously this ran anyway under a STALE state.player — a delver, in DUNGEON
-    // coordinates — so an overworld arrow could hit-test against, and damage, a hero underground.
-    if (!pool.length) return;
-    const byOwner = new Map(), rest = [];
-    for (const pr of all) {
-      // `friendly` is the gate: a HOSTILE shot's ownerRef is the firing ENEMY, never a player.
-      if (pr.friendly && pr.ownerRef && pool.includes(pr.ownerRef)) { let b = byOwner.get(pr.ownerRef); if (!b) byOwner.set(pr.ownerRef, b = []); b.push(pr); }
-      else rest.push(pr);                          // hostile, unowned, or owned by someone who left/delved
-    }
-    const out = [];
-    const runAs = (p, list) => {
-      S.player = p; S.inventory = p.inventory;   // deliberately NO restore: the shared phase re-pins players[0] right after this partition (and the end-of-phase pin is part of the hashed state the 2p baselines freeze)
-      S.projectiles = list;
-      try { G.updateProjectiles(); } catch (e) { this._err('updateProjectiles', e); }
-      out.push(...S.projectiles);
-    };
-    for (const [o, list] of byOwner) runAs(o, list);
-    if (rest.length) runAs(pool[0], rest);
-    S.projectiles = out;
-  }
+  // (P2/S16) The PROJECTILE partition (`_projectilesByShooter` — the last world.js partition
+  // standing) lived here and moved INTO the game's own updateProjectiles VERBATIM: it buckets
+  // shots by SHOOTER itself (first-shot order), pins each owner for their bucket (player +
+  // inventory, no restore), runs hostile/unowned shots last under roster[0], keeps the
+  // PARKED-SHOTS rule (a world with none of its heroes present leaves its in-flight shots
+  // waiting), and recombines in bucket order — the step-order determinism the 2p baselines
+  // freeze. Both call sites below are now ONE G.updateProjectiles() call each.
 
   // drain this tick's captured log() calls into the versioned feed (called at tick end)
   _drainFeed() {
@@ -975,8 +947,15 @@ class World {
     // remaining shared systems run once (acting player = first, cosmetic-only bias). Flag the block so their
     // log lines are world events — broadcast to EVERYONE with no player owner — not personal to players[0].
     _sharedPhase = true;
-    this._projectilesByShooter(players);   // stays inside the shared-phase flag (unchanged feed attribution), but each bucket runs with its SHOOTER's PP slice swapped in — see _projectilesByShooter
-    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; }   // re-pin players[0] for the rest of the shared systems (the partition above left the last shooter swapped in)
+    // PROJECTILES (P2/S16): ONE call — the game's own updateProjectiles buckets shots by SHOOTER
+    // itself (first-shot order, per-bucket owner pins with no restore, hostile/unowned last under
+    // roster[0], the parked-shots rule, bucket-order recombine — the partition that lived here,
+    // moved in verbatim). Its partyIn() roster is exactly `players` while the overworld holds the
+    // state singletons. Stays inside the shared-phase flag (unchanged feed attribution).
+    if (players.length && S.projectiles.length) {
+      try { G.updateProjectiles(); } catch (e) { this._err('updateProjectiles', e); }
+    }
+    if (players.length) { S.player = players[0]; S.inventory = players[0].inventory; }   // re-pin players[0] for the rest of the shared systems (the projectile pass left the last shooter swapped in)
     for (const fn of ['updateFires', 'updateWeather', 'updateEvents', 'updateFactionWar', 'updateNemesisPresence', 'maybePinnacleBosses']) {
       if (G[fn]) try { G[fn](); } catch (e) { this._err(fn, e); }
     }   // maybePinnacleBosses: fixed-lair spawn/night-gate/despawn (Drowned King always broods; Pale Shepherd rises at night) — a once-per-tick shared system like updateEvents (self-throttled via state._pinCheckT); its cycle-respawn rides onNewDay→maybeRespawnPinnacle off G.updateTime()
@@ -1087,10 +1066,13 @@ class World {
             }
             S.companions = allC;
           }
-          // projectiles, partitioned by shooter (hostile/unowned ride a final pass under the first delver;
-          // (P2/S3) updateProjectiles' own hostile hit-test loops the world-scoped party, so it sees EVERY
-          // delver — S.map is 'dungeon' while this instance is swapped in, so topside heroes are excluded)
-          this._projectilesByShooter(stillIn);
+          // PROJECTILES (P2/S16): same ONE call as topside — updateProjectiles buckets by shooter
+          // among the delvers itself (its partyIn() roster is exactly `stillIn` while this instance
+          // is swapped in; hostile/unowned shots ride its final pass under the first delver, and
+          // (P2/S3) their hit-test loops the world-scoped party, so topside heroes are excluded).
+          if (S.projectiles.length) {
+            try { G.updateProjectiles(); } catch (e) { this._err('updateProjectiles', e); }
+          }
           if (S.time % 30 === 0) unstickEnemies('dungeon');
           this._downedPass(stillIn);                       // downed & revive work INSIDE the dungeon too
         }

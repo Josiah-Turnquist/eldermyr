@@ -197,16 +197,19 @@ finally), so an RPC invoked outside a rotation slice can no longer act as a stal
   scale to the party via `state._partyLevel || state.player.level`, the `legionDaily` idiom).
   `actAs(p, fn)` (in the game, beside `party()`) pins ONLY `state.player`/`state.inventory` —
   since P2/S13 (quests, the last PP key, retired) that pin IS the whole per-hero context.
-- **Projectiles are partitioned by SHOOTER** (`_projectilesByShooter`, both worlds), not run once
-  under `players[0]`. `updateProjectiles` re-pins `state.player` to each friendly shot's `ownerRef`
-  *itself* (so hits credit the shooter) — and since P2/S13 every per-hero key rides that pinned
-  player object, the re-pin IS the full acting context (killEnemy's quest/bounty credit lands on
-  the shooter by construction; the owner buckets remain — they fix the projectile STEP ORDER per
-  owner, part of the determinism contract the 2p baselines freeze). Hostile + unowned shots ride one final pass
-  under `pool[0]`, and their player-hit test loops `partyIn()` itself (P2/S3) — every hero of the
-  swapped-in world is a target, downed heroes are spared. With nobody in that world the shots are
-  left parked — running them under a stale `state.player` let an overworld arrow hit-test a hero in
-  dungeon coordinates.
+- **Projectiles are internalized (P2/S16):** world.js makes ONE `G.updateProjectiles()` call per
+  world; the game itself buckets shots by SHOOTER (FIRST-SHOT order — not roster order), steps
+  each bucket under that owner's pin (`state.player` + `state.inventory`, no restore — the shared
+  phase re-pins players[0] right after, and the ambient last-owner pin is part of the hashed
+  state the 2p baselines freeze), runs hostile/unowned shots last under roster[0], and recombines
+  survivors in bucket order (mid-pass spawns — the ricochet bounce, the Leviathan lance — land at
+  the acting owner's bucket tail; next tick's grouping iterates that array, so the order IS the
+  determinism contract). The bucket pin is the FULL acting context: kill credit (quests/bounty/
+  gold) AND inventory writes (a dungeon boss's key drop) ride the shooter by construction.
+  Hostile shots' player-hit test loops `partyIn()` itself (P2/S3) — every hero of the swapped-in
+  world is a target, downed heroes are spared. The PARKED-SHOTS rule lives in the sim now: a
+  world none of whose heroes are present leaves its in-flight shots waiting — running them under
+  a stale `state.player` let an overworld arrow hit-test a hero in dungeon coordinates.
 
 ## Snapshots & the wire
 

@@ -1,4 +1,10 @@
-function updateProjectiles() {
+function updateProjectilesFor() {
+  /* THE projectile-step body (P2/S16). Single-player calls it with state.projectiles = the whole
+     pool — same body, same draws, byte-identical. In MP updateProjectiles() swaps state.projectiles
+     to ONE SHOOTER's bucket per pass under that owner's pin (the world.js partition it internalizes),
+     so mid-pass spawns (addProjectile: the Leviathan lance, the ricochet bounce) push onto the acting
+     owner's bucket and recombine at its tail. Walks its array BACKWARDS, splicing dead shots in place
+     (spawns land past the loop start → stepped next tick, never this pass). */
   const p = state.player;
   const _party = partyIn();
   /* P2/S3: hostile shots hit-test EVERY hero in this world (join order — first overlap wins, exactly
@@ -195,6 +201,51 @@ function updateProjectiles() {
       state.projectiles.splice(i, 1);
     }
   }
+}
+function updateProjectiles() {
+  if (!(state.players && state.players.length)) {
+    updateProjectilesFor();
+    return;
+  } // SP: the one hero, the whole pool — same body, same draws, byte-identical
+  /* MP (P2/S16, plan §7 S13 sub-slice "projectiles"): the world.js _projectilesByShooter partition,
+     moved in VERBATIM. Shots are bucketed by SHOOTER so each bucket steps under its owner's pin —
+     hits credit the shooter's crit/lifesteal/prof/XP, and since P2/S13 every per-hero key (quests/
+     bounty included) rides state.player, so the bucket pin IS the full acting context: killEnemy's
+     `state.player.quests.slay.count++`, a boss-drop key into state.inventory and bountyProgress()
+     land on the shooter by construction. */
+  const all = state.projectiles;
+  if (!all.length) return; // nothing to step
+  const roster = partyIn(); // heroes of THE WORLD SWAPPED IN right now (risk #9), in JOIN ORDER
+  if (!roster.length) return; /* the PARKED-SHOTS rule (moved in with the loop): nobody in this world
+     (every hero is delving, or every delver left) → leave its in-flight shots parked until someone
+     returns. Before the rule this ran under a STALE state.player — a delver, in DUNGEON coordinates —
+     so an overworld arrow could hit-test against, and damage, a hero underground. */
+  const byOwner = new Map(),
+    rest = [];
+  for (const pr of all) {
+    // `friendly` is the gate: a HOSTILE shot's ownerRef is the firing ENEMY, never a player.
+    if (pr.friendly && pr.ownerRef && roster.includes(pr.ownerRef)) {
+      let b = byOwner.get(pr.ownerRef);
+      if (!b) byOwner.set(pr.ownerRef, (b = []));
+      b.push(pr);
+    } else rest.push(pr); // hostile, unowned, or owned by someone who left/delved
+  }
+  const out = [];
+  const runFor = (o, list) => {
+    state.player = o;
+    state.inventory = o.inventory; /* the pin IS the swap (P2/S13); deliberately NO restore — the
+       shared phase re-pins players[0] right after this pass, and the end-of-pass ambient pin is part
+       of the hashed state the 2p baselines freeze */
+    state.projectiles = list;
+    updateProjectilesFor();
+    out.push(...state.projectiles);
+  };
+  for (const [o, list] of byOwner) runFor(o, list); // FIRST-SHOT order (Map insertion), NOT roster order — the world.js bucket order the baselines freeze
+  if (rest.length) runFor(roster[0], rest);
+  state.projectiles = out; /* recombined in bucket order (owners by first shot, hostile/unowned last)
+     — every projectile stepped exactly once: buckets are disjoint, each pass walks its own array
+     backwards, and shots spawned mid-pass land in the acting owner's bucket tail. Next tick's
+     grouping iterates this array, so the order IS the determinism contract. */
 }
 
 // ================= PICKUPS =================
