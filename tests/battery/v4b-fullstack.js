@@ -5,6 +5,8 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Proves the timer restore didn't break the ws layer or the broadcast/sim loop end-to-end.
 const { spawn } = require('child_process');
 const path = require('path');
+// Global WebSocket only exists on node >=22; fall back to the ws package (a root dep).
+const WebSocket = globalThis.WebSocket ?? require('ws').WebSocket;
 const REPO = '' + __RR + '';
 const PORT = 8791;
 

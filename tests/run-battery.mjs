@@ -67,7 +67,7 @@ function runOnce(name) {
   else if (r.error) why = String(r.error.message).split('\n')[0];
   else if (!ok) why = 'exit ' + r.status;
   const lines = out.trimEnd().split('\n');
-  const tail = lines.slice(-6).join('\n');
+  const tail = lines.slice(-24).join('\n');
   return { ok, secs, why, tail };
 }
 
