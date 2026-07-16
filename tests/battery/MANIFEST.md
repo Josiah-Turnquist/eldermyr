@@ -56,6 +56,7 @@ These are pre-existing, documented flakes in the source suites — not tree regr
 - `quest-pp-verify` — the questline is PER-PLAYER across the full chain (swap / save / snapshot / adopt); orchestrator spawns a fresh child per case.
 - `flags-pp-verify` — the personal-milestones split: `enteredDungeon`/`gotKey`/`enteredFrozen` per-hero vs `krakenDead`/`legionBroken` world-facts; orchestrator.
 - `sp-flags-check` — the single-player half of that split: the v5→v6 save migration is lossless (dungeon door / wayfinder don't reset).
+- `migrate-roundtrip` — the pure save importer `server/migrate.js` (rebuild S1): v1/v2/v3 fixtures vs a frozen copy of the old inline chains + hand-derived literals, idempotence/purity, `characterOf` stamps `schemaVersion: 4`, QUEST_TEMPLATE drift guard against the booted game, and the inert golden REMAP overlay unit proof. `MIGRATE_DUMP=<db-dump path>` additionally sweeps every real blob (no-throw, monotone, idempotent).
 
 ### World systems
 - `rift-check` — `_enterRift` restores ALL world slots on every failure path (mirrors the dungeon `finally`).

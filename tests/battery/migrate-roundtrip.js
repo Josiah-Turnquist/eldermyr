@@ -1,0 +1,359 @@
+'use strict';
+const __RR = require('path').resolve(__dirname, '..', '..');
+/*
+ * migrate-roundtrip.js — the save-schema safety floor (rebuild S1; rebuild/p2-plan.md §6).
+ *
+ * Guards the PURE importer server/migrate.js, extracted from world.js _loadCharacter's
+ * inline v1→v2→v3 chains. Three layers:
+ *
+ *  1. PURE:  synthetic v1/v2/v3 fixtures (shapes taken from the real historical
+ *     characterOf emissions — git d0260af / 056cf71 / a077eba / b190799) run through BOTH
+ *     the module AND a frozen verbatim copy of the old inline chains; outputs must match,
+ *     and ALSO match hand-derived literals (so a transcription slip in the frozen copy
+ *     can't silently agree with a module bug). Plus idempotence + purity (input never
+ *     mutated, output shares no refs).
+ *  2. REMAP: unit proof for the golden-hash overlay scaffolding in
+ *     tests/golden/serialize.mjs — the table ships EMPTY, a populated entry round-trips
+ *     (moved-shape view byte-equals the old shape, $ref dedup preserved), absent paths
+ *     no-op, the view never mutates the root.
+ *  3. WORLD: boots the real game once — drift-guards migrate.js's QUEST_TEMPLATE literal
+ *     against the live booted state.quests (a release that adds a quest key fails HERE),
+ *     asserts characterOf stamps schemaVersion 4, loads era-downgraded REAL saves through
+ *     addPlayer (shared-quest aliasing intact, legacy veteran flips the ROOM's main,
+ *     v3 milestones pass through UNtouched), and round-trips characterOf → migrate.
+ *
+ * Optional: MIGRATE_DUMP=<path from scripts/db-dump.mjs> additionally runs every real
+ * blob through the importer (no-throw, version monotonicity, idempotence).
+ *
+ * Vacuity: SEEN FAILING against a perturbed migrate.js (`q.talk.done = veteran` inverted
+ * to `false`) — 5 assertions failed, spanning all three detection layers (old-chain
+ * oracle, hand-derived literals, real-world load):
+ *   FAIL v1-early: quests match the old inline chain  [$.talk.done (false vs true)]
+ * (2026-07-15, S1.)
+ */
+const path = require('path');
+const fs = require('fs');
+const { pathToFileURL } = require('url');
+const REPO = process.env.EM_REPO || __RR;
+const { migrateCharacter, SCHEMA_VERSION, QUEST_TEMPLATE } = require(path.join(REPO, 'server', 'migrate.js'));
+
+let pass = 0, fail = 0;
+const ok = (n, c, info) => { (c ? pass++ : fail++); console.log(`${c ? 'PASS' : 'FAIL'} ${n}${info !== undefined ? '  [' + info + ']' : ''}`); };
+const clone = (o) => structuredClone(o);
+
+// first-difference deep compare (JSON-safe data): returns null when equal, else a path string
+function diff(a, b, at = '$') {
+  if (a === b) return null;
+  if (typeof a !== typeof b) return `${at} (${typeof a} vs ${typeof b})`;
+  if (a === null || b === null || typeof a !== 'object') return `${at} (${JSON.stringify(a)} vs ${JSON.stringify(b)})`;
+  if (Array.isArray(a) !== Array.isArray(b)) return `${at} (array-ness)`;
+  const ka = Object.keys(a).sort(), kb = Object.keys(b).sort();
+  if (ka.join(',') !== kb.join(',')) return `${at} keys (${ka} vs ${kb})`;
+  for (const k of ka) { const d = diff(a[k], b[k], `${at}.${k}`); if (d) return d; }
+  return null;
+}
+const deepEq = (a, b) => diff(a, b) === null;
+
+// ---------------------------------------------------------------------------
+// THE ORACLE — the old inline chains, frozen VERBATIM from server/world.js @ c40a019
+// (pre-extraction, lines 616-672). Two world couplings replaced for a pure, comparable run:
+//   · the live QUEST_TEMPLATE → the module's literal (drift-guarded in layer 3);
+//   · aliasSharedQuests(q)    → IDENTITY. Aliasing swaps the room's LIVE objects in at
+//     apply time and is not part of the blob; the pre-alias VALUES are what the blob must
+//     carry. Old line 642 ran AFTER the alias (mutating the SHARED main) — under identity
+//     it lands on q.main, which is exactly the blob-side meaning; the world-side re-apply
+//     is asserted in layer 3.
+// The old chain read p.level / p.inventory.keys AFTER the apply-assign; mkOldP reproduces
+// that player: template defaults (level 1, keys 0 — asserted against the real boot in
+// layer 3) overlaid by the row's own slices.
+// ---------------------------------------------------------------------------
+function mkOldP(c) {
+  const p = { level: 1, inventory: { keys: 0 } };
+  if (c && c.player) Object.assign(p, clone(c.player));
+  if (c && c.inventory) p.inventory = clone(c.inventory);
+  return p;
+}
+function oldInlineChains(c) {
+  const p = mkOldP(c);
+  // ---- questline (v2) ---- [verbatim]
+  const q = clone(QUEST_TEMPLATE);
+  const legacy = !(c && c.quests);                 // a v1 row: no questline was ever saved
+  if (!legacy) Object.assign(q, clone(c.quests));
+  let mDepth = (c && Number.isFinite(c.maxDepth)) ? Math.max(0, c.maxDepth | 0) : 0;
+  let bnty = (c && c.bounty) ? clone(c.bounty) : null;
+  if (legacy) {
+    const lvl = p.level | 0, keys = (p.inventory && p.inventory.keys) | 0;
+    const veteran = lvl > 1;
+    q.talk.done = veteran;
+    q.key.hidden = !veteran;
+    q.key.done = keys > 0;
+    if (veteran) { q.slay.done = true; q.slay.count = q.slay.target; }
+    if (lvl >= 20) q.dragon.hidden = false;
+    mDepth = 0; bnty = null;
+  }
+  /* aliasSharedQuests(q) — identity here (see header) */
+  if (legacy && (p.level | 0) > 1) q.main.started = true;
+  // ---- personal milestones (v3) ---- [verbatim; else-branch = the row's own values ride Object.assign]
+  const ms = {};
+  if (!c || !c.player || c.player.enteredDungeon === undefined) {
+    const keys = (p.inventory && p.inventory.keys) | 0;
+    ms.enteredDungeon = mDepth > 0 || keys >= 2;
+    ms.gotKey = keys > 0 || !!(q.key && q.key.done);
+    ms.enteredFrozen = false;
+  } else {
+    ms.enteredDungeon = c.player.enteredDungeon; ms.gotKey = c.player.gotKey; ms.enteredFrozen = c.player.enteredFrozen;
+  }
+  return { quests: q, maxDepth: mDepth, bounty: bnty, milestones: ms };
+}
+
+// ---------------------------------------------------------------------------
+// LAYER 1 — pure fixtures (shapes: the real historical characterOf emissions)
+// ---------------------------------------------------------------------------
+const mkPlayer = (over) => ({
+  hp: 96, maxHp: 100, xp: 40, xpNext: 120, level: 1, gold: 25, speed: 2.4, atkHaste: 0,
+  energy: 50, maxEnergy: 50, skillPoints: 0, bonusAtk: 0, bonusDef: 0, bonusCrit: 0,
+  bonusLifesteal: 0, bonusBerserk: 0, bonusEvasion: 0, bonusExec: 0, bonusFort: 0, bonusFont: 0,
+  foodBuff: null, foodT: 0,
+  abilities: { whirlwind: false, focus: false, ultimate: false, dominate: false, summon: false },
+  abilityRank: {}, prof: { melee: { level: 2, xp: 10 }, ranged: { level: 1, xp: 0 }, magic: { level: 1, xp: 0 } },
+  ...over,
+});
+const mkInv = (keys) => ({
+  weapons: [{ name: 'Rusty Sword', atk: 3, style: 'melee', rarity: 0, reqLevel: 1, reqProf: 1, dur: 50, durMax: 50, equipped: true }],
+  armor: [{ name: 'Cloth Tunic', def: 0, rarity: 0, reqLevel: 1, dur: 50, durMax: 50, equipped: true }],
+  items: [{ name: 'Potion', qty: 2 }], keys,
+});
+const mkShop = () => ({ shopPurchased: ['potion'], tonics: 2, sharpenLevel: 1, cargo: { furs: 1, grain: 0, spice: 0, ore: 0 }, ingredients: { herb: 3, berry: 0, mushroom: 1, fish: 0 } });
+const mkComp = () => [{ name: 'Seri', cls: 'ranger', level: 4, maxHp: 44, hp: 30, atk: 9, def: 2, alive: true, color: '#8fc7ff', postedAt: null, weapon: null }];
+
+// FIXTURES — field sets mirror what each era's characterOf actually wrote:
+const FIXTURES = {
+  // v1 earliest (d0260af): {v:1, name, level, player, inventory} — veteran WITH dungeon keys
+  'v1-early': { v: 1, name: 'Old Vet', level: 12, player: mkPlayer({ level: 12, gold: 300 }), inventory: mkInv(3) },
+  // v1 late (056cf71): + skin/shop/companions — level 25, NO keys (the documented "v1 has no
+  // durable depth source" hole: enteredDungeon must come out false)
+  'v1-late': { v: 1, name: 'Keyless', level: 25, skin: 2, player: mkPlayer({ level: 25 }), inventory: mkInv(0), shop: mkShop(), companions: mkComp() },
+  // v1 fresh hero: non-veteran → intro must NOT be skipped
+  'v1-fresh': { v: 1, name: 'Newbie', level: 1, player: mkPlayer({}), inventory: mkInv(0) },
+  // v2 (a077eba): + quests/maxDepth/bounty/dragon. Era-plausible edges: the row predates the
+  // `dragon` quest key (template must fill it), maxDepth is fractional (|0), key.done set.
+  'v2-depths': {
+    v: 2, name: 'Delver', level: 30, skin: 1, player: mkPlayer({ level: 30 }), inventory: mkInv(0), shop: mkShop(),
+    quests: {
+      main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: false },
+      talk: { name: 'Speak to the Elder', done: true },
+      key: { name: 'Find the Dungeon Key', done: true, hidden: false },
+      slay: { name: 'Slay 5 monsters', done: true, count: 5, target: 5 },
+      frozen: { name: 'Plunder the Frozen Cache', done: false, hidden: true },
+      legion: { started: true, stage: 'camps', camps: 1, sealstones: 0, villages: 0, seatRegion: 3 },
+    },
+    maxDepth: 7.9, bounty: { kind: 'slay', depth: 3, target: 4, count: 1, gold: 120 }, dragon: { tamed: true }, companions: mkComp(),
+  },
+  // v2 hostile edges: string maxDepth (Number.isFinite("9") is FALSE → 0), falsy bounty
+  'v2-edge': { v: 2, name: 'Edge', level: 5, player: mkPlayer({ level: 5 }), inventory: mkInv(1), quests: { talk: { name: 'Speak to the Elder', done: true } }, maxDepth: '9', bounty: 0 },
+  // v2 negative maxDepth (Math.max(0, -3|0) → 0)
+  'v2-neg': { v: 2, name: 'Neg', level: 5, player: mkPlayer({ level: 5 }), inventory: mkInv(0), quests: { talk: { name: 'Speak to the Elder', done: true } }, maxDepth: -3, bounty: null },
+  // v3 (b190799): milestones IN the player slice — values a re-run of the synthesis would
+  // NOT produce (keys 9 / depth 12 would say true/true/false) → proves pass-through
+  'v3-full': {
+    v: 3, name: 'Modern', level: 40, skin: 4,
+    player: mkPlayer({ level: 40, enteredDungeon: false, gotKey: false, enteredFrozen: true }),
+    inventory: mkInv(9), shop: mkShop(),
+    quests: clone(QUEST_TEMPLATE), maxDepth: 12, bounty: null, dragon: { tamed: false }, companions: [],
+  },
+};
+
+console.log('--- layer 1: pure fixtures vs the frozen old chains ---');
+for (const [name, fx] of Object.entries(FIXTURES)) {
+  const before = JSON.stringify(fx);
+  const m = migrateCharacter(fx);
+  const old = oldInlineChains(fx);
+  ok(`${name}: quests match the old inline chain`, deepEq(m.blob.quests, old.quests), diff(m.blob.quests, old.quests) || 'equal');
+  ok(`${name}: maxDepth/bounty match`, m.blob.maxDepth === old.maxDepth && deepEq(m.blob.bounty, old.bounty),
+    `depth ${m.blob.maxDepth}=${old.maxDepth} bounty ${JSON.stringify(m.blob.bounty)}=${JSON.stringify(old.bounty)}`);
+  ok(`${name}: milestones match`, m.blob.player.enteredDungeon === old.milestones.enteredDungeon
+    && m.blob.player.gotKey === old.milestones.gotKey && m.blob.player.enteredFrozen === old.milestones.enteredFrozen,
+    JSON.stringify({ got: { d: m.blob.player.enteredDungeon, k: m.blob.player.gotKey, f: m.blob.player.enteredFrozen }, old: old.milestones }));
+  ok(`${name}: stamped schemaVersion ${SCHEMA_VERSION}, honest fromVersion`, m.blob.schemaVersion === 4 && m.toVersion === 4 && m.fromVersion === (fx.schemaVersion ?? fx.v ?? 1), `from=${m.fromVersion}`);
+  ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
+  ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
+    && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
+    && m.blob.player.abilities !== fx.player.abilities);
+  const m2 = migrateCharacter(m.blob);
+  ok(`${name}: IDEMPOTENT (v4 in → deep-equal v4 out, fromVersion 4)`, deepEq(m2.blob, m.blob) && m2.fromVersion === 4, diff(m2.blob, m.blob) || 'stable');
+  const m3 = migrateCharacter(fx);
+  ok(`${name}: deterministic (same input twice → same output)`, deepEq(m3.blob, m.blob));
+}
+
+// hand-derived literals — belt and braces against a transcription slip in the oracle copy.
+// Derivations cite the OLD chain (world.js @ c40a019):
+//   v1-early: lvl 12>1 → veteran (talk.done, key.hidden=false, slay 5/5 done, main.started);
+//             keys 3 → key.done; lvl<20 → dragon stays hidden; mDepth/bnty forced 0/null;
+//             milestones: keys 3≥2 → enteredDungeon, keys>0 → gotKey, frozen always false.
+{
+  const b = migrateCharacter(FIXTURES['v1-early']).blob, q = b.quests;
+  ok('v1-early literals', q.talk.done === true && q.key.hidden === false && q.key.done === true
+    && q.slay.done === true && q.slay.count === 5 && q.dragon.hidden === true && q.main.started === true
+    && b.maxDepth === 0 && b.bounty === null
+    && b.player.enteredDungeon === true && b.player.gotKey === true && b.player.enteredFrozen === false, JSON.stringify(q.slay));
+}
+//   v1-late: lvl 25 → veteran + dragon revealed (≥20); keys 0 → key.done false, and the v1
+//            depth hole: enteredDungeon FALSE (no keys, migration zeroed depth), gotKey false.
+{
+  const b = migrateCharacter(FIXTURES['v1-late']).blob, q = b.quests;
+  ok('v1-late literals', q.talk.done === true && q.key.hidden === false && q.key.done === false
+    && q.dragon.hidden === false && q.main.started === true
+    && b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === false,
+    JSON.stringify({ dragon: q.dragon.hidden, d: b.player.enteredDungeon }));
+}
+//   v1-fresh: lvl 1 → NOT veteran: whole intro intact (talk undone, key still hidden,
+//             slay 0/5, main NOT started), all milestones false.
+{
+  const b = migrateCharacter(FIXTURES['v1-fresh']).blob, q = b.quests;
+  ok('v1-fresh literals', q.talk.done === false && q.key.hidden === true && q.key.done === false
+    && q.slay.done === false && q.slay.count === 0 && q.main.started === false
+    && b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === false, JSON.stringify(q.talk));
+}
+//   v2-depths: NOT legacy → row quests kept (slay 5/5, legion stage 'camps'), missing
+//              `dragon` key template-filled; main NOT flipped despite level 30 (the legacy
+//              flip must never fire for v2+); maxDepth 7.9|0=7; bounty kept; milestones
+//              synthesized: depth 7>0 → enteredDungeon, key.done → gotKey.
+{
+  const b = migrateCharacter(FIXTURES['v2-depths']).blob, q = b.quests;
+  ok('v2-depths literals', q.slay.count === 5 && q.legion.stage === 'camps' && q.legion.seatRegion === 3
+    && deepEq(q.dragon, QUEST_TEMPLATE.dragon) && q.main.started === false
+    && b.maxDepth === 7 && b.bounty.gold === 120
+    && b.player.enteredDungeon === true && b.player.gotKey === true && b.player.enteredFrozen === false,
+    JSON.stringify({ dragon: q.dragon, depth: b.maxDepth }));
+}
+//   v2-edge/v2-neg: Number.isFinite('9') is false → 0; Math.max(0,-3)=0; bounty 0 → null.
+{
+  const e = migrateCharacter(FIXTURES['v2-edge']).blob, n = migrateCharacter(FIXTURES['v2-neg']).blob;
+  ok('v2 hostile maxDepth/bounty edges', e.maxDepth === 0 && e.bounty === null && n.maxDepth === 0 && n.bounty === null,
+    `edge=${e.maxDepth} neg=${n.maxDepth}`);
+  ok('v2-edge: missing quest keys template-filled', deepEq(e.quests.slay, QUEST_TEMPLATE.slay) && e.quests.talk.done === true);
+}
+//   v3-full: milestones pass through UNTOUCHED (false/false/true) even though keys 9 /
+//            depth 12 would synthesize true/true/false — migration must not re-run.
+{
+  const b = migrateCharacter(FIXTURES['v3-full']).blob;
+  ok('v3-full literals: milestones pass through, NOT re-synthesized',
+    b.player.enteredDungeon === false && b.player.gotKey === false && b.player.enteredFrozen === true
+    && b.maxDepth === 12 && b.schemaVersion === 4 && b.v === 3,
+    JSON.stringify({ d: b.player.enteredDungeon, k: b.player.gotKey, f: b.player.enteredFrozen }));
+}
+
+(async () => {
+  // -------------------------------------------------------------------------
+  // LAYER 2 — REMAP overlay unit proof (tests/golden/serialize.mjs scaffolding)
+  // -------------------------------------------------------------------------
+  console.log('\n--- layer 2: golden REMAP scaffolding ---');
+  const { hashState, stableSerialize, REMAP } = await import(pathToFileURL(path.join(REPO, 'tests', 'golden', 'serialize.mjs')).href);
+  ok('REMAP table ships EMPTY (S1 — inert by construction)', Array.isArray(REMAP) && REMAP.length === 0, `len=${REMAP.length}`);
+  const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
+  const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
+  const oldShape = { state: { player: { level: 5 }, quests: { slay: { count: 3 } }, enemies: [] }, maps: { ow: [1, 2] } };
+  ok('empty/none/default remap all take the untouched path', hashState(movedShape) === hashState(movedShape, []) && hashState(movedShape) === hashState(movedShape, null)
+    && stableSerialize(movedShape) === stableSerialize(movedShape, REMAP));
+  ok('a remap entry ROUND-TRIPS (moved shape hashes as the old shape)', hashState(movedShape, entry) === hashState(oldShape), hashState(movedShape, entry).slice(0, 12));
+  ok('…and the entry is what does it (native hashes differ)', hashState(movedShape) !== hashState(oldShape));
+  {
+    const pNew = { level: 5, quests: { slay: { count: 3 } } };
+    const rootNew = { state: { enemies: [{ _markBy: pNew }], player: pNew }, maps: {} };
+    const pOld = { level: 5 };
+    const rootOld = { state: { enemies: [{ _markBy: pOld }], player: pOld, quests: { slay: { count: 3 } } }, maps: {} };
+    ok('$ref dedup preserved under the view (enemy._markBy → player)', hashState(rootNew, entry) === hashState(rootOld));
+    const before = JSON.stringify(rootNew);
+    hashState(rootNew, entry);
+    ok('the view never mutates the root', JSON.stringify(rootNew) === before);
+  }
+  ok('absent from-path no-ops (hash = native shape)', hashState(oldShape, entry) === hashState(oldShape));
+
+  // -------------------------------------------------------------------------
+  // LAYER 3 — the real world: drift guard, characterOf stamp, apply, round-trip
+  // -------------------------------------------------------------------------
+  console.log('\n--- layer 3: real world apply + round-trip ---');
+  const G = require(path.join(REPO, 'server-spike', 'load-game.js'));
+  const { World } = require(path.join(REPO, 'server', 'world.js'));
+  const S = G.state;
+  // DRIFT GUARD — must run before any fixture load (a legacy-veteran load mutates the
+  // SHARED main below, by design). If a release changes the quest box, update the literal
+  // in server/migrate.js in the same change.
+  ok('DRIFT GUARD: migrate.js QUEST_TEMPLATE === booted state.quests', deepEq(QUEST_TEMPLATE, structuredClone(S.quests)),
+    diff(QUEST_TEMPLATE, structuredClone(S.quests)) || 'in sync');
+
+  const w = new World();
+  const F = w.addPlayer('F', 'Fresh');
+  ok('booted defaults the old chain leaned on (level 1, 0 keys)', F.level === 1 && (F.inventory.keys | 0) === 0, `lvl=${F.level} keys=${F.inventory.keys}`);
+  const chF = w.characterOf('F');
+  ok('characterOf stamps schemaVersion 4 (v:3 kept for rollback)', chF.schemaVersion === 4 && chF.v === 3, `sv=${chF.schemaVersion} v=${chF.v}`);
+  ok('the stamped save JSON round-trips losslessly (jsonb-safe)', deepEq(JSON.parse(JSON.stringify(chF)), chF));
+
+  // era-downgrade a REAL modern save into honest v1/v2/v3 rows
+  F.level = 45; F.gold = 777; F.inventory.keys = 16;
+  const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
+  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; return r; };
+  const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; return r; };
+  const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; return r; };
+
+  // v1 veteran (level 45, 16 keys): intro synthesized done, milestones from keys, and the
+  // ROOM's shared main quest flips to started (the old post-alias line-642 side effect)
+  ok('pre-condition: the shared main quest is NOT yet started', S.quests.main.started === false);
+  const A = w.addPlayer('A', 'VetA', asV1(modern));
+  ok('v1 load: intro synthesized as done', A.quests.talk.done === true && A.quests.key.done === true && A.quests.slay.done === true && A.quests.key.hidden === false);
+  ok('v1 load: dragon quest revealed at level 45', A.quests.dragon.hidden === false);
+  ok('v1 load: depth/bounty start clean', A.maxDepth === 0 && A.bounty === null);
+  ok('v1 load: milestones synthesized from 16 keys', A.enteredDungeon === true && A.gotKey === true && A.enteredFrozen === false);
+  ok('v1 load: stats/inventory landed', A.level === 45 && A.gold === 777 && (A.inventory.keys | 0) === 16);
+  ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
+  const B = w.addPlayer('B', 'FreshB');
+  ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
+    A.quests.main === B.quests.main && A.quests.frozen === B.quests.frozen && A.quests.legion === B.quests.legion && A.quests !== B.quests);
+
+  // v2: personal quest values survive, milestones synthesized from maxDepth
+  const v2row = asV2(modern); v2row.quests = JSON.parse(JSON.stringify(A.quests)); v2row.quests.slay.count = 5; delete v2row.quests.dragon;
+  const C = w.addPlayer('C', 'DelverC', v2row);
+  ok('v2 load: row quest values kept + missing key template-filled', C.quests.slay.count === 5 && deepEq(structuredClone(C.quests.dragon), QUEST_TEMPLATE.dragon), JSON.stringify(structuredClone(C.quests.dragon)));
+  ok('v2 load: milestones synthesized from maxDepth 7', C.enteredDungeon === true && C.maxDepth === 7);
+
+  // v3: milestones pass through UNTOUCHED (values synthesis would never produce)
+  const v3row = asV3(modern); v3row.player.enteredDungeon = false; v3row.player.gotKey = false; v3row.player.enteredFrozen = true;
+  const D = w.addPlayer('D', 'ModernD', v3row);
+  ok('v3 load: milestones NOT re-synthesized (16 keys would say true/true/false)',
+    D.enteredDungeon === false && D.gotKey === false && D.enteredFrozen === true,
+    JSON.stringify({ d: D.enteredDungeon, k: D.gotKey, f: D.enteredFrozen }));
+
+  // round-trip: today's save → migrate is a no-op; and it LOADS back equal
+  const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
+  const mA = migrateCharacter(rowA);
+  ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
+  const E = w.addPlayer('E', 'TwinE', mA.blob);
+  ok('round-trip: the migrated save loads back equal (stats/quests/inventory)',
+    E.level === A.level && E.gold === A.gold && (E.inventory.keys | 0) === (A.inventory.keys | 0)
+    && E.quests.slay.count === A.quests.slay.count && E.enteredDungeon === A.enteredDungeon && E.maxDepth === A.maxDepth);
+
+  // -------------------------------------------------------------------------
+  // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer
+  // -------------------------------------------------------------------------
+  if (process.env.MIGRATE_DUMP) {
+    console.log('\n--- optional: real dump sweep ---');
+    const raw = JSON.parse(fs.readFileSync(process.env.MIGRATE_DUMP, 'utf8'));
+    const rows = Array.isArray(raw) ? raw : raw.rows || [];
+    let n = 0, bad = 0; const hist = {};
+    for (const r of rows) {
+      const c = r && typeof r === 'object' && 'character' in r ? r.character : r;
+      if (!c) continue;
+      n++;
+      try {
+        const m = migrateCharacter(c);
+        hist[m.fromVersion] = (hist[m.fromVersion] || 0) + 1;
+        const again = migrateCharacter(m.blob);
+        if (!(m.toVersion === 4 && m.fromVersion <= 4 && again.fromVersion === 4 && deepEq(again.blob, m.blob))) bad++;
+      } catch (e) { bad++; console.log('  THROW on row:', e && e.message); }
+    }
+    ok(`dump sweep: ${n} blob(s) migrate cleanly (no-throw, monotone → 4, idempotent)`, n > 0 && bad === 0, `fromVersion histogram ${JSON.stringify(hist)}`);
+  }
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})().catch((e) => { console.error('SUITE ERROR:', e && e.stack || e); process.exit(1); });

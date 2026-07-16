@@ -20,9 +20,48 @@
  * every process, the id assignment — and therefore the byte stream — is
  * identical in every process. The ids are traversal-order based, never
  * identity/GC based, so two separate OS processes agree.
+ *
+ * REMAP (P2 ladder scaffolding — rebuild/p2-plan.md, "the hash-shape problem"):
+ * the golden hash covers SHAPE, so when a P2 slice MOVES a key (state.quests →
+ * state.player.quests) the bytes change even though behavior is identical. Each
+ * entry below presents a moved key at its OLD spot, for hashing only:
+ *
+ *     { from: 'state.player.quests', to: 'state.quests' }   // one line per moved key
+ *
+ * Implementation is an identity-preserving OVERLAY, not a copied tree: the
+ * emitter hides `from`'s leaf where its holder is emitted and emits the SAME
+ * value object under `to` — object identities are untouched, so `$ref` dedup
+ * (enemies._markBy → player, etc.) produces exactly the pre-move byte stream.
+ * A `from` path that doesn't resolve no-ops (the hash then reflects the native
+ * shape and the golden check fails LOUDLY — the safe direction).
+ *
+ * The table is EMPTY today (S1): remap null/[] takes the untouched fast path,
+ * byte-identical to the pre-hook serializer — proven by the unchanged oracle
+ * (golden 8/8, no re-record) and unit-proven in tests/battery/migrate-roundtrip.js.
+ * Every entry added later must keep the `prove` perturb controls failing (the
+ * vacuous-test rule); S16 deletes the table and re-records oracle.json natively.
  */
 'use strict';
 import { createHash } from 'node:crypto';
+
+export const REMAP = [];
+
+// overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.
+function buildOverlay(root, remap) {
+  const ov = new Map();
+  const rec = (o) => { let r = ov.get(o); if (!r) { r = { hide: new Set(), add: new Map() }; ov.set(o, r); } return r; };
+  const walk = (obj, segs) => { let cur = obj; for (const s of segs) { if (cur === null || typeof cur !== 'object') return undefined; cur = cur[s]; } return cur; };
+  for (const { from, to } of remap) {
+    const f = from.split('.'), t = to.split('.');
+    const fromParent = walk(root, f.slice(0, -1)), fromKey = f[f.length - 1];
+    if (fromParent === null || fromParent === undefined || typeof fromParent !== 'object' || !(fromKey in fromParent)) continue; // key absent → entry no-ops (see header)
+    const toParent = walk(root, t.slice(0, -1)), toKey = t[t.length - 1];
+    if (toParent === null || toParent === undefined || typeof toParent !== 'object') continue;
+    rec(fromParent).hide.add(fromKey);
+    rec(toParent).add.set(toKey, fromParent[fromKey]); // added key WINS over a same-named survivor
+  }
+  return ov.size ? ov : null;
+}
 
 function numToken(n) {
   if (Number.isFinite(n)) {
@@ -35,7 +74,8 @@ function numToken(n) {
   return JSON.stringify(String(n)); // "NaN" | "Infinity" | "-Infinity"
 }
 
-export function stableSerialize(root) {
+export function stableSerialize(root, remap = null) {
+  const overlay = remap && remap.length ? buildOverlay(root, remap) : null;
   const seen = new Map(); // object -> assigned id
   let counter = 0;
   const out = [];
@@ -83,12 +123,18 @@ export function stableSerialize(root) {
       return;
     }
 
-    // plain object
-    const keys = Object.keys(v).sort();
+    // plain object (REMAP overlay applies here only — the golden spine is plain objects)
+    const o = overlay ? overlay.get(v) : undefined;
+    let keys = Object.keys(v);
+    if (o) {
+      keys = keys.filter((k) => !o.hide.has(k));
+      for (const k of o.add.keys()) if (!keys.includes(k)) keys.push(k);
+    }
+    keys.sort();
     out.push('{');
     let first = true;
     for (const k of keys) {
-      const val = v[k];
+      const val = o && o.add.has(k) ? o.add.get(k) : v[k];
       const vt = typeof val;
       if (vt === 'function' || vt === 'undefined' || vt === 'symbol') continue; // SKIP, don't even emit the key
       if (!first) out.push(',');
@@ -109,6 +155,8 @@ export function sha256Hex(str) {
 }
 
 // The one call the harness uses: canonical-serialize the sim root, then sha256.
-export function hashState(root) {
-  return sha256Hex(stableSerialize(root));
+// `remap` defaults to the module REMAP table (empty today → untouched fast path);
+// tests may pass an explicit table to unit-prove the overlay.
+export function hashState(root, remap = REMAP) {
+  return sha256Hex(stableSerialize(root, remap));
 }

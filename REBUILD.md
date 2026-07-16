@@ -150,3 +150,15 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   missing; `npm start` gained a prestart build. split-monolith.mjs retired to an error
   stub; ast-equal.mjs deleted. Battery 38/38 ×2, golden 8/8 ×2 from clean `rm -rf dist`
   rounds; prestart proven end-to-end (clean tree → npm start → route serves the artifact).
+- 2026-07-15: P2/S1 DONE — save schema versioned: `characterOf` stamps `schemaVersion: 4`
+  (`v: 3` kept for rollback); the v1→v2→v3 inline chains extracted into PURE
+  `server/migrate.js` (`migrateCharacter(blob) → {blob, fromVersion, toVersion}`;
+  `_loadCharacter` now applies only — the one shared side effect, a legacy veteran flipping
+  the room's main quest, stays apply-side keyed on the raw row); `scripts/db-dump.mjs`
+  (redacted, refuses committable output paths; owner-run, needs DATABASE_URL); new battery
+  suite `migrate-roundtrip` (v1/v2/v3 fixtures vs a frozen copy of the old chains + hand
+  literals, idempotence, QUEST_TEMPLATE drift guard vs the booted game, `MIGRATE_DUMP`
+  sweep hook — SEEN FAILING against a perturbed migrate line: 5 asserts across all three
+  layers); inert REMAP overlay scaffolding in golden serialize.mjs (identity-preserving,
+  $ref-safe; unit-proven round-trip). Gates: battery 39/39, golden 8/8 on the UNCHANGED
+  oracle, world self-test green, typecheck clean. Zero sim-behavior change.

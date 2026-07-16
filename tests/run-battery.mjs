@@ -29,8 +29,8 @@ const SUITES = [
   'style-verify', 'affix-verify', 'ranged-verify', 'combat-nerf-verify', 'uniques-verify', 'vtune-verify',
   // abilities / ultimate / dominate / balance fixes
   'verify-overlord-dominate', 'verify_fixes', 'verify-cleanup',
-  // quests + personal-milestone flags (per-player)
-  'quest-verify', 'quest-pp-verify', 'flags-pp-verify', 'sp-flags-check',
+  // quests + personal-milestone flags (per-player) + the save-schema importer (rebuild S1)
+  'quest-verify', 'quest-pp-verify', 'flags-pp-verify', 'sp-flags-check', 'migrate-roundtrip',
   // world systems: rifts, warband, camps, legion, dungeon vaults
   'rift-check', 'warband-delve', 'camp-seeker-verify', 'camp-exhaust-verify', 'legion-mp-verify', 'vault-slot-verify',
   // pinnacle / great-beasts (v52)

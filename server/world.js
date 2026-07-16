@@ -24,6 +24,7 @@
  */
 'use strict';
 const G = require('../server-spike/load-game');
+const { migrateCharacter, SCHEMA_VERSION } = require('./migrate');   // pure save importer (rebuild S1) — _loadCharacter applies, never migrates
 const TILE = G.TILE || 32;
 
 // ---- boot the shared world once, capture spawn + templates for joiners ----
@@ -541,7 +542,10 @@ class World {
       // than in a state.X slice: no PP_KEYS entry, no writeBack line, no snapshot gate, no client adopt —
       // the four links this bug class kept slipping through. state.flags stays SHARED world facts and is
       // deliberately still not saved (krakenDead/legionBroken describe a world that regenerates each boot).
-      v: 3, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
+      // v4 (rebuild S1): every save now carries an explicit `schemaVersion` (reader rule:
+      // schemaVersion ?? v ?? 1 — see server/migrate.js). `v: 3` stays alongside so a rolled-back
+      // server reads the row identically (the load path was always field-keyed, never version-keyed).
+      v: 3, schemaVersion: SCHEMA_VERSION, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       shop: { shopPurchased: p.shopPurchased, tonics: p.tonics | 0, sharpenLevel: p.sharpenLevel | 0, cargo: p.cargo, ingredients: p.ingredients },
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
@@ -566,6 +570,13 @@ class World {
   // we still re-pin id/name/io and recompute derived stats for this player only.
   _loadCharacter(p, c) {
     try {
+      // parse → migrate → use (rebuild S1): normalize ANY historical row (v1/v2/v3) to v4
+      // through the PURE importer before a single field is applied. Everything below
+      // consumes the migrated blob — a fresh deep clone, so attaching its objects to `p`
+      // can't alias a DB-row object into the sim. `wasLegacy` is the old chain's v1
+      // predicate, evaluated on the RAW row: it keys the one SHARED side effect (below).
+      const wasLegacy = !(c && c.quests);
+      c = migrateCharacter(c).blob;
       if (c && c.player) {
         const io = { id: p.id, name: p.name, x: p.x, y: p.y, w: p.w, h: p.h, held: p.held, actions: p.actions };
         Object.assign(p, c.player);
@@ -607,69 +618,26 @@ class World {
       }
       if (c && c.dragon) p.dragon = { tamed: !!c.dragon.tamed, mounted: false };   // your tamed steed rejoins you (grounded)
 
-      // ---- questline (v2) ----------------------------------------------------------------
-      // Built in a LOCAL and published only once it is complete and aliased: a throw partway through must
-      // leave p holding addPlayer's already-aliased fresh template, never a half-merged one with a PRIVATE
-      // copy of the legion/Kraken/Cache (which would silently fork the room's war for this hero).
-      // Merged OVER the template, so a quest key added in a later release still exists on an older row
-      // (mirrors applySnapshot's `if(!state.quests.frozen)` fill, but for every key at once).
-      const q = clone(QUEST_TEMPLATE);
-      const legacy = !(c && c.quests);                 // a v1 row: no questline was ever saved
-      if (!legacy) Object.assign(q, clone(c.quests));
-      let mDepth = (c && Number.isFinite(c.maxDepth)) ? Math.max(0, c.maxDepth | 0) : 0;
-      let bnty = (c && c.bounty) ? clone(c.bounty) : null;
-      // MIGRATION (v1 → v2) — v1 rows carry no quests/maxDepth at all. Without this the load hands EVERY
-      // existing character a fresh template, i.e. the fix itself would re-show the intro to every hero
-      // exactly once (the bug, one last time). `character` is jsonb, so there is no schema migration:
-      // synthesize the intro from the durable per-player progress the row DOES carry.
-      if (legacy) {
-        const lvl = p.level | 0, keys = (p.inventory && p.inventory.keys) | 0;
-        const veteran = lvl > 1;                       // you cannot reach level 2 without having done the intro
-        q.talk.done = veteran;
-        q.key.hidden = !veteran;                       // the Elder is what reveals it
-        q.key.done = keys > 0;                         // (updateQuests also falls back to a non-empty bag)
-        if (veteran) { q.slay.done = true; q.slay.count = q.slay.target; }
-        if (lvl >= 20) q.dragon.hidden = false;        // gainXP reveals this at 20 and would never re-fire
-        // maxDepth has NO durable source on a v1 row → 0. Cosmetic and self-healing: the "Deepest depth: N"
-        // line is simply absent until their next descend, which re-raises it. bounty likewise starts clean
-        // (better than none: rollBounty reads maxDepth, so a stale one can't mis-scale a new bounty).
-        mDepth = 0; bnty = null;
-      }
-      // The world-object quests are the LIVE room's, never the save's private copy: the world regenerates
-      // every boot, so a stale legion/Kraken/Cache from a row would fight the world it describes.
-      // (Re-alias AFTER the merge — Object.assign just overwrote them with the row's copies.)
+      // ---- questline + personal milestones — APPLY ONLY (rebuild S1) ----------------------
+      // The v1→v2 quest synthesis and the v2→v3 milestone synthesis now live in the PURE
+      // module server/migrate.js (the WHY of each rule is documented there); the migrated
+      // blob always carries a template-complete `quests`, a normalized maxDepth/bounty, and
+      // (for every row that has a player slice — all real rows) the personal milestones,
+      // which the Object.assign above already copied onto `p` with the rest of the slice.
+      // This method only ATTACHES, plus the ONE side effect that must touch SHARED state:
+      const q = c.quests;                              // fresh clone from migrateCharacter — safe to own
+      // A returning v1 veteran has met the Elder → the room's (shared) Kraken hunt is on.
+      // migrateCharacter recorded that purely on the BLOB's own main copy; keyed on
+      // `wasLegacy` because a v2/v3 row's main copy was always DISCARDED by the re-alias,
+      // never propagated — only the legacy synthesis ever reached the shared object.
+      const legacyMainStarted = wasLegacy && !!(q.main && q.main.started);
+      // The world-object quests are the LIVE room's, never the save's private copy: the world
+      // regenerates every boot, so a stale legion/Kraken/Cache from a row would fight the world
+      // it describes. (Re-alias AFTER the merge — migrateCharacter kept the row's copies.)
       aliasSharedQuests(q);
-      if (legacy && (p.level | 0) > 1) q.main.started = true;   // a returning veteran has met the Elder → the (shared) Kraken hunt is on
-      p.quests = q; p.maxDepth = mDepth; p.bounty = bnty;
+      if (legacyMainStarted) q.main.started = true;    // mutates the SHARED main post-alias — the old line-642 effect, exactly
+      p.quests = q; p.maxDepth = c.maxDepth; p.bounty = c.bounty;
       p._qJson = ''; p._qN = (p._qN | 0) + 1;          // force a re-stamp so the restored box reaches the client
-
-      // ---- personal milestones (v3) — MIGRATION, chained AFTER the v1→v2 questline block above ----
-      // Rows written before v3 carry no milestones: they lived in the SHARED state.flags, which no save
-      // has ever held (characterOf never emitted `flags`), so there is nothing to read back — synthesize
-      // from the durable per-player progress the row DOES carry. Keyed on the FIELD, not on `c.v`: a v1
-      // and a v2 row both lack it, and field-presence cannot be wrong. Skipping this re-ships the bug.
-      if (!c || !c.player || c.player.enteredDungeon === undefined) {
-        const keys = (p.inventory && p.inventory.keys) | 0;
-        // Two independent sources, because neither covers every row on its own:
-        //  · mDepth > 0 — proof, but only a v2+ row can carry it, and the v1→v2 migration has no source
-        //    for depth (it defaults to 0). So a hero who last saved on v1 gets nothing from this.
-        //  · keys >= 2 — proof within a world: setupOverworld places exactly ONE key pickup, and every
-        //    other key drops from a DUNGEON boss (killEnemy, gated on state.map==='dungeon'). This is
-        //    what catches the owner's level-45/16-key hero whichever row version he is on.
-        // (Across reboots the world regenerates its one key, so in principle a never-delving hero could
-        // hoard one per boot; the cost of that false positive is one wayfinder hint, versus re-shipping
-        // the reported bug. Neither source can be fooled into a false NEGATIVE, which is the direction
-        // that matters here.)
-        p.enteredDungeon = mDepth > 0 || keys >= 2;
-        p.gotKey = keys > 0 || !!(q.key && q.key.done);
-        // enteredFrozen has NO durable source. Default FALSE — the safe direction: a wrongly-false flag
-        // just re-plays one lore line and re-reveals an already-revealed quest (both idempotent), while a
-        // wrongly-true one would hide the Frozen Cache line from a hero who never crossed. It also self-
-        // heals on their next step into the snow. Anyone this misses on enteredDungeon self-heals the same
-        // way (their next delve sets it, and now it persists) — and currentObjective's maxDepth clause
-        // covers them the moment they descend once.
-        p.enteredFrozen = false;
-      }
 
       const pp = S.player, pi = S.inventory;                    // recompute atk/def from gear+bonuses for THIS player
       S.player = p; S.inventory = p.inventory;
