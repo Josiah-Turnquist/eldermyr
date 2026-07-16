@@ -1,3 +1,38 @@
+// P1c GLOBALS HOLDER — every module-level let that is REBOUND after init lives here as a
+// slot (under ES modules, assignment-to-an-import is illegal, so rebindable state must sit
+// on one mutable object). Slots are pre-listed for build-time discovery; each is initialized
+// at its ORIGINAL program position (search "__g." below) so execution order is unchanged.
+// Exposed as globalThis.__g for the dual-path loaders (server-spike/load-game.js, client/mp.html).
+const __g = {
+  VIEW_W: undefined,
+  VIEW_H: undefined,
+  ZOOM: undefined,
+  lightCanvas: undefined,
+  lightCtx: undefined,
+  townZones: undefined,
+  autosaveStarted: undefined,
+  currentDialogue: undefined,
+  interactCd: undefined,
+  shake: undefined,
+  hurtFlash: undefined,
+  biomeMap: undefined,
+  houseTiles: undefined,
+  reachableOW: undefined,
+  poiSeq: undefined,
+  _bannerTimer: undefined,
+  _bannerUntil: undefined,
+  moodR: undefined,
+  moodG: undefined,
+  moodB: undefined,
+  moodA: undefined,
+  hitStop: undefined,
+  _wasExhausted: undefined,
+  _musicCheck: undefined,
+  _ambT: undefined,
+  minimapBase: undefined,
+  minimapBaseWinter: undefined,
+};
+globalThis.__g = __g;
 // ===== VERSION =====
 // Bump GAME_VERSION on EVERY change so you can tell if you're on the latest build.
 // Shown on-screen (bottom-center) across the title, play, and death screens.

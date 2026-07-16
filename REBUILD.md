@@ -125,6 +125,12 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   P1b DONE — parts prettier-formatted (2,227 → 15,013 lines), proven 4 ways (AST-equal,
   battery 38/38 ×2, golden 8/8 ×2); CI enforces dist gates. Lesson re-learned: my own
   loader edit broke flat-loader's textual anchor — anchors are part of the contract.
-- next: P1c stage A (globals holder for rebindable lets) + stage B (explicit Eldermyr
-  namespace generated from CAPTURE/NAMES at build time — missing symbol = BUILD error,
-  killing the silent-capture class) — agent running.
+- 2026-07-15: P1c/P1d DONE — globals holder + namespace. The 27 mechanically-derived
+  rebindable module-level lets (acorn + eslint-scope; NOT the map's guessed list — e.g.
+  particles/shockwaves/arcs/weatherParts are mutated, never rebound) moved onto `const __g`
+  (`globalThis.__g`), initializers executing at their original program positions.
+  `scripts/build.mjs` now appends a build-generated `globalThis.Eldermyr` namespace
+  (CAPTURE ∪ NAMES ∪ {state,maps,g}; unknown name = build FAILURE, proven by negative
+  control). load-game.js + client/mp.html prefer namespace/holder, fall back to lexical —
+  all four gates green on both files after each stage; world.js self-test + index.js boot
+  green on both files.

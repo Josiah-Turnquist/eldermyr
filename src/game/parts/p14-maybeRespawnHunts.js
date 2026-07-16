@@ -57,65 +57,65 @@ function maybeRespawnLegion() {
 // ---- dynamic lighting (overworld nights) ----
 function drawLighting(camX, camY) {
   const d = darkness();
-  if (d <= 0.02 || !lightCtx) return;
+  if (d <= 0.02 || !__g.lightCtx) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const s = ZOOM * dpr;
-  const W = lightCanvas.width,
-    H = lightCanvas.height;
-  lightCtx.setTransform(1, 0, 0, 1, 0, 0);
-  lightCtx.clearRect(0, 0, W, H);
-  lightCtx.fillStyle = 'rgba(10,14,38,' + (d * 0.84).toFixed(3) + ')';
-  lightCtx.fillRect(0, 0, W, H);
-  lightCtx.globalCompositeOperation = 'destination-out';
+  const s = __g.ZOOM * dpr;
+  const W = __g.lightCanvas.width,
+    H = __g.lightCanvas.height;
+  __g.lightCtx.setTransform(1, 0, 0, 1, 0, 0);
+  __g.lightCtx.clearRect(0, 0, W, H);
+  __g.lightCtx.fillStyle = 'rgba(10,14,38,' + (d * 0.84).toFixed(3) + ')';
+  __g.lightCtx.fillRect(0, 0, W, H);
+  __g.lightCtx.globalCompositeOperation = 'destination-out';
   const addLight = (wx, wy, r, st) => {
     const cx = (wx - camX) * s,
       cy = (wy - camY) * s,
       rr = Math.max(1, r * s);
     if (cx < -rr || cy < -rr || cx > W + rr || cy > H + rr) return;
-    const g = lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    const g = __g.lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
     g.addColorStop(0, 'rgba(0,0,0,' + st + ')');
     g.addColorStop(0.62, 'rgba(0,0,0,' + st * 0.5 + ')');
     g.addColorStop(1, 'rgba(0,0,0,0)');
-    lightCtx.fillStyle = g;
-    lightCtx.beginPath();
-    lightCtx.arc(cx, cy, rr, 0, 6.28);
-    lightCtx.fill();
+    __g.lightCtx.fillStyle = g;
+    __g.lightCtx.beginPath();
+    __g.lightCtx.arc(cx, cy, rr, 0, 6.28);
+    __g.lightCtx.fill();
   };
   const p = state.player;
   const flick = 0.92 + Math.sin(state.time * 0.3) * 0.05;
   addLight(p.x + p.w / 2, p.y + p.h / 2, 122 * flick, 1);
-  for (const tz of townZones) {
+  for (const tz of __g.townZones) {
     const c = townCenter(tz);
     addLight(c.x * TILE + 16, c.y * TILE + 16, 140, 0.58);
   }
-  for (const h of houseTiles) addLight(h.x * TILE + 16, h.y * TILE + 14, 94, 0.92);
+  for (const h of __g.houseTiles) addLight(h.x * TILE + 16, h.y * TILE + 14, 94, 0.92);
   for (const fr of state.fires) {
     const flk = 0.8 + Math.sin(state.time * 0.4 + fr.tx) * 0.15;
     addLight(fr.tx * TILE + 16, fr.ty * TILE + 18, 82 * flk, 0.92);
   }
-  lightCtx.globalCompositeOperation = 'lighter';
+  __g.lightCtx.globalCompositeOperation = 'lighter';
   const warm = (wx, wy, r, col, a) => {
     const cx = (wx - camX) * s,
       cy = (wy - camY) * s,
       rr = Math.max(1, r * s);
     if (cx < -rr || cy < -rr || cx > W + rr || cy > H + rr) return;
-    const g = lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    const g = __g.lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
     g.addColorStop(0, col + (a * d).toFixed(3) + ')');
     g.addColorStop(1, col + '0)');
-    lightCtx.fillStyle = g;
-    lightCtx.beginPath();
-    lightCtx.arc(cx, cy, rr, 0, 6.28);
-    lightCtx.fill();
+    __g.lightCtx.fillStyle = g;
+    __g.lightCtx.beginPath();
+    __g.lightCtx.arc(cx, cy, rr, 0, 6.28);
+    __g.lightCtx.fill();
   };
-  for (const h of houseTiles) warm(h.x * TILE + 16, h.y * TILE + 15, 74, 'rgba(255,184,86,', 0.26);
+  for (const h of __g.houseTiles) warm(h.x * TILE + 16, h.y * TILE + 15, 74, 'rgba(255,184,86,', 0.26);
   for (const fr of state.fires) {
     const fl = 0.4 + Math.sin(state.time * 0.4 + fr.tx) * 0.12;
     warm(fr.tx * TILE + 16, fr.ty * TILE + 18, 86, 'rgba(255,140,45,', fl);
   }
-  lightCtx.globalCompositeOperation = 'source-over';
+  __g.lightCtx.globalCompositeOperation = 'source-over';
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(lightCanvas, 0, 0);
+  ctx.drawImage(__g.lightCanvas, 0, 0);
   ctx.restore();
 }
 
@@ -136,7 +136,7 @@ function updateWeather() {
     const n = state.weather === 'snow' ? 3 : 5;
     for (let i = 0; i < n && weatherParts.length < 260; i++)
       weatherParts.push({
-        x: Math.random() * VIEW_W,
+        x: Math.random() * __g.VIEW_W,
         y: -4,
         vy: state.weather === 'snow' ? 1.4 + Math.random() : 6 + Math.random() * 3,
         vx: state.weather === 'snow' ? (Math.random() - 0.5) * 0.7 : -1.4,
@@ -148,7 +148,7 @@ function updateWeather() {
     w.x += w.vx;
     w.y += w.vy;
     if (w.snow) w.x += Math.sin(w.y * 0.05) * 0.4;
-    if (w.y > VIEW_H + 6) weatherParts.splice(i, 1);
+    if (w.y > __g.VIEW_H + 6) weatherParts.splice(i, 1);
   }
   if (state.weather === 'snow') {
     const ftx = Math.floor((state.player.x + 11) / TILE),
@@ -168,7 +168,7 @@ function drawWeather() {
       fty = Math.floor((state.player.y + 11) / TILE);
     if (isFrozenTile(ftx, fty)) {
       ctx.fillStyle = 'rgba(220,232,245,0.24)';
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
     }
   } else {
     ctx.strokeStyle = 'rgba(150,170,210,0.5)';
@@ -180,7 +180,7 @@ function drawWeather() {
       ctx.stroke();
     }
     ctx.fillStyle = 'rgba(40,50,72,0.13)';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
   }
 }
 function weatherLabel() {
@@ -208,7 +208,7 @@ function isWinter() {
 function drawSeasonTint() {
   if (state.map !== 'overworld') return;
   ctx.fillStyle = SEASON_TINT[seasonIdx()];
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
 }
 // ================= QUIET LIFE — foraging, fishing, cooking =================
 const INGR = {
@@ -450,7 +450,7 @@ function doCamp() {
   p.campTick = 0;
   p.energy = p.maxEnergy;
   p.chillT = 0;
-  _wasExhausted = isExhausted();
+  __g._wasExhausted = isExhausted();
   recalcStats();
   spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 });
   log(
@@ -465,8 +465,8 @@ function doCamp() {
 }
 function updateFatigue() {
   const ex = isExhausted();
-  if (ex !== _wasExhausted) {
-    _wasExhausted = ex;
+  if (ex !== __g._wasExhausted) {
+    __g._wasExhausted = ex;
     recalcStats();
     updateHUD();
     if (ex) {
@@ -513,19 +513,19 @@ function musicMoodFor() {
   const df = distFactor(Math.floor((p.x + p.w / 2) / TILE), Math.floor((p.y + p.h / 2) / TILE));
   return df < RING_SAFE ? 'overworld' : df < RING_MID ? 'marches' : 'frontier';
 }
-let _musicCheck = 0;
+__g._musicCheck = 0;
 function updateMusicMood() {
   if (state.scene !== 'play') return;
-  if (--_musicCheck > 0) return;
-  _musicCheck = 90;
+  if (--__g._musicCheck > 0) return;
+  __g._musicCheck = 90;
   const want = musicMoodFor();
   if (Sound.musicName !== want) Sound.startMusic(want);
 }
-let _ambT = 300;
+__g._ambT = 300;
 function updateAmbience() {
   if (state.scene !== 'play' || state.map !== 'overworld' || Sound.muted) return;
-  if (--_ambT > 0) return;
-  _ambT = 360 + Math.floor(Math.random() * 540);
+  if (--__g._ambT > 0) return;
+  __g._ambT = 360 + Math.floor(Math.random() * 540);
   const df = distFactor(Math.floor((state.player.x + 16) / TILE), Math.floor((state.player.y + 16) / TILE));
   if (isNight()) {
     Sound.tone(392, 1.1, 'sine', 0.05, { slideTo: 294, attack: 0.25 });
@@ -546,8 +546,8 @@ function updateWorldLine() {
   if (!el) return;
   let war = '';
   const bt = typeof besiegedTown === 'function' ? besiegedTown() : null;
-  if (bt != null && townZones[bt])
-    war = ` <span style="color:#ff5050">· ⚔ ${townZones[bt].name} under siege!</span>`;
+  if (bt != null && __g.townZones[bt])
+    war = ` <span style="color:#ff5050">· ⚔ ${__g.townZones[bt].name} under siege!</span>`;
   el.innerHTML =
     `<span style="color:#9fb0d0">${isNight() ? '🌙' : '☀'} Day ${curDay()} · ${timeLabel()} · ${SEASON_ICON[seasonIdx()]} ${curSeason()} · ${weatherLabel()}</span>` +
     war;

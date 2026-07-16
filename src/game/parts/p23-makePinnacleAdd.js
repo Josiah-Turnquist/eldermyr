@@ -399,8 +399,8 @@ function rectDist(a, b) {
 
 function loop() {
   if (state.scene === 'play') {
-    if (hitStop > 0) {
-      hitStop--;
+    if (__g.hitStop > 0) {
+      __g.hitStop--;
     } else {
       updateTime();
       updatePlayer();

@@ -38,7 +38,7 @@ function exitDungeon() {
 function startDialogue(npc) {
   state.scene = 'dialogue';
   const lines = npc.id === 'elder' ? elderLines() : [...npc.lines];
-  currentDialogue = { npc, lines, idx: 0 };
+  __g.currentDialogue = { npc, lines, idx: 0 };
   document.getElementById('dialogue').style.display = 'block';
   showDialogueLine();
   if (npc.id === 'elder') {
@@ -54,12 +54,12 @@ function startDialogue(npc) {
   }
 }
 function showDialogueLine() {
-  const d = currentDialogue;
+  const d = __g.currentDialogue;
   document.getElementById('d-speaker').textContent = d.npc.name;
   document.getElementById('d-text').textContent = d.lines[d.idx];
 }
 function advanceDialogue() {
-  const d = currentDialogue;
+  const d = __g.currentDialogue;
   d.idx++;
   if (d.idx >= d.lines.length) endDialogue();
   else {
@@ -70,8 +70,8 @@ function advanceDialogue() {
 function endDialogue() {
   document.getElementById('dialogue').style.display = 'none';
   state.scene = 'play';
-  currentDialogue = null;
-  interactCd = 18;
+  __g.currentDialogue = null;
+  __g.interactCd = 18;
 }
 
 // ================= COMBAT =================
@@ -417,7 +417,7 @@ function castSpell() {
   updateHUD();
 }
 // ================= COMBAT 2.0: dodge, stamina, hit-stop, crit/lifesteal/berserk =================
-let hitStop = 0;
+__g.hitStop = 0;
 function doDodge() {
   const p = state.player;
   if (state.dragon.mounted || p.dodge > 0 || p.dodgeCd > 0 || p.camping) return;

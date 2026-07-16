@@ -239,8 +239,14 @@ function updateCamera() {
     m = maps[state.map],
     mapW = m[0].length * TILE,
     mapH = m.length * TILE;
-  state.camera.x = mapW <= VIEW_W ? (mapW - VIEW_W) / 2 : clamp(p.x + p.w / 2 - VIEW_W / 2, 0, mapW - VIEW_W);
-  state.camera.y = mapH <= VIEW_H ? (mapH - VIEW_H) / 2 : clamp(p.y + p.h / 2 - VIEW_H / 2, 0, mapH - VIEW_H);
+  state.camera.x =
+    mapW <= __g.VIEW_W
+      ? (mapW - __g.VIEW_W) / 2
+      : clamp(p.x + p.w / 2 - __g.VIEW_W / 2, 0, mapW - __g.VIEW_W);
+  state.camera.y =
+    mapH <= __g.VIEW_H
+      ? (mapH - __g.VIEW_H) / 2
+      : clamp(p.y + p.h / 2 - __g.VIEW_H / 2, 0, mapH - __g.VIEW_H);
 }
 
 // ================= RENDER =================

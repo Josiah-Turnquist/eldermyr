@@ -333,23 +333,23 @@ const LORE_TEXTS = [
   'Sealstones sleep in ruined keeps — wards of an older war, waiting.',
   'The Emberwyrm is not the fire’s master. It is the fire’s prisoner.',
 ];
-let _bannerTimer = null,
-  _bannerUntil = 0;
+__g._bannerTimer = null;
+__g._bannerUntil = 0;
 function showRegionBanner(title, sub) {
   const el = document.getElementById('region-banner');
   if (!el) return;
   el.innerHTML = `<div class="rb-t">${title}</div><div class="rb-s">${sub || ''}</div>`;
   el.style.opacity = '1';
-  _bannerUntil = Date.now() + 3600;
-  if (_bannerTimer) clearTimeout(_bannerTimer);
-  _bannerTimer = setTimeout(() => {
+  __g._bannerUntil = Date.now() + 3600;
+  if (__g._bannerTimer) clearTimeout(__g._bannerTimer);
+  __g._bannerTimer = setTimeout(() => {
     el.style.opacity = '0';
   }, 2800);
 }
-let moodR = 255,
-  moodG = 214,
-  moodB = 120,
-  moodA = 0;
+__g.moodR = 255;
+__g.moodG = 214;
+__g.moodB = 120;
+__g.moodA = 0;
 function drawMoodTint() {
   if (state.map !== 'overworld') return;
   const p = state.player;
@@ -371,13 +371,21 @@ function drawMoodTint() {
     tb = 32;
     ta = 0.058;
   }
-  moodR += (tr - moodR) * 0.02;
-  moodG += (tg - moodG) * 0.02;
-  moodB += (tb - moodB) * 0.02;
-  moodA += (ta - moodA) * 0.02;
+  __g.moodR += (tr - __g.moodR) * 0.02;
+  __g.moodG += (tg - __g.moodG) * 0.02;
+  __g.moodB += (tb - __g.moodB) * 0.02;
+  __g.moodA += (ta - __g.moodA) * 0.02;
   ctx.fillStyle =
-    'rgba(' + (moodR | 0) + ',' + (moodG | 0) + ',' + (moodB | 0) + ',' + moodA.toFixed(3) + ')';
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    'rgba(' +
+    (__g.moodR | 0) +
+    ',' +
+    (__g.moodG | 0) +
+    ',' +
+    (__g.moodB | 0) +
+    ',' +
+    __g.moodA.toFixed(3) +
+    ')';
+  ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
 }
 function findWildTileInRegion(r) {
   for (let i = 0; i < 140; i++) {
@@ -417,7 +425,7 @@ function readLoreStone(s) {
 function drawLoreStone(s) {
   const sx = s.x - state.camera.x,
     sy = s.y - state.camera.y;
-  if (sx < -60 || sx > VIEW_W + 60 || sy < -60 || sy > VIEW_H + 60) return;
+  if (sx < -60 || sx > __g.VIEW_W + 60 || sy < -60 || sy > __g.VIEW_H + 60) return;
   const read = (state.loreFound || []).includes(s.region);
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
@@ -548,7 +556,7 @@ function drawWayfinder() {
   ctx.save();
   ctx.font = '10px monospace';
   ctx.textAlign = 'center';
-  if (sx > 36 && sx < VIEW_W - 36 && sy > 52 && sy < VIEW_H - 36) {
+  if (sx > 36 && sx < __g.VIEW_W - 36 && sy > 52 && sy < __g.VIEW_H - 36) {
     if (distT > 2) {
       const bob = Math.sin(Date.now() / 220) * 3;
       ctx.globalAlpha = 0.92;
@@ -563,23 +571,27 @@ function drawWayfinder() {
       ctx.globalAlpha = 1;
     }
   } else {
-    const cx = VIEW_W / 2,
-      cy = VIEW_H / 2;
+    const cx = __g.VIEW_W / 2,
+      cy = __g.VIEW_H / 2;
     const vx = sx - cx,
       vy = sy - cy;
-    const s = Math.min((VIEW_W / 2 - 54) / Math.abs(vx || 1e-6), (VIEW_H / 2 - 60) / Math.abs(vy || 1e-6), 1);
+    const s = Math.min(
+      (__g.VIEW_W / 2 - 54) / Math.abs(vx || 1e-6),
+      (__g.VIEW_H / 2 - 60) / Math.abs(vy || 1e-6),
+      1,
+    );
     let ex = cx + vx * s,
       ey = cy + vy * s;
     const ang = Math.atan2(vy, vx);
     // dodge the DOM overlays: HUD (top-left), quest box (top-right), log (bottom-left), minimap (bottom-right)
-    const Z = ZOOM || 1;
+    const Z = __g.ZOOM || 1;
     if (ex < 310 / Z && ey < 352 / Z) ey = 352 / Z + 8;
-    if (ex > VIEW_W - 290 / Z && ey < 140 / Z) ey = 140 / Z + 8;
-    if (ex < 340 / Z && ey > VIEW_H - 186 / Z) ey = VIEW_H - 186 / Z - 8;
-    if (ex > VIEW_W - 200 / Z && ey > VIEW_H - 162 / Z) ey = VIEW_H - 162 / Z - 8;
-    if (Date.now() < _bannerUntil) {
-      const bBot = VIEW_H * 0.15 + 84 / Z;
-      if (ey < bBot && Math.abs(ex - VIEW_W / 2) < 330 / Z) ey = bBot + 10;
+    if (ex > __g.VIEW_W - 290 / Z && ey < 140 / Z) ey = 140 / Z + 8;
+    if (ex < 340 / Z && ey > __g.VIEW_H - 186 / Z) ey = __g.VIEW_H - 186 / Z - 8;
+    if (ex > __g.VIEW_W - 200 / Z && ey > __g.VIEW_H - 162 / Z) ey = __g.VIEW_H - 162 / Z - 8;
+    if (Date.now() < __g._bannerUntil) {
+      const bBot = __g.VIEW_H * 0.15 + 84 / Z;
+      if (ey < bBot && Math.abs(ex - __g.VIEW_W / 2) < 330 / Z) ey = bBot + 10;
     } // give way to the region banner while it's up
     ctx.translate(ex, ey);
     ctx.rotate(ang);
@@ -600,7 +612,7 @@ function drawWayfinder() {
     const half = lbl.length * 3.1 + 6;
     let lox = 0;
     if (ex - half < 4) lox = half + 4 - ex;
-    if (ex + half > VIEW_W - 4) lox = VIEW_W - 4 - half - ex;
+    if (ex + half > __g.VIEW_W - 4) lox = __g.VIEW_W - 4 - half - ex;
     const ly = ey < cy ? 26 : -20;
     ctx.fillStyle = 'rgba(10,12,20,0.66)';
     ctx.fillRect(lox - half, ly - 10, half * 2, 14);

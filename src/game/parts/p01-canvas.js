@@ -2,31 +2,31 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const TILE = 32;
-let VIEW_W = canvas.width,
-  VIEW_H = canvas.height,
-  ZOOM = 1;
-let lightCanvas = null,
-  lightCtx = null;
+__g.VIEW_W = canvas.width;
+__g.VIEW_H = canvas.height;
+__g.ZOOM = 1;
+__g.lightCanvas = null;
+__g.lightCtx = null;
 // Fill the whole window. The game draws with vector ops, so it stays crisp at any zoom/DPI.
 // We preserve ~15 tiles of vertical framing (the original feel) and let the width fill the screen.
 function fitCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth,
     h = window.innerHeight;
-  ZOOM = clamp(h / 480, 1, 3);
+  __g.ZOOM = clamp(h / 480, 1, 3);
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
-  if (!lightCanvas) {
-    lightCanvas = document.createElement('canvas');
-    lightCtx = lightCanvas.getContext('2d');
+  if (!__g.lightCanvas) {
+    __g.lightCanvas = document.createElement('canvas');
+    __g.lightCtx = __g.lightCanvas.getContext('2d');
   }
-  lightCanvas.width = canvas.width;
-  lightCanvas.height = canvas.height;
-  VIEW_W = w / ZOOM;
-  VIEW_H = h / ZOOM;
-  ctx.setTransform(ZOOM * dpr, 0, 0, ZOOM * dpr, 0, 0);
+  __g.lightCanvas.width = canvas.width;
+  __g.lightCanvas.height = canvas.height;
+  __g.VIEW_W = w / __g.ZOOM;
+  __g.VIEW_H = h / __g.ZOOM;
+  ctx.setTransform(__g.ZOOM * dpr, 0, 0, __g.ZOOM * dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
 }
 fitCanvas();
@@ -64,7 +64,7 @@ const RING_SAFE = 0.3,
 // falls back — so the harder outer layers stay accessible, but their enemies never follow you into the easy ones.
 const LEASH_MARGIN = 0.18;
 const maps = { overworld: null, dungeon: null };
-let townZones = [];
+__g.townZones = [];
 const SAVE_KEY = 'eldermyr_save_v2';
 // Persistence: prefer the Claude host's window.storage; fall back to localStorage so the game
 // auto-saves in a normal browser too (window.storage only exists inside the Claude artifact host).
@@ -107,7 +107,7 @@ const SaveStore = {
     } catch (e) {}
   },
 };
-let autosaveStarted = false;
+__g.autosaveStarted = false;
 
 const RARITIES = [
   { id: 'common', name: 'Common', color: '#c8c8d0', mult: 1.0, dur: 50 },
@@ -287,9 +287,9 @@ let state = {
   won: false,
   dragon: { tamed: false, mounted: false },
 };
-let keys = {},
-  currentDialogue = null,
-  interactCd = 0; // brief grace after closing a talk/shop so mashing [E] can't instantly reopen it
+let keys = {};
+__g.currentDialogue = null;
+__g.interactCd = 0; // brief grace after closing a talk/shop so mashing [E] can't instantly reopen it
 
 // ================= AUDIO (procedural — no asset files) =================
 const MUSIC = {
@@ -504,12 +504,12 @@ function updateAudioIndicator() {
 }
 
 // ================= JUICE: particles, screen shake, hurt flash =================
-let particles = [],
-  shake = 0,
-  hurtFlash = 0,
-  shockwaves = [];
+let particles = [];
+__g.shake = 0;
+__g.hurtFlash = 0;
+let shockwaves = [];
 function addShake(a) {
-  shake = Math.min(16, shake + a);
+  __g.shake = Math.min(16, __g.shake + a);
 }
 function pushShock(s) {
   if (shockwaves.length >= 12) shockwaves.shift();
@@ -559,7 +559,7 @@ function updateParticles() {
     s.life -= s.decay;
     if (s.life <= 0) shockwaves.splice(i, 1);
   }
-  if (hurtFlash > 0) hurtFlash = Math.max(0, hurtFlash - 0.04);
+  if (__g.hurtFlash > 0) __g.hurtFlash = Math.max(0, __g.hurtFlash - 0.04);
 }
 function drawParticles(camX, camY) {
   for (const p of particles) {
@@ -571,11 +571,11 @@ function drawParticles(camX, camY) {
   ctx.globalAlpha = 1;
 }
 function applyShake() {
-  if (shake > 0.1) {
-    state.camera.x += (Math.random() * 2 - 1) * shake;
-    state.camera.y += (Math.random() * 2 - 1) * shake;
-    shake *= 0.85;
-  } else shake = 0;
+  if (__g.shake > 0.1) {
+    state.camera.x += (Math.random() * 2 - 1) * __g.shake;
+    state.camera.y += (Math.random() * 2 - 1) * __g.shake;
+    __g.shake *= 0.85;
+  } else __g.shake = 0;
 }
 // Ultimate NOVA — an EXPLOSIVE, element-colored shockwave for the [Z] Ultimate. Scales with `power` (~1.0 rank1 → ~2.4 max):
 // a bigger/brighter central FLASH, MORE + larger expanding shock RINGS (1 → 3), a CAPPED radial particle burst (≤~40 rank1 → ≤~70 max,

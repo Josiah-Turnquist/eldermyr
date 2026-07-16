@@ -1,6 +1,6 @@
 function setupOverworld() {
   generateOverworld();
-  const c0 = townCenter(townZones[0]);
+  const c0 = townCenter(__g.townZones[0]);
   state.player.x = c0.x * TILE;
   state.player.y = c0.y * TILE;
   computeReachableOW(c0.x, c0.y);
@@ -42,8 +42,8 @@ function setupOverworld() {
   state.projectiles = [];
   particles.length = 0;
   arcs.length = 0;
-  shake = 0;
-  hurtFlash = 0;
+  __g.shake = 0;
+  __g.hurtFlash = 0;
   function placeNPC(tx, ty, name, color, lines, id) {
     const o = findOpenTile('overworld', tx, ty);
     const n = makeNPC(o.tx, o.ty, name, color, lines, id);
@@ -118,14 +118,14 @@ function setupOverworld() {
     ],
     'hunts',
   );
-  for (let i = 1; i < townZones.length; i++) {
-    const c = townCenter(townZones[i]);
+  for (let i = 1; i < __g.townZones.length; i++) {
+    const c = townCenter(__g.townZones[i]);
     const sk = placeNPC(
       c.x - 4,
       c.y - 2,
       'Shopkeeper',
       '#f0b050',
-      ['Finest wares in ' + townZones[i].name + '!'],
+      ['Finest wares in ' + __g.townZones[i].name + '!'],
       'shop',
     );
     sk.shopTown = townInfo(i);
@@ -350,7 +350,7 @@ function setupOverworld() {
   state.fires = [];
   weatherParts.length = 0;
   state.eventTimer = 2400;
-  minimapBase = null;
+  __g.minimapBase = null;
   if (!state.dragon.tamed && state.dragonLair)
     state.enemies.push(makeWildDragon(state.dragonLair.tx, state.dragonLair.ty));
   if (!state.flags.krakenDead && state.krakenArena)
@@ -393,8 +393,8 @@ function setupDungeonFloor(level) {
   state.projectiles = [];
   particles.length = 0;
   arcs.length = 0;
-  shake = 0;
-  hurtFlash = 0;
+  __g.shake = 0;
+  __g.hurtFlash = 0;
   setupCompanions();
   state.enemies = [];
   let count = 4 + level;
@@ -520,8 +520,8 @@ function loadOverworld() {
   state.projectiles = [];
   particles.length = 0;
   arcs.length = 0;
-  shake = 0;
-  hurtFlash = 0;
+  __g.shake = 0;
+  __g.hurtFlash = 0;
   state.map = 'overworld';
   if (state.holdings)
     state.holdings.forEach((hd, i) => {

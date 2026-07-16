@@ -13,11 +13,11 @@ function findOpenTile(mapName, tx, ty) {
   }
   return { tx, ty };
 }
-let reachableOW = null;
+__g.reachableOW = null;
 function computeReachableOW(stx, sty) {
   const m = maps.overworld;
   if (!m) {
-    reachableOW = null;
+    __g.reachableOW = null;
     return;
   }
   const H = m.length,
@@ -41,10 +41,10 @@ function computeReachableOW(stx, sty) {
       st.push([nx, ny]);
     }
   }
-  reachableOW = seen;
+  __g.reachableOW = seen;
 }
 function isReachableOW(tx, ty) {
-  return !reachableOW || reachableOW.has(tx + ',' + ty);
+  return !__g.reachableOW || __g.reachableOW.has(tx + ',' + ty);
 }
 function findWildTile() {
   for (let i = 0; i < 120; i++) {
@@ -459,7 +459,7 @@ const POI_KINDS = {
   keep: { name: 'Ruined Keep', mark: '#c8b8ff' },
   village: { name: 'Razed Village', mark: '#f0c060' },
 };
-let poiSeq = 0;
+__g.poiSeq = 0;
 function findWildTileInBand(lo, hi) {
   for (let i = 0; i < 240; i++) {
     const c = findWildTile();
@@ -498,7 +498,7 @@ function spawnPoiEnemy(tx, ty, key, opts) {
 function placePOI(kind, lo, hi) {
   const c = findWildTileInBand(lo, hi);
   if (!c) return null;
-  const key = 'poi' + poiSeq++;
+  const key = 'poi' + __g.poiSeq++;
   const poi = {
     key,
     kind,
@@ -529,7 +529,7 @@ function placePOI(kind, lo, hi) {
 }
 function setupPOIs() {
   state.pois = [];
-  poiSeq = 0;
+  __g.poiSeq = 0;
   // war-camps ladder OUTWARD (v2.36.2): two entry camps in the near Marches, two mid, two deep — so the
   // questline's first targets are beginner-fair and the arrow can walk players up the difficulty curve
   placePOI('camp', 0.34, 0.48);

@@ -171,8 +171,8 @@ function showSavedToast() {
   setTimeout(() => (el.style.opacity = '0'), 900);
 }
 function ensureAutosave() {
-  if (autosaveStarted) return;
-  autosaveStarted = true;
+  if (__g.autosaveStarted) return;
+  __g.autosaveStarted = true;
   setInterval(() => {
     if (state.scene === 'play') saveGame(false);
   }, 60000);

@@ -28,7 +28,7 @@ function updateHeatAura(p, el) {
 }
 function onHitDealt(e, dmg, crit) {
   applyLifesteal(e, dmg);
-  hitStop = Math.max(hitStop, crit ? 5 : 2);
+  __g.hitStop = Math.max(__g.hitStop, crit ? 5 : 2);
   if (crit) {
     addShake(2);
     spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 8, { color: '#fff060', speed: 3, decay: 0.05 });
@@ -353,7 +353,7 @@ function tryDropLoot(e) {
 function floatDamage(x, y, amount, color) {
   const wrap = document.getElementById('game-wrap');
   const rect = canvas.getBoundingClientRect();
-  const scale = rect.width / VIEW_W;
+  const scale = rect.width / __g.VIEW_W;
   const sx = (x - state.camera.x) * scale + rect.left - wrap.getBoundingClientRect().left;
   const sy = (y - state.camera.y) * scale + rect.top - wrap.getBoundingClientRect().top;
   const el = document.createElement('div');
@@ -471,7 +471,7 @@ function playerTakeDamage(amount) {
   floatDamage(p.x + p.w / 2, p.y, dmg, '#ff6060');
   Sound.hurt();
   addShake(5);
-  hurtFlash = 1;
+  __g.hurtFlash = 1;
   spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 8, {
     color: '#ff5050',
     speed: 2,

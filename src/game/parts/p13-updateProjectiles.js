@@ -93,7 +93,7 @@ function updateProjectiles() {
             applyElementOnHit(e, pr.element, dmg);
             applyLifesteal(e, dmg);
             if (crit) {
-              hitStop = Math.max(hitStop, 3);
+              __g.hitStop = Math.max(__g.hitStop, 3);
               addShake(1.5);
             }
             if (_far) {
@@ -360,7 +360,7 @@ function updatePlayer() {
   }
   if (p.chillT > 0) p.chillT--;
   if (p.dodgeCd > 0) p.dodgeCd--;
-  if (interactCd > 0) interactCd--;
+  if (__g.interactCd > 0) __g.interactCd--;
   if (p.stamina < p.maxStamina) {
     p.stamina = Math.min(p.maxStamina, p.stamina + 0.9);
     updateStaminaBar();
@@ -447,8 +447,8 @@ function updatePlayer() {
 }
 // ================= LIVING WORLD: time, weather, light, rest, fire, events, nemesis =================
 const DAY_FRAMES = 21600; // ~6 min/day @60fps
-let weatherParts = [],
-  _wasExhausted = false;
+let weatherParts = [];
+__g._wasExhausted = false;
 // ================= FACTIONS & REPUTATION =================
 const FACTIONS = {
   vigil: { name: 'The Vigil', color: '#80c0ff', desc: 'The kingdom & its towns', repName: 'Honor' },

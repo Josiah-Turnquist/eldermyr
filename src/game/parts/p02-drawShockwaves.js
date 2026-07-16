@@ -348,13 +348,13 @@ function townCenter(tz) {
   return { x: tz.x + Math.floor(tz.w / 2), y: tz.y + Math.floor(tz.h / 2) };
 }
 function isInTown(tx, ty, margin = 0) {
-  for (const tz of townZones)
+  for (const tz of __g.townZones)
     if (tx >= tz.x - margin && tx < tz.x + tz.w + margin && ty >= tz.y - margin && ty < tz.y + tz.h + margin)
       return true;
   return false;
 }
-let biomeMap = null,
-  houseTiles = [];
+__g.biomeMap = null;
+__g.houseTiles = [];
 function frozenLimit(tx) {
   return Math.round(OW_H * 0.17 + Math.sin(tx * 0.18) * 4 + Math.sin(tx * 0.06) * 3);
 }
@@ -387,18 +387,18 @@ function townTier(cx, cy) {
   return d < 0.3 ? 0 : d < 0.55 ? 1 : 2;
 }
 function townInfo(i) {
-  const tz = townZones[i];
+  const tz = __g.townZones[i];
   const c = townCenter(tz);
   return { key: 't' + i, name: tz.name, biome: tileBiome(c.x, c.y), tier: townTier(c.x, c.y) };
 }
 function isFrozenTile(tx, ty) {
-  return !!(biomeMap && biomeMap[ty] && biomeMap[ty][tx] === 1);
+  return !!(__g.biomeMap && __g.biomeMap[ty] && __g.biomeMap[ty][tx] === 1);
 }
 function isLavaTile(tx, ty) {
-  return !!(biomeMap && biomeMap[ty] && biomeMap[ty][tx] === 2);
+  return !!(__g.biomeMap && __g.biomeMap[ty] && __g.biomeMap[ty][tx] === 2);
 }
 function tileBiome(tx, ty) {
-  return (biomeMap && biomeMap[ty] && biomeMap[ty][tx]) || 0;
+  return (__g.biomeMap && __g.biomeMap[ty] && __g.biomeMap[ty][tx]) || 0;
 }
 function generateOverworld() {
   const m = [];
@@ -474,7 +474,7 @@ function generateOverworld() {
       y = 1 + Math.floor(Math.random() * (OW_H - 2));
     if (m[y][x] === T.GRASS) m[y][x] = T.FLOWER;
   }
-  townZones = [
+  __g.townZones = [
     { x: 151, y: 127, w: 16, h: 13, name: 'Eldermyr' },
     { x: 125, y: 48, w: 13, h: 10, name: 'Northwatch' },
     { x: 220, y: 137, w: 13, h: 10, name: 'Eastgate' },
@@ -482,7 +482,7 @@ function generateOverworld() {
     { x: 260, y: 214, w: 13, h: 10, name: 'Southreach' },
     { x: 46, y: 154, w: 12, h: 10, name: 'Westhaven' },
   ];
-  for (const tz of townZones) {
+  for (const tz of __g.townZones) {
     for (let y = tz.y - 1; y < tz.y + tz.h + 1; y++)
       for (let x = tz.x - 1; x < tz.x + tz.w + 1; x++) {
         if (x < 1 || y < 1 || x >= OW_W - 1 || y >= OW_H - 1) continue;
@@ -513,9 +513,9 @@ function generateOverworld() {
     }
     m[y][x] = walk(m[y][x]);
   }
-  const c0 = townCenter(townZones[0]);
-  for (let i = 1; i < townZones.length; i++) {
-    const ci = townCenter(townZones[i]);
+  const c0 = townCenter(__g.townZones[0]);
+  for (let i = 1; i < __g.townZones.length; i++) {
+    const ci = townCenter(__g.townZones[i]);
     carvePath(c0.x, c0.y, ci.x, ci.y);
   }
   let dx = 168,
@@ -535,16 +535,16 @@ function generateOverworld() {
     carvePath(c0.x, c0.y, h.tx, h.ty);
   }
   carvePath(c0.x, c0.y, 81, 204); // the harbor road — the Shipwright must never be sealed off by a wood
-  biomeMap = [];
-  houseTiles = [];
+  __g.biomeMap = [];
+  __g.houseTiles = [];
   const lavaThresh = (OW_W + OW_H) * 0.76;
   for (let y = 0; y < OW_H; y++) {
     const row = [];
     for (let x = 0; x < OW_W; x++) {
       row.push(y <= frozenLimit(x) ? 1 : x + y > lavaThresh + Math.round(Math.sin(x * 0.25) * 3) ? 2 : 0);
-      if (m[y][x] === T.HOUSE) houseTiles.push({ x, y });
+      if (m[y][x] === T.HOUSE) __g.houseTiles.push({ x, y });
     }
-    biomeMap.push(row);
+    __g.biomeMap.push(row);
   }
   // dragon lair (Emberwaste, reachable on foot) + peak-ringed kraken arena (fly-only)
   state.dragonLair = { tx: 280, ty: 235 };
@@ -572,7 +572,7 @@ function generateOverworld() {
     for (let x = o.x0; x <= o.x1; x++) {
       if (x < 1 || y < 1 || x >= OW_W - 1 || y >= OW_H - 1) continue;
       m[y][x] = T.WATER;
-      if (biomeMap[y]) biomeMap[y][x] = 0;
+      if (__g.biomeMap[y]) __g.biomeMap[y][x] = 0;
     }
   // proper ISLES now — big enough to be real boss arenas and treasure grounds
   state.islands = [
@@ -585,7 +585,7 @@ function generateOverworld() {
         if (x < 1 || y < 1 || x >= OW_W - 1 || y >= OW_H - 1) continue;
         if (Math.hypot(x - is.x, y - is.y) <= 4.3) {
           m[y][x] = T.GRASS;
-          if (biomeMap[y]) biomeMap[y][x] = 0;
+          if (__g.biomeMap[y]) __g.biomeMap[y][x] = 0;
         }
       }
   }

@@ -1,7 +1,7 @@
 function drawPOI(poi) {
   const sx = poi.x - state.camera.x,
     sy = poi.y - state.camera.y;
-  if (sx < -90 || sx > VIEW_W + 90 || sy < -90 || sy > VIEW_H + 90) return;
+  if (sx < -90 || sx > __g.VIEW_W + 90 || sy < -90 || sy > __g.VIEW_H + 90) return;
   const k = POI_KINDS[poi.kind];
   const cleared = poi.cleared,
     near = rectDist(state.player, poi) < 48;
@@ -374,7 +374,7 @@ function drawHolding(i) {
   if (!hd) return;
   const sx = h.tx * TILE - state.camera.x,
     sy = h.ty * TILE - state.camera.y;
-  if (sx < -110 || sx > VIEW_W + 110 || sy < -110 || sy > VIEW_H + 110) return;
+  if (sx < -110 || sx > __g.VIEW_W + 110 || sy < -110 || sy > __g.VIEW_H + 110) return;
   const p = state.player;
   const near = Math.abs((p.x + p.w / 2) / TILE - h.tx) < 3 && Math.abs((p.y + p.h / 2) / TILE - h.ty) < 3;
   ctx.save();
@@ -465,11 +465,11 @@ function doTravelHold(i) {
   p.dvy = 0;
   p.dodge = 0;
   p.invuln = 30;
-  state.camera.x = p.x - VIEW_W / 2;
-  state.camera.y = p.y - VIEW_H / 2;
+  state.camera.x = p.x - __g.VIEW_W / 2;
+  state.camera.y = p.y - __g.VIEW_H / 2;
   state.time += Math.floor(DAY_FRAMES * 0.32);
   state.lastRestDay = curDay();
-  _wasExhausted = isExhausted();
+  __g._wasExhausted = isExhausted();
   recalcStats();
   spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 18, { color: '#a8c8ff', speed: 2, decay: 0.04 });
   Sound.tone(440, 0.3, 'sine', 0.12, { slideTo: 880 });

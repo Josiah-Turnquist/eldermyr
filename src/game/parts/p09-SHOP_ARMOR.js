@@ -20,10 +20,10 @@ function openShop(npc) {
   }
   const key = npc && npc.shopTown && npc.shopTown.key;
   const ti = key && /^t\d+$/.test(key) ? parseInt(key.slice(1)) : -1;
-  if (ti >= 0 && townZones[ti] && townZones[ti].besieged) {
+  if (ti >= 0 && __g.townZones[ti] && __g.townZones[ti].besieged) {
     Sound.error();
     log(
-      `${townZones[ti].name} is under siege — drive off the Dread Legion before any trade resumes.`,
+      `${__g.townZones[ti].name} is under siege — drive off the Dread Legion before any trade resumes.`,
       'combat',
     );
     return;
@@ -39,14 +39,14 @@ function closeShop() {
   document.getElementById('shop').style.display = 'none';
   state.scene = 'play';
   saveGame();
-  interactCd = 18;
+  __g.interactCd = 18;
 }
 function currentTownIndex() {
   if (state.map !== 'overworld') return -1;
   const tx = Math.floor((state.player.x + state.player.w / 2) / TILE),
     ty = Math.floor((state.player.y + state.player.h / 2) / TILE);
-  for (let i = 0; i < townZones.length; i++) {
-    const tz = townZones[i];
+  for (let i = 0; i < __g.townZones.length; i++) {
+    const tz = __g.townZones[i];
     if (tx >= tz.x - 1 && tx < tz.x + tz.w + 1 && ty >= tz.y - 1 && ty < tz.y + tz.h + 1) return i;
   }
   return -1;
@@ -57,7 +57,7 @@ function markTownVisited() {
   if (i >= 0 && !state.visitedTowns.includes(i)) {
     state.visitedTowns.push(i);
     if (i !== 0)
-      log(`${townZones[i].name} discovered — fast-travel here anytime with [T] from a town.`, 'good');
+      log(`${__g.townZones[i].name} discovered — fast-travel here anytime with [T] from a town.`, 'good');
   }
 }
 function openTravel() {
@@ -339,7 +339,7 @@ function renderTravel() {
     const isHere = i === here;
     const row = document.createElement('div');
     row.className = 'skill-row';
-    row.innerHTML = `<div><b style="color:${isHere ? '#90ff90' : '#f0e0a0'}">⌂ ${townZones[i].name}${tag}</b> <span class="sk-desc">Tier ${info.tier + 1}${isHere ? ' · you are here' : ''}</span></div>`;
+    row.innerHTML = `<div><b style="color:${isHere ? '#90ff90' : '#f0e0a0'}">⌂ ${__g.townZones[i].name}${tag}</b> <span class="sk-desc">Tier ${info.tier + 1}${isHere ? ' · you are here' : ''}</span></div>`;
     const b = document.createElement('button');
     b.className = 'sk-btn';
     if (isHere) {
@@ -382,7 +382,7 @@ function renderTravel() {
   }
 }
 function doTravel(i) {
-  const tz = townZones[i];
+  const tz = __g.townZones[i];
   if (!tz) return;
   resetFishing();
   const c = townCenter(tz);
@@ -393,11 +393,11 @@ function doTravel(i) {
   p.dvy = 0;
   p.dodge = 0;
   p.invuln = 30;
-  state.camera.x = p.x - VIEW_W / 2;
-  state.camera.y = p.y - VIEW_H / 2;
+  state.camera.x = p.x - __g.VIEW_W / 2;
+  state.camera.y = p.y - __g.VIEW_H / 2;
   state.time += Math.floor(DAY_FRAMES * 0.32);
   state.lastRestDay = curDay();
-  _wasExhausted = isExhausted();
+  __g._wasExhausted = isExhausted();
   markTownVisited();
   recalcStats();
   spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 18, { color: '#a8c8ff', speed: 2, decay: 0.04 });

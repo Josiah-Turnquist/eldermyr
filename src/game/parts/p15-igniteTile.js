@@ -391,17 +391,17 @@ function updateEvents() {
 }
 // ================= FACTION WAR — the three powers contest the realm =================
 function anyTownBesieged() {
-  return townZones.some((tz) => tz.besieged);
+  return __g.townZones.some((tz) => tz.besieged);
 }
 function besiegedTown() {
-  const i = townZones.findIndex((tz) => tz.besieged);
+  const i = __g.townZones.findIndex((tz) => tz.besieged);
   return i < 0 ? null : i;
 }
 function startDreadRaid() {
-  const free = townZones.map((tz, i) => i).filter((i) => !townZones[i].besieged);
+  const free = __g.townZones.map((tz, i) => i).filter((i) => !__g.townZones[i].besieged);
   if (!free.length) return;
   const i = NEM_PICK(free);
-  const tz = townZones[i];
+  const tz = __g.townZones[i];
   tz.besieged = true;
   const c = townCenter(tz);
   const n = 3 + Math.floor((state.factions.dread || 0) / 28);
@@ -435,7 +435,7 @@ function startDreadRaid() {
   Sound.tone(90, 0.6, 'sawtooth', 0.18, { slideTo: 60 });
 }
 function liberateTown(i) {
-  const tz = townZones[i];
+  const tz = __g.townZones[i];
   if (!tz || !tz.besieged) return;
   tz.besieged = false;
   addRep('vigil', 8);

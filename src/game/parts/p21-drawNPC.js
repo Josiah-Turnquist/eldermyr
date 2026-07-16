@@ -280,8 +280,8 @@ function drawProjectile(pr, camX, camY) {
   }
 }
 // ================= MINIMAP =================
-let minimapBase = null,
-  minimapBaseWinter = false;
+__g.minimapBase = null;
+__g.minimapBaseWinter = false;
 function buildMinimapBase() {
   if (!maps.overworld) return;
   const c = document.createElement('canvas');
@@ -306,16 +306,16 @@ function buildMinimapBase() {
       x.fillStyle = col;
       x.fillRect(tx, ty, 1, 1);
     }
-  minimapBase = c;
-  minimapBaseWinter = isWinter();
+  __g.minimapBase = c;
+  __g.minimapBaseWinter = isWinter();
 }
 function drawMapMarkers(x, W, H) {
   const sx = W / OW_W,
     sy = H / OW_H,
     k = Math.max(1, W / 150);
-  for (let i = 0; i < townZones.length; i++) {
-    const c = townCenter(townZones[i]);
-    if (townZones[i].besieged) {
+  for (let i = 0; i < __g.townZones.length; i++) {
+    const c = townCenter(__g.townZones[i]);
+    if (__g.townZones[i].besieged) {
       x.strokeStyle = '#ff4040';
       x.lineWidth = 1.5 * k;
       x.beginPath();
@@ -471,10 +471,10 @@ function drawMinimapTo(canvas) {
     H = canvas.height;
   x.clearRect(0, 0, W, H);
   if (state.map !== 'overworld') return;
-  if (!minimapBase || minimapBaseWinter !== isWinter()) buildMinimapBase();
-  if (minimapBase) {
+  if (!__g.minimapBase || __g.minimapBaseWinter !== isWinter()) buildMinimapBase();
+  if (__g.minimapBase) {
     x.imageSmoothingEnabled = false;
-    x.drawImage(minimapBase, 0, 0, W, H);
+    x.drawImage(__g.minimapBase, 0, 0, W, H);
   }
   drawMapMarkers(x, W, H);
 }
@@ -574,7 +574,7 @@ function enemyVisible(e) {
   const m = 48 + e.w,
     sx = e.x - state.camera.x,
     sy = e.y - state.camera.y;
-  return !(sx < -m || sx > VIEW_W + m || sy < -m || sy > VIEW_H + m);
+  return !(sx < -m || sx > __g.VIEW_W + m || sy < -m || sy > __g.VIEW_H + m);
 }
 function renderWorld() {
   const m = maps[state.map],
@@ -582,10 +582,10 @@ function renderWorld() {
     camY = state.camera.y;
   const startTx = Math.floor(camX / TILE),
     startTy = Math.floor(camY / TILE),
-    endTx = Math.ceil((camX + VIEW_W) / TILE),
-    endTy = Math.ceil((camY + VIEW_H) / TILE);
+    endTx = Math.ceil((camX + __g.VIEW_W) / TILE),
+    endTy = Math.ceil((camY + __g.VIEW_H) / TILE);
   ctx.fillStyle = state.map === 'dungeon' ? '#0a080e' : '#3a6a9a';
-  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
   for (let ty = startTy; ty < endTy; ty++)
     for (let tx = startTx; tx < endTx; tx++) {
       if (ty < 0 || tx < 0 || ty >= m.length || tx >= m[0].length) continue;
@@ -638,10 +638,10 @@ function renderWorld() {
   if (state.map === 'overworld') {
     ctx.font = '10px monospace';
     ctx.textAlign = 'center';
-    for (const tz of townZones) {
+    for (const tz of __g.townZones) {
       const wx = (tz.x + tz.w / 2) * TILE - camX,
         wy = (tz.y - 1) * TILE - camY;
-      if (wx > -60 && wx < VIEW_W + 60 && wy > -10 && wy < VIEW_H) {
+      if (wx > -60 && wx < __g.VIEW_W + 60 && wy > -10 && wy < __g.VIEW_H) {
         const sg = tz.besieged;
         const lbl = (sg ? '⚔ ' : '⌂ ') + tz.name;
         ctx.fillStyle = sg ? 'rgba(80,12,12,0.72)' : 'rgba(0,0,0,0.5)';
@@ -653,7 +653,7 @@ function renderWorld() {
     {
       const fx = 123 * TILE - camX,
         fy = 34 * TILE - camY;
-      if (fx > -90 && fx < VIEW_W + 90 && fy > -10 && fy < VIEW_H) {
+      if (fx > -90 && fx < __g.VIEW_W + 90 && fy > -10 && fy < __g.VIEW_H) {
         ctx.fillStyle = 'rgba(20,32,52,0.5)';
         ctx.fillRect(fx - 54, fy - 10, 108, 13);
         ctx.fillStyle = '#bfe0ff';
@@ -663,7 +663,7 @@ function renderWorld() {
     {
       const lx = 274 * TILE - camX,
         ly = 224 * TILE - camY;
-      if (lx > -90 && lx < VIEW_W + 90 && ly > -10 && ly < VIEW_H) {
+      if (lx > -90 && lx < __g.VIEW_W + 90 && ly > -10 && ly < __g.VIEW_H) {
         ctx.fillStyle = 'rgba(50,20,10,0.55)';
         ctx.fillRect(lx - 52, ly - 10, 104, 13);
         ctx.fillStyle = '#ff9050';
@@ -673,7 +673,7 @@ function renderWorld() {
     if (state.krakenArena && !state.flags.krakenDead) {
       const kx = state.krakenArena.tx * TILE - camX,
         ky = (state.krakenArena.ty - 5) * TILE - camY;
-      if (kx > -100 && kx < VIEW_W + 100 && ky > -10 && ky < VIEW_H) {
+      if (kx > -100 && kx < __g.VIEW_W + 100 && ky > -10 && ky < __g.VIEW_H) {
         ctx.fillStyle = 'rgba(20,20,40,0.55)';
         ctx.fillRect(kx - 58, ky - 10, 116, 13);
         ctx.fillStyle = '#a0b0e0';
@@ -700,21 +700,21 @@ function renderWorld() {
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(0,0,0,0.85)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
   }
-  if (hurtFlash > 0) {
+  if (__g.hurtFlash > 0) {
     const vg = ctx.createRadialGradient(
-      VIEW_W / 2,
-      VIEW_H / 2,
-      VIEW_H * 0.32,
-      VIEW_W / 2,
-      VIEW_H / 2,
-      VIEW_H * 0.72,
+      __g.VIEW_W / 2,
+      __g.VIEW_H / 2,
+      __g.VIEW_H * 0.32,
+      __g.VIEW_W / 2,
+      __g.VIEW_H / 2,
+      __g.VIEW_H * 0.72,
     );
     vg.addColorStop(0, 'rgba(170,0,0,0)');
-    vg.addColorStop(1, 'rgba(170,0,0,' + (hurtFlash * 0.5).toFixed(3) + ')');
+    vg.addColorStop(1, 'rgba(170,0,0,' + (__g.hurtFlash * 0.5).toFixed(3) + ')');
     ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
   }
 }
 

@@ -103,7 +103,7 @@ function closeSmith() {
   document.getElementById('smith').style.display = 'none';
   state.scene = 'play';
   saveGame();
-  interactCd = 18;
+  __g.interactCd = 18;
 }
 function damagedItems() {
   const list = [];
@@ -522,7 +522,7 @@ function bountyProgress(kind, e) {
   }
 }
 function tryInteract() {
-  if (interactCd > 0) return;
+  if (__g.interactCd > 0) return;
   const p = state.player;
   for (const e of state.enemies)
     if (e.isWildDragon && e.subdued && rectDist(p, e) < 64) {
