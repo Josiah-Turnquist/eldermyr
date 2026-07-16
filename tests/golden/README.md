@@ -13,6 +13,9 @@ node tests/golden/harness.mjs check     # re-run all scenarios, diff vs oracle.j
 node tests/golden/harness.mjs prove     # acceptance proofs: (a) determinism (b) sensitivity (c) seed variance
 node tests/golden/harness.mjs record    # (re)write oracle.json from the current tree
 node tests/golden/harness.mjs run <scenario> <seed> [--perturb speed|damage]   # one worker, prints hashes
+node tests/golden/harness.mjs mp-check  # 2-player world-kind scenarios vs oracle-mp.json (rebuild P2/S2)
+node tests/golden/harness.mjs mp-prove  # 2p proofs: determinism / speed+hunt perturbs / seed variance
+node tests/golden/harness.mjs mp-record # (re)write oracle-mp.json — consciously, per P2 slice
 ```
 
 Scenarios: `overworld-combat`, `dungeon`, `daily-life`, `day-rollover` (3000 ticks each, hashed
@@ -20,6 +23,24 @@ every 100; `day-rollover` parks `state.time` just before two day boundaries so `
 itself fires `onNewDay` — hunt respawn at crossing #1, quiet daily path at #2).
 `check` reports the FIRST divergent tick per scenario. `ELDERMYR_GAME_FILE=dist/eldermyr.html`
 (absolute or CWD-relative, same as load-game.js) points every run at a rebuilt artifact.
+
+## The 2-player rig (kind `world` — rebuild P2/S2)
+
+`mp-overworld-combat` and `mp-day-rollover` are `kind: 'world'` scenarios: the worker seeds +
+freezes exactly like the 1p path, then requires `server/world.js` (which boots the game through
+the same loader), joins heroes A + B, scripts each hero's `held`/`actions` per tick (the
+self-test idiom) and drives `w.tick()`. The hash root is still `{state, maps}`; the World's
+room fields (`feed`/`_errAt`/perf EMAs) live on `this`, off-state, outside the oracle. The
+worker pins `HZ=80` so ambient env can't skew the downed/revive frame constants.
+
+These baselines (`oracle-mp.json`) freeze the ORCHESTRATION machinery the P2 conversion ladder
+rewrites — rotation + PP swap, enemy/ally/companion partitions, projectile shooter buckets,
+players[1..N] damage patches, per-player spawn cadence — plus the per-player ITERATION ORDER
+(`state.players` join order), which is part of the determinism contract. Unlike `oracle.json`
+(byte-untouched until S16), `oracle-mp.json` is expected to move when a slice intentionally
+changes MP behavior: re-record consciously with `mp-record`, eyeball the diff, commit it with
+the slice, and keep `mp-prove` passing (a baseline a real value change cannot move is worse
+than none).
 
 ## How it works
 

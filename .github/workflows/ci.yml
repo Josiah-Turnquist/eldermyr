@@ -22,3 +22,6 @@ jobs:
       # retired with the monolith itself (it lives in the v2-final tag).
       - run: npm run test:battery
       - run: npm run test:golden
+      # 2-player world-kind baselines (rebuild P2/S2): the orchestration machinery the
+      # P2 ladder rewrites, frozen as hash trajectories; re-recorded consciously per slice.
+      - run: npm run test:golden:mp

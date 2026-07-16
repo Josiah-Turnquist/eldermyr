@@ -134,7 +134,7 @@ function maybePinnacleBosses() {
       } else if (boss) {
         const bx = boss.x + boss.w / 2,
           by = boss.y + boss.h / 2;
-        const _pp = state.players && state.players.length ? state.players : [state.player];
+        const _pp = party(); // P2/S2: the canonized helper (p22) — identical to the inline idiom this line used to carry
         const near = _pp.some((pl) => Math.hypot(pl.x + pl.w / 2 - bx, pl.y + pl.h / 2 - by) < 520);
         if (!near) {
           for (let i = state.enemies.length - 1; i >= 0; i--) {

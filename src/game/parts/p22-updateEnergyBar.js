@@ -279,6 +279,9 @@ function partyLvl() {
 function partyN() {
   return Math.max(1, state._partyN || 1);
 } // #1: server populates _partyN (player count); SP default 1 keeps values identical
+function party() {
+  return state.players && state.players.length ? state.players : [state.player];
+} // P2/S2: THE one definition of the MP-roster idiom (the p23 dawn-melt precedent). The server sets state.players; single-player NEVER does, so this is [state.player] — same array, same draws, byte-identical SP. Converted loops iterate party() in state.players JOIN ORDER (the determinism contract the 2p golden baselines freeze).
 function makeGreatBeast(h, tx, ty) {
   const e = makeBoss(tx, ty);
   e.isGreatBeast = true;

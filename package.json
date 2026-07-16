@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test:battery": "node tests/run-battery.mjs",
     "test:golden": "node tests/golden/harness.mjs check",
-    "test": "npm run test:battery && npm run test:golden"
+    "test:golden:mp": "node tests/golden/harness.mjs mp-check",
+    "test": "npm run test:battery && npm run test:golden && npm run test:golden:mp"
   },
   "dependencies": {
     "pg": "^8.13.1",

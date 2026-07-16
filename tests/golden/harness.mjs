@@ -19,11 +19,25 @@
  * every (scenario, seed) run gets its OWN child process — `node harness.mjs run
  * <scenario> <seed>`. Same-process reloads would share state and are invalid.
  *
+ * HOW (2-player `world` kind — rebuild P2/S2): a scenario with kind:'world'
+ * makes the worker seed + freeze exactly as above but then require
+ * server/world.js (which boots the game through the same loader), addPlayer
+ * A/B, script each hero's held keys/actions per tick (self-test style,
+ * world.js's own bottom block), and drive w.tick(). The hash root is still
+ * {state, maps} — the World's room fields (feed/_errAt/perf EMAs) live on
+ * `this`, off-state, and are deliberately outside the oracle. These baselines
+ * (oracle-mp.json) freeze the ORCHESTRATION machinery the P2 ladder rewrites;
+ * they are re-recorded consciously per slice, while oracle.json stays
+ * byte-untouched until S16.
+ *
  * Usage:
- *   node harness.mjs run <scenario> <seed> [--perturb speed|damage]   (worker)
- *   node harness.mjs record [--out oracle.json]                       (write oracle)
- *   node harness.mjs check  [--oracle oracle.json]                    (verify tree)
- *   node harness.mjs prove                                            (proofs a/b/c)
+ *   node harness.mjs run <scenario> <seed> [--perturb speed|damage|hunt]  (worker, both kinds)
+ *   node harness.mjs record [--out oracle.json]                       (write 1p oracle)
+ *   node harness.mjs check  [--oracle oracle.json]                    (verify tree, 1p)
+ *   node harness.mjs prove                                            (1p proofs a/b/c)
+ *   node harness.mjs mp-record [--out oracle-mp.json]                 (write 2p oracle)
+ *   node harness.mjs mp-check  [--oracle oracle-mp.json]              (verify tree, 2p)
+ *   node harness.mjs mp-prove                                         (2p proofs a/b/c)
  */
 'use strict';
 import { createRequire } from 'node:module';
@@ -33,12 +47,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { mulberry32, seedFrom } from './prng.mjs';
 import { hashState } from './serialize.mjs';
-import { SCENARIOS, SCENARIO_IDS } from './scenarios/index.mjs';
+import { SCENARIOS, SCENARIO_IDS, MP_SCENARIOS, MP_SCENARIO_IDS } from './scenarios/index.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HARNESS = fileURLToPath(import.meta.url);
 const LOAD_GAME = path.resolve(__dirname, '../../server-spike/load-game.js');
+const WORLD_JS = path.resolve(__dirname, '../../server/world.js');
 const ORACLE = path.resolve(__dirname, 'oracle.json');
+const ORACLE_MP = path.resolve(__dirname, 'oracle-mp.json');
 const RESULT_TAG = '__GOLDEN_RESULT__';
 
 // Canonical seeds recorded into the oracle. Two per scenario so seed-variance is
@@ -138,6 +154,22 @@ function applyPerturb(G, kind) {
   }
 }
 
+// World-rig negative controls (2p). Same seam rule as applyPerturb: mutate
+// SHARED STATE the game/World read live, never wrap a captured function.
+//   speed — scale hero A's speed ×1.01 (post-addPlayer, pre-setup): biases A's
+//           every movement frame -> positions -> enemy partition -> world.
+//           The spec's literal example, applied to ONE hero of two.
+//   hunt  — identical to the 1p control (GREAT_HUNTS table object, OUTSIDE the
+//           hash root): invisible until onNewDay→maybeRespawnHunts consumes it
+//           at the day boundary. mp-day-rollover's setup removes every Great
+//           Beast BEFORE tick 1, which also keeps the World's _rescaleThreats
+//           pass off the table — so a divergence can only be the boundary path.
+function applyWorldPerturb(G, players, kind) {
+  if (kind === 'speed') { players[0].speed *= 1.01; return; }
+  if (kind === 'hunt') { applyPerturb(G, 'hunt'); return; }
+  throw new Error('unknown world perturb: ' + kind);
+}
+
 // A tiny gameplay-meaningful summary, so proofs can show a perturbation
 // PROPAGATED into the simulation (different kills/level/gold), not merely that a
 // constant is hashed.
@@ -199,6 +231,79 @@ function runScenarioInProcess(scenarioId, seedRaw, opts = {}) {
   };
 }
 
+// Per-hero flavor of summarize() for the world rig (propagation must be
+// visible PER PLAYER: kills read each hero's own quest slice, not S.quests).
+function summarizeWorld(G, players) {
+  const S = G.state;
+  let ehp = 0; for (const e of S.enemies) ehp += (e.hp || 0);
+  return {
+    players: players.map((p) => ({
+      id: p.id, level: p.level, hp: Math.round(p.hp), gold: p.gold, xp: p.xp,
+      px: Math.round(p.x), py: Math.round(p.y),
+      kills: (p.quests && p.quests.slay && p.quests.slay.count) | 0, downed: !!p.downed,
+    })),
+    enemies: S.enemies.length, enemyHp: Math.round(ehp), scene: S.scene,
+    day: (typeof G.curDay === 'function') ? G.curDay() : null,
+    huntCycle: S.huntCycle | 0, beasts: S.enemies.filter((e) => e && e.isGreatBeast).length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WORKER (kind 'world', rebuild P2/S2): seed + freeze, then require
+// server/world.js — its module body loads the game headlessly AND runs
+// startGame() (worldgen draws from the seeded stream), so the pre-load
+// neutralization must come first, exactly like the 1p worker. The scenario
+// scripts p.held/p.actions (the self-test idiom); the World consumes them.
+// ---------------------------------------------------------------------------
+function runWorldScenarioInProcess(scenarioId, seedRaw, opts = {}) {
+  const scenario = MP_SCENARIOS[scenarioId];
+  if (!scenario) throw new Error('unknown world scenario: ' + scenarioId);
+  const seed = seedFrom(seedRaw);
+
+  // (0) pin HZ before world.js is evaluated: it sizes the downed/revive frame
+  // constants from process.env.HZ (default 80). An ambient HZ override would
+  // silently skew p.bleedSecs-class values and fork the oracle.
+  process.env.HZ = '80';
+
+  // (1) seed RNG and (2) freeze the clock — BEFORE any game/server code runs.
+  Math.random = mulberry32(seed);
+  installClock();
+
+  // (3) load the World (which loads the game through the same loader; the
+  // require cache makes G below the exact module instance world.js uses).
+  const require = createRequire(import.meta.url);
+  const { World } = require(WORLD_JS);
+  const G = require(LOAD_GAME);
+
+  // (4) boot the room and join the scripted party, in JOIN ORDER (the
+  // determinism contract: converted loops iterate state.players in this order).
+  const w = new World();
+  const players = scenario.players.map((d) => w.addPlayer(d.id, d.name));
+
+  // (5) optional negative-control perturbation (post-join, shared-state seam).
+  if (opts.perturb) applyWorldPerturb(G, players, opts.perturb);
+
+  // (6) drive the scenario through the World's own authoritative tick.
+  const ctx = { G, w, players };
+  if (scenario.setup) scenario.setup(ctx);
+  const N = scenario.ticks;
+  const hashes = [hashRoot(G)]; // sample at ticksRun = 0 (post-join initial)
+  for (let t = 0; t < N; t++) {
+    if (scenario.preTick) scenario.preTick(ctx, t);
+    w.tick();
+    if (scenario.postTick) scenario.postTick(ctx, t);
+    advanceClock();
+    if ((t + 1) % SAMPLE_EVERY === 0) hashes.push(hashRoot(G));
+  }
+
+  const distinct = new Set(hashes).size;
+  return {
+    scenario: scenarioId, seed, ticks: N, sampleEvery: SAMPLE_EVERY,
+    perturb: opts.perturb || null, hashes, distinct, summary: summarizeWorld(G, players),
+    finalScene: G.state.scene, missingCaptures: (G.__missingCaptures || []),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // ORCHESTRATOR helpers: spawn a fresh child per run, parse its tagged result.
 // ---------------------------------------------------------------------------
@@ -231,11 +336,11 @@ function firstDivergence(a, b) {
 // ---------------------------------------------------------------------------
 // COMMANDS
 // ---------------------------------------------------------------------------
-function cmdRecord(outPath) {
+function cmdRecord(outPath, ids = SCENARIO_IDS, reg = SCENARIOS, note = 'state-hash trajectories; see README.md') {
   // Provenance is the GAME VERSION the oracle was recorded from (not a wall-clock
   // stamp — that would make the file non-deterministic across identical re-records).
-  const oracle = { _meta: { game: gameVersion(), sampleEvery: SAMPLE_EVERY, ticks: SCENARIOS[SCENARIO_IDS[0]].ticks, seeds: { primary: SEED_PRIMARY, alt: SEED_ALT }, note: 'state-hash trajectories; see README.md' }, scenarios: {} };
-  for (const id of SCENARIO_IDS) {
+  const oracle = { _meta: { game: gameVersion(), sampleEvery: SAMPLE_EVERY, ticks: reg[ids[0]].ticks, seeds: { primary: SEED_PRIMARY, alt: SEED_ALT }, note }, scenarios: {} };
+  for (const id of ids) {
     oracle.scenarios[id] = {};
     for (const seed of [SEED_PRIMARY, SEED_ALT]) {
       const r = spawnRun(id, seed);
@@ -336,6 +441,73 @@ function cmdProve() {
   process.exit(allGood ? 0 : 1);
 }
 
+// 2-player (world-kind) acceptance proofs — rebuild P2/S2. Mirrors cmdProve:
+// (a) cross-process determinism, (b) sensitivity via the speed perturb on hero
+// A (the plan's named control) + the day-boundary 'hunt' control on the
+// rollover analogue (pins divergence to EXACTLY tick 700, the SP b2 pattern),
+// (c) seed variance. (b) is the "perturb-fails" gate: a baseline that a real
+// value change cannot move would be worse than none.
+function cmdMpProve() {
+  console.log('=== MP (2-PLAYER WORLD) GOLDEN PROOFS ===\n');
+  let allGood = true;
+
+  console.log('(a) DETERMINISM — two separate child processes, same seed, byte-identical streams:');
+  for (const id of MP_SCENARIO_IDS) {
+    const r1 = spawnRun(id, SEED_PRIMARY);
+    const r2 = spawnRun(id, SEED_PRIMARY);
+    const identical = r1.hashes.length === r2.hashes.length && r1.hashes.every((h, i) => h === r2.hashes[i]);
+    allGood = allGood && identical;
+    console.log(`    ${identical ? 'PASS' : 'FAIL'} ${id}: ${r1.hashes.length} samples, ${r1.distinct} distinct, procs ${r1._ms}ms/${r2._ms}ms ${identical ? '(identical)' : '(DIVERGED)'}`);
+    if (!identical) { const d = firstDivergence(r1.hashes, r2.hashes); console.log(`         first diff at tick ${d.tick}`); }
+  }
+
+  console.log('\n(b) SENSITIVITY — perturb hero A\'s speed ×1.01 post-join, expect fast divergence + per-hero propagation:');
+  for (const id of MP_SCENARIO_IDS) {
+    const clean = spawnRun(id, SEED_PRIMARY);
+    const dirty = spawnRun(id, SEED_PRIMARY, { perturb: 'speed' });
+    const div = firstDivergence(clean.hashes, dirty.hashes);
+    // A.speed is inside the hash root → sample 0 must already differ, and the
+    // bias must CASCADE (every later sample differs too — the change reaches
+    // positions, buckets, the world; it cannot re-converge).
+    const cascades = clean.hashes.every((h, i) => h !== dirty.hashes[i]);
+    const ok = !!div && div.tick <= 800 && cascades;
+    allGood = allGood && ok;
+    const cA = clean.summary.players[0], dA = dirty.summary.players[0];
+    const cB = clean.summary.players[1], dB = dirty.summary.players[1];
+    console.log(`    ${ok ? 'PASS' : 'FAIL'} ${id} +speed(A): first divergence tick ${div ? div.tick : 'NEVER'}, cascades=${cascades} (all ${clean.hashes.length} samples differ)`);
+    console.log(`         propagation → A clean{pos ${cA.px},${cA.py} xp ${cA.xp} kills ${cA.kills}} vs dirty{pos ${dA.px},${dA.py} xp ${dA.xp} kills ${dA.kills}}; B clean{pos ${cB.px},${cB.py}} vs dirty{pos ${dB.px},${dB.py}}`);
+  }
+  // (b2) boundary-path control on the rollover analogue: the GREAT_HUNTS table
+  // sits OUTSIDE the hash root and (with the beasts removed in setup) nothing
+  // reads it before onNewDay→maybeRespawnHunts at the day-1→2 crossing during
+  // tick 699 — so pre-boundary samples must be IDENTICAL and the first
+  // divergent sample must be EXACTLY tick 700.
+  {
+    const id = 'mp-day-rollover';
+    const clean = spawnRun(id, SEED_PRIMARY);
+    const dirty = spawnRun(id, SEED_PRIMARY, { perturb: 'hunt' });
+    const div = firstDivergence(clean.hashes, dirty.hashes);
+    const ok = !!div && div.tick === 700;
+    allGood = allGood && ok;
+    const c = clean.summary, d = dirty.summary;
+    console.log(`    ${ok ? 'PASS' : 'FAIL'} ${id} +hunt (table outside the hash root): first divergence tick ${div ? div.tick : 'NEVER'} (expected exactly 700; samples 0–6 pre-boundary ${div && div.tick >= 700 ? 'identical' : 'DIFFER — leak!'})`);
+    console.log(`         boundary did real work → day ${c.day}, huntCycle ${c.huntCycle}, ${c.beasts} beasts respawned; world enemyHp clean ${c.enemyHp} vs perturbed ${d.enemyHp}`);
+  }
+
+  console.log('\n(c) SEED VARIANCE — a different seed yields a different trajectory:');
+  for (const id of MP_SCENARIO_IDS) {
+    const a = spawnRun(id, SEED_PRIMARY);
+    const b = spawnRun(id, SEED_ALT);
+    const div = firstDivergence(a.hashes, b.hashes);
+    const ok = !!div;
+    allGood = allGood && ok;
+    console.log(`    ${ok ? 'PASS' : 'FAIL'} ${id}: seeds ${SEED_PRIMARY} vs ${SEED_ALT} ${div ? 'differ from tick ' + div.tick : 'IDENTICAL — seeding is not taking effect!'}`);
+  }
+
+  console.log('\n' + (allGood ? 'ALL MP PROOFS PASS ✅' : 'SOME MP PROOFS FAILED ❌'));
+  process.exit(allGood ? 0 : 1);
+}
+
 // The game file under test. ELDERMYR_GAME_FILE (absolute, or relative to the CWD —
 // the SAME semantics as server-spike/load-game.js's override) points the whole
 // harness at another artifact. Default (P1 wrap): the built dist/eldermyr.html,
@@ -366,7 +538,9 @@ function main() {
     const [scenarioId, seed] = rest;
     const pIdx = rest.indexOf('--perturb');
     const opts = pIdx >= 0 ? { perturb: rest[pIdx + 1] } : {};
-    const result = runScenarioInProcess(scenarioId, Number(seed), opts);
+    const result = MP_SCENARIOS[scenarioId]
+      ? runWorldScenarioInProcess(scenarioId, Number(seed), opts)   // kind 'world' (2p) — rebuild P2/S2
+      : runScenarioInProcess(scenarioId, Number(seed), opts);
     process.stdout.write(RESULT_TAG + JSON.stringify(result) + '\n');
     return;
   }
@@ -381,8 +555,21 @@ function main() {
     return;
   }
   if (cmd === 'prove') { cmdProve(); return; }
-  console.log('usage: node harness.mjs <run|record|check|prove> ...');
-  console.log('  scenarios:', SCENARIO_IDS.join(', '));
+  if (cmd === 'mp-record') {
+    const oIdx = rest.indexOf('--out');
+    cmdRecord(oIdx >= 0 ? path.resolve(rest[oIdx + 1]) : ORACLE_MP, MP_SCENARIO_IDS, MP_SCENARIOS,
+      '2-player world-kind state-hash trajectories (server/world.js tick); re-recorded consciously per P2 slice — see README.md');
+    return;
+  }
+  if (cmd === 'mp-check') {
+    const oIdx = rest.indexOf('--oracle');
+    cmdCheck(oIdx >= 0 ? path.resolve(rest[oIdx + 1]) : ORACLE_MP);   // cmdCheck iterates the oracle file's own keys — reused as-is
+    return;
+  }
+  if (cmd === 'mp-prove') { cmdMpProve(); return; }
+  console.log('usage: node harness.mjs <run|record|check|prove|mp-record|mp-check|mp-prove> ...');
+  console.log('  1p scenarios:', SCENARIO_IDS.join(', '));
+  console.log('  2p scenarios:', MP_SCENARIO_IDS.join(', '));
   process.exit(2);
 }
 

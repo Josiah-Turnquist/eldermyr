@@ -162,3 +162,19 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   layers); inert REMAP overlay scaffolding in golden serialize.mjs (identity-preserving,
   $ref-safe; unit-proven round-trip). Gates: battery 39/39, golden 8/8 on the UNCHANGED
   oracle, world self-test green, typecheck clean. Zero sim-behavior change.
+- 2026-07-16: P2/S2 DONE — `party()` canonized in the game (ONE definition beside
+  partyLvl/partyN in p22; p23's dawn-melt inline idiom now calls it; SP never sets
+  state.players → byte-identical, golden 8/8 on the untouched oracle) + the 2-PLAYER GOLDEN
+  RIG: harness scenario kind `world` (worker seeds+freezes, requires server/world.js,
+  addPlayer A/B, scripts p.held/p.actions self-test-style, w.tick()×3000, hashes
+  {state,maps} every 100 — room `this.*` fields excluded; HZ pinned 80), scenarios
+  mp-overworld-combat + mp-day-rollover (post-hunt reconstruction; crossings during ticks
+  699/2200), oracle-mp.json recorded (2 scenarios × 2 seeds — re-recorded CONSCIOUSLY per
+  P2 slice, unlike oracle.json which stays byte-untouched until S16). mp-prove: determinism
+  ✅, speed-perturb(A) diverges@0 + cascades all 31 samples ✅, hunt-perturb diverges
+  EXACTLY @700 (boundary path pinned) ✅, seed variance ✅; mp-check SEEN FAILING once
+  (doctored hash → exit 1 at the doctored sample) then restored green 4/4. `npm run
+  test:golden:mp` + CI step added. Gates: golden 1p 8/8 untouched oracle, mp-golden 4/4,
+  battery 39/39, world self-test green, typecheck clean. REMAP stays empty (S2 moves no
+  keys). Per-player iteration order = state.players JOIN ORDER — documented in party()/rig
+  comments as the determinism contract the baselines freeze.
