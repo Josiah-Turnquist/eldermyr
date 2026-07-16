@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Realms of Eldermyr</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #0a0a12; font-family: 'Courier New', monospace; overflow: hidden; color: #e8e0d0; user-select: none; }
+  #game-wrap { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  canvas { background: #1a1a26; display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; text-shadow: 1px 1px 0 #000; z-index: 10; width: 196px; background: rgba(10,12,20,0.62); border: 1px solid #4a4636; border-radius: 8px; padding: 8px 10px; }
+  .bar-wrap { margin-bottom: 3px; }
+  .bar-label { font-size: 9px; margin-bottom: 1px; letter-spacing: 1px; color: #9aa2b4; }
+  .bar-bg { width: 176px; height: 9px; background: #20202c; border: 1px solid #000; border-radius: 5px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; transition: width 0.2s; }
+  #hud .barrow { display: flex; gap: 8px; }
+  #hud .barrow .bar-wrap { flex: 1; }
+  #hud .barrow .bar-bg { width: 100%; }
+  #hp-fill { background: linear-gradient(#e85050, #a02020); }
+  #xp-fill { background: linear-gradient(#50c8e8, #2060a0); }
+  #en-fill { background: linear-gradient(#90e060, #40a020); }
+  #st-fill { background: linear-gradient(#f0d878, #c0982a); }
+  .bar-text { position: absolute; top: 0; left: 0; right: 0; font-size: 8px; text-align: center; line-height: 9px; color: #fff; text-shadow: 1px 1px 0 #000; letter-spacing: 0; }
+  #stats-line { font-size: 12px; margin-top: 6px; letter-spacing: 0.5px; }
+  #weap-line { font-size: 10px; margin-top: 2px; color: #c8d0e0; }
+  #gold-line { font-size: 11px; margin-top: 2px; color: #f0d050; }
+  #skill-line { font-size: 11px; margin-top: 3px; color: #90ff90; font-weight: bold; }
+  #loc-line { font-size: 10px; margin-top: 3px; color: #97a0b4; }
+  #audio-ind { font-size: 11px; margin-top: 3px; color: #6c84a0; letter-spacing: 1px; }
+  #world-line { font-size: 10.5px; margin-top: 5px; padding-top: 4px; border-top: 1px solid #3a3628; line-height: 1.5; }
+  #combat-hud { position: absolute; left: 50%; bottom: 42px; transform: translateX(-50%); z-index: 35; display: none; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; font-size: 11px; }
+  #combat-hud .ch-row { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; max-width: 60vw; }
+  #combat-hud .ch-st, #combat-hud .ch-ab { background: rgba(10,12,20,0.72); border: 1px solid #3a3a4a; border-radius: 9px; padding: 2px 8px; white-space: nowrap; text-shadow: 1px 1px 0 #000; }
+  #combat-hud .ch-ab b { letter-spacing: 0.5px; }
+  @keyframes heatPulse { 0%,100%{ opacity:1; } 50%{ opacity:0.32; } }   /* Heat pill: live-aura state-tag pulse (SEARING / FROZEN AURA / …) */
+  #region-banner { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); z-index: 26; pointer-events: none; text-align: center; opacity: 0; transition: opacity 0.8s; color: #f0e6c8; text-shadow: 0 2px 8px #000, 0 0 26px rgba(0,0,0,0.65); white-space: nowrap; }
+  #region-banner .rb-t { font-size: 25px; letter-spacing: 5px; }
+  #region-banner .rb-s { font-size: 11.5px; letter-spacing: 2px; color: #cfc6aa; margin-top: 5px; }
+  #log { position: absolute; bottom: 12px; left: 12px; width: 300px; max-height: 122px; background: rgba(10,10,18,0.42); border: 1px solid #3a3a48; border-radius: 6px; padding: 6px 9px; font-size: 11px; line-height: 1.45; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; z-index: 10; text-shadow: 1px 1px 0 #000; }
+  #log .msg { opacity: 0.42; } #log .msg:nth-last-child(2) { opacity: 0.7; } #log .msg:last-child { opacity: 1; color: #fff; }
+  #log .combat { color: #ff9090; } #log .good { color: #90ff90; } #log .quest { color: #f0d050; } #log .lore { color: #b0a0ff; }
+  #controls { position: absolute; bottom: 172px; right: 12px; font-size: 11px; text-align: right; color: #8a90a0; z-index: 11; line-height: 1.7; text-shadow: 1px 1px 0 #000; background: rgba(10,12,20,0.82); border: 1px solid #4a4636; border-radius: 8px; padding: 8px 12px; display: none; }
+  #controls b { color: #e0d8b0; }
+  #hint { position: absolute; bottom: 12px; right: 12px; font-size: 11px; text-align: right; color: #8a90a0; z-index: 10; text-shadow: 1px 1px 0 #000; pointer-events: none; }
+  #hint b { color: #e0d8b0; }
+  #minimap { position: absolute; bottom: 34px; right: 12px; z-index: 11; border: 2px solid #6a6248; border-radius: 6px; background: #10131c; image-rendering: pixelated; cursor: pointer; display: none; }
+  #fullmap { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #14141e; border: 3px solid #5a5040; border-radius: 6px; padding: 16px; z-index: 30; display: none; box-shadow: 0 0 40px rgba(0,0,0,0.9); }
+  #hubtabs { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 33; display: none; gap: 3px; background: rgba(12,12,20,0.94); border: 1px solid #5a5040; border-radius: 9px; padding: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+  #hubtabs button { background: transparent; border: none; color: #8088a0; font-family: inherit; padding: 5px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.1; }
+  #hubtabs button .ic { font-size: 15px; } #hubtabs button .lb { font-size: 9px; letter-spacing: 0.5px; }
+  #hubtabs button.on { background: #24242f; color: #f0e0a0; }
+  #hubtabs button:hover { color: #d4d4e4; }
+  #quest-box { position: absolute; top: 12px; right: 12px; width: 220px; background: rgba(10,10,18,0.85); border: 2px solid #5a5020; border-radius: 4px; padding: 8px 10px; font-size: 11px; z-index: 10; text-shadow: 1px 1px 0 #000; }
+  #quest-box h3 { font-size: 12px; color: #f0d050; margin-bottom: 4px; letter-spacing: 1px; }
+  #quest-box .q-item { margin-bottom: 3px; line-height: 1.3; color: #d0d0c0; }
+  #quest-box .q-done { color: #70a070; text-decoration: line-through; }
+  #menu-scrim { position: absolute; inset: 0; z-index: 29; display: none; background: rgba(6,6,10,0.72); pointer-events: none; }   /* dim backdrop behind open menu panels (z-30) — matches the MP client's .mp-modal wash; SP+MP both toggle it via updateCombatHud */
+  #inventory, #skills, #shop, #smith, #travel, #factions, #legion, #hunts, #trophy, #cook, #companions { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 480px; max-height: 88vh; overflow-y: auto; background: #14141e; border: 2px solid #5a5040; border-radius: 11px; padding: 18px 20px; z-index: 30; display: none; box-shadow: 0 8px 44px rgba(0,0,0,0.92); }
+  /* HUB panels (these show the #hubtabs bar) anchor just BELOW it so the bar + panel read as one stacked modal — no overlap at any height. Standalone panels (#shop/#smith/#travel/#companions) have no bar → stay centered above. */
+  #inventory, #skills, #factions, #legion, #hunts, #trophy, #cook { top: 62px; transform: translateX(-50%); max-height: calc(100vh - 74px); }
+  #inventory::-webkit-scrollbar, #skills::-webkit-scrollbar, #shop::-webkit-scrollbar, #smith::-webkit-scrollbar, #travel::-webkit-scrollbar, #factions::-webkit-scrollbar, #legion::-webkit-scrollbar, #hunts::-webkit-scrollbar, #trophy::-webkit-scrollbar, #cook::-webkit-scrollbar { width: 8px; }
+  #inventory::-webkit-scrollbar-thumb, #skills::-webkit-scrollbar-thumb, #shop::-webkit-scrollbar-thumb, #smith::-webkit-scrollbar-thumb, #travel::-webkit-scrollbar-thumb, #factions::-webkit-scrollbar-thumb, #legion::-webkit-scrollbar-thumb, #hunts::-webkit-scrollbar-thumb, #trophy::-webkit-scrollbar-thumb, #cook::-webkit-scrollbar-thumb { background: #3a3a48; border-radius: 4px; }
+  #inventory h2, #skills h2, #shop h2, #smith h2, #travel h2, #factions h2, #legion h2, #hunts h2, #trophy h2, #cook h2, #companions h2, #fullmap h2 { text-align: center; color: #f0d050; margin-bottom: 10px; letter-spacing: 1.5px; font-size: 17px; }
+  .inv-section { margin-bottom: 14px; }
+  .inv-section h4 { font-size: 12px; color: #a0a0b0; margin-bottom: 6px; letter-spacing: 1px; border-bottom: 1px solid #2e2e3c; padding-bottom: 4px; }
+  .inv-grid { display: flex; flex-direction: column; gap: 5px; }
+  .inv-item { background: #20202e; border: 1px solid #3a3a4a; padding: 7px 10px; font-size: 12px; cursor: pointer; border-radius: 7px; transition: all 0.1s; line-height: 1.4; }
+  .inv-item:hover { border-color: #f0d050; background: #2a2a3a; }
+  .inv-item.equipped { border-color: #50c8e8; box-shadow: inset 0 0 0 1px rgba(80,200,232,0.4); }
+  .inv-item.locked { opacity: 0.55; }
+  .inv-empty { color: #555; font-size: 12px; font-style: italic; }
+  #inv-close, #sk-close, #shop-close, #smith-close { text-align: center; margin-top: 8px; font-size: 11px; color: #707080; }
+  #sp-banner, #shop-gold, #smith-gold { text-align: center; font-size: 13px; margin-bottom: 12px; color: #90ff90; letter-spacing: 1px; }
+  #shop-gold, #smith-gold { color: #f0d050; } #sp-banner b { color: #f0ff80; font-size: 16px; } #shop-gold b, #smith-gold b { color: #fff; }
+  h4.sk-head { font-size: 12px; color: #a0a0b0; margin: 10px 0 6px; letter-spacing: 1px; border-bottom: 1px solid #2e2e3c; padding-bottom: 4px; }
+  .skill-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #1c1c28; border: 1px solid #2e2e3c; border-radius: 8px; padding: 8px 11px; margin-bottom: 6px; transition: background 0.1s, border-color 0.1s; }
+  .skill-row:hover { background: #232331; border-color: #44445a; }
+  .skill-row b { color: #e8e0d0; font-size: 13px; }
+  .sk-desc { color: #8088a0; font-size: 11px; }
+  .sk-val { color: #60c0e0; font-size: 11px; }
+  .sk-btn { background: #2a3a2a; border: 1px solid #60a060; color: #90ff90; font-family: inherit; font-size: 12px; padding: 6px 13px; cursor: pointer; border-radius: 6px; white-space: nowrap; transition: all 0.1s; }
+  .sk-btn:hover:not(:disabled) { background: #60a060; color: #14141e; }
+  .sk-btn:disabled { border-color: #444; color: #555; background: #1a1a22; cursor: default; }
+  .buy-btn { border-color: #c0a030; color: #f0d050; background: #34301a; }
+  .buy-btn:hover:not(:disabled) { background: #f0d050; color: #14141e; }
+  .sell-btn { border-color: #4090c0; color: #70c0f0; background: #1a2834; }
+  .sell-btn:hover:not(:disabled) { background: #70c0f0; color: #14141e; }
+  .fix-btn { border-color: #c08040; color: #f0b070; background: #34281a; }
+  .fix-btn:hover:not(:disabled) { background: #f0b070; color: #14141e; }
+  .tag-melee { color: #ff9060; } .tag-ranged { color: #90e060; } .tag-magic { color: #b070ff; }
+  .prof-bar { display:flex; align-items:center; gap:8px; background:#1c1c28; border:1px solid #333; border-radius:4px; padding:6px 9px; margin-bottom:5px; font-size:12px; }
+  .prof-bar .pbtrack { flex:1; height:8px; background:#2a2a38; border-radius:3px; overflow:hidden; }
+  .prof-bar .pbfill { height:100%; }
+  #dialogue { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 520px; background: #14141e; border: 3px solid #5a5040; border-radius: 6px; padding: 16px 20px; z-index: 25; display: none; box-shadow: 0 0 40px rgba(0,0,0,0.9); }
+  #dialogue .speaker { color: #f0d050; font-size: 14px; margin-bottom: 6px; letter-spacing: 1px; }
+  #dialogue .dtext { font-size: 14px; line-height: 1.6; margin-bottom: 10px; min-height: 44px; }
+  #dialogue .dhint { font-size: 11px; color: #707080; text-align: right; }
+  #overlay { position: absolute; inset: 0; background: radial-gradient(circle at center, #1a1a2e 0%, #06060c 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; text-align: center; }
+  #overlay h1 { font-size: 46px; color: #f0d050; letter-spacing: 4px; text-shadow: 3px 3px 0 #000, 0 0 30px rgba(240,208,80,0.4); margin-bottom: 8px; }
+  #overlay .subtitle { font-size: 15px; color: #a0a0c0; margin-bottom: 26px; letter-spacing: 2px; }
+  #overlay .start-btn { background: #2a2a3e; border: 3px solid #f0d050; color: #f0d050; padding: 13px 34px; font-size: 17px; font-family: inherit; cursor: pointer; letter-spacing: 2px; border-radius: 4px; transition: all 0.15s; margin: 5px; }
+  #overlay .start-btn:hover { background: #f0d050; color: #14141e; transform: scale(1.05); }
+  #overlay .continue-btn { border-color: #90ff90; color: #90ff90; }
+  #overlay .continue-btn:hover { background: #90ff90; color: #14141e; }
+  #overlay .intro-text { max-width: 490px; font-size: 13px; color: #9090a0; line-height: 1.7; margin-bottom: 22px; padding: 0 20px; }
+  #overlay .ctrl-hint { font-size: 12px; color: #606070; margin-top: 16px; line-height: 1.8; }
+  #overlay .ctrl-hint b { color: #a0a0b0; }
+  .death-screen h1 { color: #e85050 !important; text-shadow: 3px 3px 0 #000, 0 0 30px rgba(232,80,80,0.4) !important; }
+  .float-dmg { position: absolute; font-size: 16px; font-weight: bold; pointer-events: none; z-index: 20; text-shadow: 1px 1px 0 #000; animation: floatUp 0.8s ease-out forwards; }
+  @keyframes floatUp { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-30px); } }
+  #saved-toast { position:absolute; top:10px; left:50%; transform:translateX(-50%); background:rgba(20,30,20,0.9); border:1px solid #60a060; color:#90ff90; font-size:11px; padding:4px 12px; border-radius:4px; z-index:40; opacity:0; transition:opacity 0.3s; pointer-events:none; }
+  #version-tag { position:absolute; bottom:3px; left:50%; transform:translateX(-50%); font-size:11px; color:#8a8a9a; opacity:0.8; z-index:60; pointer-events:none; text-shadow:1px 1px 0 #000; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="game" width="640" height="480"></canvas>
+  <div id="hud">
+    <div class="bar-wrap"><div class="bar-label">HEALTH ♥</div><div class="bar-bg"><div class="bar-fill" id="hp-fill"></div><div class="bar-text" id="hp-text"></div></div></div>
+    <div class="bar-wrap"><div class="bar-label">XP</div><div class="bar-bg" style="height:6px"><div class="bar-fill" id="xp-fill"></div><div class="bar-text" id="xp-text" style="display:none"></div></div></div>
+    <div class="barrow">
+      <div class="bar-wrap"><div class="bar-label">ENERGY</div><div class="bar-bg"><div class="bar-fill" id="en-fill"></div><div class="bar-text" id="en-text"></div></div></div>
+      <div class="bar-wrap"><div class="bar-label">STAMINA</div><div class="bar-bg"><div class="bar-fill" id="st-fill"></div><div class="bar-text" id="st-text"></div></div></div>
+    </div>
+    <div id="stats-line"></div><div id="weap-line"></div><div id="gold-line"></div><div id="skill-line"></div><div id="loc-line"></div><div id="world-line"></div><div id="audio-ind"></div>
+  </div>
+  <div id="quest-box"><h3>◆ QUESTS</h3><div id="quest-list"></div></div>
+  <div id="log"></div>
+  <div id="saved-toast">✓ Game saved</div>
+  <div id="version-tag"></div>
+  <button id="newgame-btn" onclick="confirmNewGame()" style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:41;background:rgba(20,20,30,0.85);border:1px solid #5a5040;color:#9098a8;font-family:inherit;font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;">⟳ New Game</button>
+  <div id="controls">
+    <div style="color:#f0e0a0;margin-bottom:4px;font-size:12px;">CONTROLS</div>
+    <b>WASD / Arrows</b> Move &nbsp; <b>Shift / L</b> Dodge-roll<br>
+    <b>Space / J</b> Attack &nbsp; <b>Q</b> Whirlwind &nbsp; <b>Z</b> Ultimate &nbsp; <b>X</b> Summon<br>
+    <b>R</b> Heal &nbsp; <b>F</b> Cast &nbsp; <b>E</b> Interact &nbsp; <b>1</b> Potion &nbsp; <b>C</b> Camp<br>
+    <b>T</b> Travel &nbsp; <b>G</b> Dragon &nbsp; <b>B</b> Sail &nbsp; <b>O</b> Guide &nbsp; <b>M</b> Mute<br>
+    <b>I</b> Inventory &nbsp; <b>K</b> Skills &nbsp; <b>H</b> Hide
+  </div>
+  <div id="combat-hud"></div>
+  <div id="region-banner"></div>
+  <div id="hint"><b>Tab</b> menu &nbsp; <b>H</b> controls &nbsp; <b>E</b> interact</div>
+  <canvas id="minimap" width="150" height="120" title="Click to expand the map"></canvas>
+  <div id="menu-scrim"></div>
+  <div id="fullmap">
+    <h2 style="color:#f0e0a0">🗺 THE REALM OF ELDERMYR 🗺</h2>
+    <canvas id="fullmap-canvas" width="500" height="400" style="display:block;margin:6px auto;border:2px solid #6a6248;border-radius:6px;background:#10131c;image-rendering:pixelated;"></canvas>
+    <div id="fullmap-legend" style="font-size:11px;color:#cfd6e6;text-align:center;line-height:1.8;margin-top:6px;"></div>
+    <div style="margin-top:8px;color:#8088a0;font-size:11px;text-align:center">Click the minimap anytime · Press [ESC] to close</div>
+  </div>
+  <div id="hubtabs"></div>
+  <div id="inventory">
+    <h2>⚔ INVENTORY ⚔</h2>
+    <div id="inv-controls" style="display:flex;justify-content:space-between;align-items:center;margin:0 6px 8px;font-size:11px;color:#8088a0;">
+      <span><span style="color:#90ff90">▲</span> upgrade&nbsp; <span style="color:#e07070">▼</span> worse&nbsp;<span style="color:#8a8a9a">(vs equipped)</span></span>
+      <span style="color:#8a8a9a">🧹 sell junk at any merchant</span>
+    </div>
+    <div class="inv-section"><h4>WEAPONS — click to equip (sets your style)</h4><div class="inv-grid" id="inv-weapons"></div></div>
+    <div class="inv-section"><h4>ARMOR</h4><div class="inv-grid" id="inv-armor"></div></div>
+    <div class="inv-section"><h4>ITEMS</h4><div class="inv-grid" id="inv-items"></div></div>
+    <div id="inv-close">Press [I] or [ESC] to close</div>
+  </div>
+  <div id="skills">
+    <h2>✦ SKILLS ✦</h2>
+    <div id="sp-banner">Skill Points: <b id="sp-count">0</b></div>
+    <h4 class="sk-head">COMBAT PROFICIENCIES (train by fighting)</h4><div id="prof-list"></div>
+    <h4 class="sk-head">PASSIVE UPGRADES</h4><div id="skill-list-passive"></div>
+    <h4 class="sk-head">ACTIVE ABILITIES</h4><div id="skill-list-active"></div>
+    <div id="sk-close">Earn points by leveling up • Press [K] or [ESC] to close</div>
+  </div>
+  <div id="travel">
+    <h2>🗺 FAST TRAVEL 🗺</h2>
+    <div id="travel-sub" style="color:#9fb0d0;font-size:12px;margin-bottom:10px">Choose a town you've discovered. The road is swift — but a day passes.</div>
+    <div id="travel-list"></div>
+    <div id="travel-close" style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Press [T] or [ESC] to close</div>
+  </div>
+  <div id="cook">
+    <h2 style="color:#e08850">🍲 THE HEARTH 🍲</h2>
+    <div id="cook-ingredients" style="color:#9fb0d0;font-size:12px;margin-bottom:10px"></div>
+    <div id="cook-list"></div>
+    <div style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Forage in the wilds & fish at the water [E]. Press [ESC] to close</div>
+  </div>
+  <div id="hunts">
+    <h2 style="color:#7ad0a0">⊹ THE GREAT HUNTS ⊹</h2>
+    <div style="color:#9fb0d0;font-size:12px;margin-bottom:12px">Legendary beasts roam the realm's edges. Track them to their lairs and claim trophies of legend.</div>
+    <div id="hunts-list"></div>
+    <div style="margin-top:10px;text-align:center"><button id="trophy-btn" onclick="openTrophy()" style="background:#2a2436;border:1px solid #5a4a6c;color:#d8c0f0;font-family:inherit;font-size:12px;padding:5px 14px;border-radius:6px;cursor:pointer;">🏆 View the Trophy Wall</button></div>
+    <div style="margin-top:10px;color:#8088a0;font-size:11px;text-align:center">Press [ESC] to close</div>
+  </div>
+  <div id="trophy">
+    <h2 style="color:#c8b0f0">🏆 THE TROPHY WALL 🏆</h2>
+    <div style="color:#9fb0d0;font-size:12px;margin-bottom:12px">Apex terrors brood at the world's edges. Fell them to claim their chase-relics — each one greyed until it is yours.</div>
+    <div id="trophy-list"></div>
+    <div style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Press [ESC] to close</div>
+  </div>
+  <div id="legion">
+    <h2 style="color:#e05050">☠ THE DREAD LEGION ☠</h2>
+    <div style="color:#9fb0d0;font-size:12px;margin-bottom:12px">The warlords who hunt you. Wound them to learn their strengths; expose their weaknesses to exploit them. They remember every encounter.</div>
+    <div id="legion-list"></div>
+    <div style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Press [ESC] to close</div>
+  </div>
+  <div id="companions">
+    <h2 style="color:#90c0ff">⚔ YOUR WARBAND ⚔</h2>
+    <div style="color:#9fb0d0;font-size:12px;margin-bottom:12px">Companions who fight at your side, grow with you, and recover when you rest. Recruit a balanced band — a Knight to hold the line, a Ranger and Mage to strike from afar.</div>
+    <div id="comp-roster"></div>
+    <div id="comp-recruit" style="margin-top:14px"></div>
+    <div style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Press [ESC] to close</div>
+  </div>
+  <div id="factions">
+    <h2>⚜ STANDING ⚜</h2>
+    <div style="color:#9fb0d0;font-size:12px;margin-bottom:12px">Your deeds shift how the three powers of Eldermyr regard you.</div>
+    <div id="factions-list"></div>
+    <div style="margin-top:12px;color:#8088a0;font-size:11px;text-align:center">Press [ESC] to close</div>
+  </div>
+  <div id="shop">
+    <h2 id="shop-title">🛒 SHOP 🛒</h2>
+    <div id="shop-gold">Your Gold: <b id="shop-gold-amt">0</b></div>
+    <h4 class="sk-head">CONSUMABLES & SERVICES</h4><div id="shop-list-svc"></div>
+    <h4 class="sk-head">WEAPONS — train melee, ranged, or magic</h4><div id="shop-list-weap"></div>
+    <h4 class="sk-head">ARMOR</h4><div id="shop-list-armor"></div>
+    <h4 class="sk-head" id="shop-trade-head">TRADE GOODS — buy low, sell high</h4><div id="shop-list-trade"></div>
+    <h4 class="sk-head" style="display:flex;justify-content:space-between;align-items:center;">SELL YOUR GEAR <button id="sell-junk-btn" onclick="sellAllJunk()" style="background:#2a2a38;border:1px solid #46465c;color:#e0c68a;font-family:inherit;font-size:11px;padding:3px 11px;border-radius:6px;cursor:pointer;">🧹 Sell all junk</button></h4><div id="shop-list-sell"></div>
+    <div id="shop-close">Press [E] or [ESC] to leave</div>
+  </div>
+  <div id="smith">
+    <h2>🔨 BLACKSMITH 🔨</h2>
+    <div id="smith-gold">Your Gold: <b id="smith-gold-amt">0</b></div>
+    <div id="smith-list"></div>
+    <div id="smith-close">Press [E] or [ESC] to leave</div>
+  </div>
+  <div id="dialogue">
+    <div class="speaker" id="d-speaker"></div>
+    <div class="dtext" id="d-text"></div>
+    <div class="dhint" id="d-hint">Press [E] or [Space] to continue</div>
+  </div>
+  <div id="overlay">
+    <h1>REALMS OF ELDERMYR</h1>
+    <div class="subtitle">~ An Open-World Adventure ~</div>
+    <div class="intro-text">
+      The kingdom of Eldermyr lies under shadow. The dark lord <b style="color:#c080ff">Morthrax</b>
+      festers in the endless Sunken Dungeon. Train as a <b style="color:#ff9060">warrior</b>,
+      <b style="color:#90e060">archer</b>, or <b style="color:#b070ff">mage</b> — your weapon and skill
+      decide your strength. This is a harsh land: hunt rare treasures, keep your gear mended, and descend.
+    </div>
+    <div>
+      <button class="start-btn continue-btn" id="continue-btn" style="display:none">CONTINUE</button>
+      <button class="start-btn" id="start-btn">NEW GAME</button>
+    </div>
+    <div id="legacy-line" style="font-size:12px;color:#a89060;margin-top:12px;letter-spacing:1px;"></div>
+    <div class="ctrl-hint">
+      <b>WASD</b> move &nbsp;•&nbsp; <b>Space/J</b> attack &nbsp;•&nbsp; <b>Q</b> whirlwind &nbsp;•&nbsp; <b>R</b> heal &nbsp;•&nbsp; <b>F</b> cast<br>
+      <b>E</b> talk/shop/smith/interact &nbsp;•&nbsp; <b>I</b> inventory &nbsp;•&nbsp; <b>K</b> skills (towns only) &nbsp;•&nbsp; <b>1</b> potion &nbsp;•&nbsp; <b>M</b> mute
+    </div>
+  </div>
+</div>
+
+<script>

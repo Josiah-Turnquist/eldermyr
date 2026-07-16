@@ -145,7 +145,11 @@ const CAPTURE = [
 function loadGame() {
   if (global.__game) return global.__game;
   installBrowserStubs();
-  const htmlPath = path.join(__dirname, '..', 'eldermyr-rpg.html');
+  // ELDERMYR_GAME_FILE lets the test rigs point at a rebuilt artifact (dist/eldermyr.html)
+  // while everything else keeps loading the canonical file.
+  const htmlPath = process.env.ELDERMYR_GAME_FILE
+    ? path.resolve(process.env.ELDERMYR_GAME_FILE)
+    : path.join(__dirname, '..', 'eldermyr-rpg.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
   const a = html.indexOf('<script>'); const b = html.indexOf('</script>', a);
   if (a < 0 || b < 0) throw new Error('Could not locate <script> block in eldermyr-rpg.html');
