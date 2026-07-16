@@ -489,7 +489,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else if (m.type === 'shopData') {                  // server sent this hero's shop stock → open the panel
         const d = m.data; if (!d) return;
         G.state.activeStock = d.stock; G.state.activeShopName = d.name; G.state.activeShopTown = d.town;
-        G.state.shopPurchased = d.purchased || [];
+        if (G.state.player) G.state.player.shopPurchased = d.purchased || [];   // P2/S7: player-carried — pre-seed the open so 'Owned' greys instantly (the next snapshot's `me` re-syncs it anyway)
         G.state.scene = 'shop';
         const el = document.getElementById('shop'); if (el) el.style.display = 'block';
         try { window.renderShop && window.renderShop(); } catch (_e) {}
@@ -563,8 +563,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   window.buyGood = (k) => actions.push({ rpc: 'buyGood', args: [k] });
   window.sellGood = (k) => actions.push({ rpc: 'sellGood', args: [k] });
   window.sellIngredient = (k) => actions.push({ rpc: 'sellIngredient', args: [k] });
-  window.buyWeapon = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyWeapon', args: [it.id] }); };
-  window.buyArmor = (it) => { if (!it) return; if (G.state.shopPurchased && !G.state.shopPurchased.includes(it.id)) G.state.shopPurchased.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
+  window.buyWeapon = (it) => { if (!it) return; const sp = G.state.player && G.state.player.shopPurchased; if (sp && !sp.includes(it.id)) sp.push(it.id); actions.push({ rpc: 'buyWeapon', args: [it.id] }); };   // P2/S7: optimistic grey-out on the PLAYER's list (renderShop reads state.player.shopPurchased)
+  window.buyArmor = (it) => { if (!it) return; const sp = G.state.player && G.state.player.shopPurchased; if (sp && !sp.includes(it.id)) sp.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
   // Resolve an item to its index in the CURRENT inventory. The snapshot REPLACES the inventory
   // arrays every frame, so a button captured at render time holds a stale object that === nothing
   // in the live array (arr.indexOf → -1) — that's why selling & repair silently did nothing.
@@ -972,9 +972,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     S.player.x = pred.x; S.player.y = pred.y;
     S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
     if (snap.me.inventory) S.inventory = snap.me.inventory;
-    if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
+    // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a
+    //  ghost the panels could read stale, risk #7.)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;
-    if (snap.me.lastRestDay != null) S.lastRestDay = snap.me.lastRestDay;   // per-player fatigue → correct Exhausted state/penalty
     if (snap.me.maxDepth != null) S.maxDepth = snap.me.maxDepth;   // per-player deepest depth: a state.X field riding `me`, so NOT auto-applied (the tonics/sailing/floorMod lesson). The quest BOX still repaints off the gated snap.maxDepth in adoptQuests — this keeps state.maxDepth itself honest between quest changes. (quests/bounty do NOT ride `me`: too big at 66 Hz, so they are gated-only — see safeClone's skip-list.)
     if (snap.me.sailing != null) S.sailing = !!snap.me.sailing;   // per-player boat: drawPlayer reads state.sailing (NOT player.sailing) for the hull + bob
     if (snap.me.dragon) { if (S.dragon) Object.assign(S.dragon, snap.me.dragon); else S.dragon = snap.me.dragon; }   // per-player mount: merge so draw/HUD keep every dragon field they read
@@ -1010,7 +1011,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       const sig = (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;
       if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
     } else if (G.state.scene === 'shop') {
-      const sig = 'shop|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + ((G.state.shopPurchased || []).length);
+      const sig = 'shop|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + (((G.state.player && G.state.player.shopPurchased) || []).length);
       if (sig !== panelSig) { panelSig = sig; try { window.renderShop && window.renderShop(); } catch (_e) {} }
     } else if (G.state.scene === 'smith') {
       const sig = 'smith|' + snap.me.gold + '|' + (snap.me.inventory ? JSON.stringify(snap.me.inventory) : '');

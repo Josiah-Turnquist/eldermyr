@@ -397,7 +397,7 @@ function doTravel(i) {
   state.camera.x = p.x - __g.VIEW_W / 2;
   state.camera.y = p.y - __g.VIEW_H / 2;
   state.time += Math.floor(DAY_FRAMES * 0.32);
-  state.lastRestDay = curDay();
+  state.player.lastRestDay = curDay();
   __g._wasExhausted = isExhausted();
   markTownVisited();
   recalcStats();
@@ -459,7 +459,7 @@ function buyGood(good) {
     return;
   }
   state.player.gold -= c;
-  state.cargo[good] = (state.cargo[good] || 0) + 1;
+  state.player.cargo[good] = (state.player.cargo[good] || 0) + 1;
   Sound.click && Sound.click();
   updateHUD();
   renderShop();
@@ -467,9 +467,9 @@ function buyGood(good) {
 }
 function sellGood(good) {
   const i = state.activeShopTown;
-  if ((state.cargo[good] || 0) <= 0) return;
+  if ((state.player.cargo[good] || 0) <= 0) return;
   state.player.gold += goodSellPrice(i, good);
-  state.cargo[good]--;
+  state.player.cargo[good]--;
   Sound.gold && Sound.gold();
   updateHUD();
   renderShop();
@@ -526,7 +526,7 @@ function renderShop() {
   const wEl = document.getElementById('shop-list-weap');
   wEl.innerHTML = '';
   (state.activeStock ? state.activeStock.weapons : []).forEach((it) => {
-    const owned = state.shopPurchased.includes(it.id);
+    const owned = state.player.shopPurchased.includes(it.id);
     wEl.appendChild(
       shopRow(
         `${itemGlyph(it, 'weapon')}<span style="color:${rarityColor(it.rarity)}">${it.name}</span>`,
@@ -541,7 +541,7 @@ function renderShop() {
   const aEl = document.getElementById('shop-list-armor');
   aEl.innerHTML = '';
   (state.activeStock ? state.activeStock.armor : []).forEach((it) => {
-    const owned = state.shopPurchased.includes(it.id);
+    const owned = state.player.shopPurchased.includes(it.id);
     aEl.appendChild(
       shopRow(
         `${itemGlyph(it, 'armor')}<span style="color:${rarityColor(it.rarity)}">${it.name}</span>`,
@@ -565,7 +565,7 @@ function renderShop() {
       const g = TRADE_GOODS[k];
       const bp = goodBuyPrice(i, k),
         sp = goodSellPrice(i, k);
-      const have = state.cargo[k] || 0;
+      const have = state.player.cargo[k] || 0;
       const r = document.createElement('div');
       r.className = 'skill-row';
       r.innerHTML = `<div><b>${g.icon} ${g.name}</b> <span class="sk-desc">in your hold: ${have}</span><br><span class="sk-val" style="color:#f0d050">Buy ${bp}g · Sell ${sp}g</span></div>`;

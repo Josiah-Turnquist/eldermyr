@@ -20,9 +20,9 @@ function buyTonic() {
 function buyWeapon(it) {
   const p = state.player;
   const cost = buyPrice(it.cost);
-  if (p.gold < cost || state.shopPurchased.includes(it.id)) return;
+  if (p.gold < cost || p.shopPurchased.includes(it.id)) return;
   p.gold -= cost;
-  state.shopPurchased.push(it.id);
+  p.shopPurchased.push(it.id); // per-hero (P2/S7): your purchase greys the item for YOU, not the room
   const R = RARITIES[it.rarity];
   const w = {
     name: it.name,
@@ -46,9 +46,9 @@ function buyWeapon(it) {
 function buyArmor(it) {
   const p = state.player;
   const cost = buyPrice(it.cost);
-  if (p.gold < cost || state.shopPurchased.includes(it.id)) return;
+  if (p.gold < cost || p.shopPurchased.includes(it.id)) return;
   p.gold -= cost;
-  state.shopPurchased.push(it.id);
+  p.shopPurchased.push(it.id);
   const R = RARITIES[it.rarity];
   const a = {
     name: it.name,

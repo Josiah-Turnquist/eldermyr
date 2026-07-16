@@ -404,7 +404,7 @@ function updatePlayer() {
   tickFood();
   tickCampRest();
   tickFishing();
-  if (state.fishCd > 0) state.fishCd--;
+  if (p.fishCd > 0) p.fishCd--; // per-hero cooldown (P2/S7) — runs inside updatePlayer, so `p` IS the acting hero
   if (p.energy < p.maxEnergy) {
     p.energy = Math.min(
       p.maxEnergy,

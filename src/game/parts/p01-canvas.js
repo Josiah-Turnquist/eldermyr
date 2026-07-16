@@ -233,6 +233,16 @@ let state = {
     // value after each snapshot adopt, so the server copy is only the SP-save default).
     hasBoat: false,
     wayfind: true,
+    // PER-HERO TOWN ECONOMY + FATIGUE (P2/S7) — same Pillar-1 carrier again, retiring four
+    // PP_KEYS (they were already per-player in MP via the swap; now the game itself reads the
+    // player). shopPurchased = shop items this hero bought (dedupe list); cargo = this hero's
+    // trade hold; fishCd = personal fishing cooldown (never saved — resets on load, as always);
+    // lastRestDay = the day this hero last rested (isExhausted() reads ONLY this; it rides the
+    // save via snapshot()'s whitelist, so in MP a reconnect no longer hands out a free rest).
+    shopPurchased: [],
+    cargo: { furs: 0, grain: 0, spice: 0, ore: 0 },
+    fishCd: 0,
+    lastRestDay: 1,
   },
   inventory: {
     weapons: [
@@ -262,8 +272,7 @@ let state = {
   dungeonEntrance: { tx: 168, ty: 196 },
   spawnTimer: 120,
   maxWildEnemies: 46,
-  // (tonics/sharpenLevel moved onto state.player — P2/S5, see the player literal above)
-  shopPurchased: [],
+  // (tonics/sharpenLevel moved onto state.player — P2/S5; shopPurchased likewise — P2/S7)
   visitedTowns: [],
   shrines: [],
   pois: [],
@@ -276,8 +285,7 @@ let state = {
   // (hasBoat/wayfind moved onto state.player — P2/S6, see the player literal above)
   sailing: false,
   ingredients: { herb: 0, berry: 0, mushroom: 0, fish: 0 },
-  fishCd: 0,
-  cargo: { furs: 0, grain: 0, spice: 0, ore: 0 },
+  // (fishCd/cargo moved onto state.player — P2/S7, see the player literal above)
   activeShopTown: -1,
   quests: {
     main: { name: 'Slay the Mountain Kraken', done: false, started: false, hidden: true },
@@ -291,7 +299,7 @@ let state = {
   flags: { krakenDead: false, legionBroken: false }, // WORLD facts only — true for the whole realm (one Kraken, one Legion host), so in MP they stay SHARED and must never become per-player. The personal milestones (enteredDungeon/gotKey/enteredFrozen) moved onto state.player: see the note there. legionBroken used to be undeclared (completeLegionQuest conjured it) — declared here so it round-trips the save like krakenDead.
   camera: { x: 0, y: 0 },
   time: 6480,
-  lastRestDay: 1,
+  // (lastRestDay moved onto state.player — P2/S7, see the player literal above)
   weather: 'clear',
   weatherTimer: 1800,
   fires: [],

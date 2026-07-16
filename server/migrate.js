@@ -38,6 +38,12 @@
  *       root state and never persisted at all, so every reboot repossessed them;
  *       a 250 g re-buy is the honest floor) + player.wayfind default true (the [O]
  *       guide pref; client-local in MP, so the save copy is only the SP default).
+ *     · S7: shop.shopPurchased/shop.cargo → player.shopPurchased/player.cargo
+ *       (defaults []/zero-hold, cargo normalized to the full goods shape exactly
+ *       like the old apply-side Object.assign). lastRestDay gets NO default on
+ *       purpose: an old row never carried it, and absent means addPlayer's
+ *       join-rested stamp stands — a synthesized day-1 would make every veteran
+ *       join Exhausted on a server past day 3. fishCd is never persisted at all.
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -142,6 +148,15 @@ function migrateCharacter(oldBlob) {
     // there is nothing to fold: defaults only, pass-through when a v4 row already has them.
     if (out.player.hasBoat === undefined) out.player.hasBoat = false;
     if (out.player.wayfind === undefined) out.player.wayfind = true;
+    // ---- S7 fold: shop.shopPurchased/shop.cargo move onto the player (same MOVE semantics as
+    // the S5 fold — one owner per value, shop copies deleted, idempotent via player-first).
+    // cargo is normalized to the full goods shape, mirroring the old apply-side
+    // `Object.assign({furs:0,…}, c.shop.cargo || {})` so a row from before a goods type existed
+    // still loads whole. lastRestDay: deliberately NO default (see the schema-history note —
+    // absent means addPlayer's join-rested stamp stands). fishCd is never persisted at all.
+    if (out.player.shopPurchased === undefined) out.player.shopPurchased = Array.isArray(sh && sh.shopPurchased) ? clone(sh.shopPurchased) : [];
+    if (out.player.cargo === undefined) out.player.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, (sh && sh.cargo) || {});
+    if (out.shop) { delete out.shop.shopPurchased; delete out.shop.cargo; }
   }
 
   out.quests = q;

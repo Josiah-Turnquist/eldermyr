@@ -69,7 +69,9 @@ function applySnapshot(s) {
      on Object.assign) so a stale session value can never survive loading an old save. */
   p.tonics = (s.player.tonics !== undefined ? s.player.tonics : s.tonics) || 0;
   p.sharpenLevel = (s.player.sharpenLevel !== undefined ? s.player.sharpenLevel : s.sharpenLevel) || 0;
-  state.shopPurchased = s.shopPurchased || [];
+  /* P2/S7 player-carried (same doctrine): new saves hold it in s.player, pre-move saves at the
+     root — read back LOSSLESSLY, explicit so a stale session value can never survive a load. */
+  p.shopPurchased = s.player.shopPurchased !== undefined ? s.player.shopPurchased : s.shopPurchased || [];
   state.visitedTowns = s.visitedTowns || [];
   state.bounty = s.bounty || null;
   state.factions = s.factions || { vigil: 0, wilds: 0, dread: 0 };
@@ -124,16 +126,18 @@ function applySnapshot(s) {
     color: (COMP_CLASSES[c.cls] || {}).color || '#cccccc',
   }));
   state.ingredients = s.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 };
-  state.cargo = s.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 };
+  /* P2/S7 player-carried trade hold (root fallback for pre-move saves) */
+  p.cargo = s.player.cargo !== undefined ? s.player.cargo : s.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 };
   state.activeShopTown = -1;
-  state.fishCd = 0;
+  p.fishCd = 0; /* never persisted — a load always starts you off cooldown, exactly as before P2/S7 */
   if (!p.foodBuff) p.foodBuff = null;
   if (!p.foodT) p.foodT = 0;
   p.wayfind = s.player.wayfind !== undefined ? s.player.wayfind !== false : s.wayfind !== false;
   /* P2/S6 player-carried [O] pref — default ON when absent everywhere, like the old root read */
   p.seenHeatTip = s.player.seenHeatTip !== undefined ? !!s.player.seenHeatTip : !!s.seenHeatTip;
   /* P2/S5 player-carried; pre-move saves hold it at the root (lossless fallback), truly old saves lack it everywhere → default false, so the tip still shows once */ state.time = s.time || 0;
-  state.lastRestDay = s.lastRestDay || 1;
+  p.lastRestDay = (s.player.lastRestDay !== undefined ? s.player.lastRestDay : s.lastRestDay) || 1;
+  /* P2/S7 player-carried rest day (root fallback; `|| 1` keeps the old 0→1 default) */
   state.weather = s.weather || 'clear';
   state.nemesis = s.nemesis || { alive: false, level: 0, name: '', title: '', kills: 0 };
   state.ascension = s.ascension || 0;
@@ -307,8 +311,8 @@ function startGame() {
   state.sailing = false;
   state.allies = [];
   state.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
-  state.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
-  state.fishCd = 0;
+  state.player.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 }; // P2/S7: player-carried (fresh start = empty hold, no cooldown)
+  state.player.fishCd = 0;
   state.player.foodBuff = null;
   state.player.foodT = 0;
   state.companions = [];

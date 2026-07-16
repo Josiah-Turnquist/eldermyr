@@ -277,17 +277,18 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['shopPurchased', 'cargo', 'ingredients', 'lastRestDay', 'fishCd', 'sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel: they live ON state.player now (game reads p.tonics/p.sharpenLevel directly), so the S.player pin IS the swap
+const PP_KEYS = ['ingredients', 'sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 retired shopPurchased/cargo/fishCd/lastRestDay: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; S.activeShopTown = p._shopTown != null ? p._shopTown : null; }   // always assign — a null _shopTown must NOT leak the previous player's shop town into this slice
-// Mirror PP_KEYS on the way out. lastRestDay was MISSING → resting never persisted (players popped back to
-// Exhausted next slice). sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
+// Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
+// persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
+// P2/S7.) sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
 // water-walk+fly collision (and the mounted atk bonus) into every other player's rotation slice.
-// quests/maxDepth/bounty need EXPLICIT lines for the same reason lastRestDay did — swapping in is not enough:
+// quests/maxDepth/bounty need EXPLICIT lines — swapping in is not enough:
 // `maxDepth` is a NUMBER (enterDungeon/descend/_enterRift do `state.maxDepth = Math.max(...)`) and openBounty
 // REPLACES `state.bounty` wholesale (`state.bounty = rollBounty()`), so neither reaches p by reference.
 // (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
 // "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.shopPurchased = S.shopPurchased; p.cargo = S.cargo; p.ingredients = S.ingredients; p.fishCd = S.fishCd | 0; p.lastRestDay = S.lastRestDay; p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
+function writeBackPP(p) { p.ingredients = S.ingredients; p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -500,12 +501,10 @@ class World {
     p.held = {}; p.actions = [];
     // per-player town-economy state — each hero shops, empowers and trades independently
     // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5.
-    //  hasBoat:false + wayfind:true likewise since P2/S6 — a hero's boat is his own and persists via the player slice.)
-    p.shopPurchased = [];
-    p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
+    //  hasBoat:false + wayfind:true likewise since P2/S6; shopPurchased:[] + cargo:{0,0,0,0} + fishCd:0
+    //  likewise since P2/S7 — a hero's purchases/hold/cooldown are his own and the template seeds them.)
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
-    p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue (join rested)
-    p.fishCd = 0;                      // per-player fishing cooldown (a shared one let players block each other's casts)
+    p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.sailing = false; p.dragon = { tamed: false, mounted: false };   // per-player boat + mount (shared S.sailing/S.dragon leaked water-walk/flight across every hero's slice)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
@@ -548,8 +547,9 @@ class World {
       v: 3, schemaVersion: SCHEMA_VERSION, name: p.name, level: p.level | 0, skin: p.skin | 0, player: snap.player, inventory: snap.inventory,
       // P2/S5: tonics/sharpenLevel FOLDED INTO `player` (plan §6 v4 mapping) — they live on p, so
       // snapshot()'s player whitelist emits them under the S.player swap above, like the milestones.
-      // migrateCharacter maps old rows' shop.tonics/shop.sharpenLevel into player.* on load.
-      shop: { shopPurchased: p.shopPurchased, cargo: p.cargo, ingredients: p.ingredients },
+      // P2/S7: shopPurchased/cargo (+lastRestDay) likewise — the shop slice is down to ingredients.
+      // migrateCharacter maps old rows' shop.* copies into player.* on load.
+      shop: { ingredients: p.ingredients },
       // v2: YOUR questline travels with YOUR character. There is no world save at all (db.js has only
       // `accounts`), so before this these lived only in RAM and a Railway scale-to-zero handed a level-45
       // hero "Speak to the Elder" / "Slay monsters (0/5)" and offered him a Depth-3 bounty. Read straight
@@ -614,9 +614,8 @@ class World {
         }
       }
       if (c && c.shop) {                                         // restore this hero's town-economy state
-        // (tonics/sharpenLevel arrive via the player slice — migrateCharacter folds old shop rows; P2/S5)
-        p.shopPurchased = Array.isArray(c.shop.shopPurchased) ? c.shop.shopPurchased.slice() : [];
-        p.cargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, c.shop.cargo || {});
+        // (tonics/sharpenLevel arrive via the player slice — migrateCharacter folds old shop rows; P2/S5.
+        //  shopPurchased/cargo likewise since P2/S7 — the Object.assign(p, c.player) above landed them.)
         p.ingredients = Object.assign({ herb: 0, berry: 0, mushroom: 0, fish: 0 }, c.shop.ingredients || {});
       }
       if (c && c.dragon) p.dragon = { tamed: !!c.dragon.tamed, mounted: false };   // your tamed steed rejoins you (grounded)
@@ -772,20 +771,17 @@ class World {
       const t0 = S.time, wasCamping = S.player.camping === true;
       if (typeof G.doCamp === 'function') try { G.doCamp(); } catch (_e) {}
       const camped = S.time !== t0;                              // OVERWORLD camp fast-forwards the clock on success
-      const dgCamped = !camped && !wasCamping && S.player.camping === true;   // DUNGEON camp: no clock skip → detect the freshly-set camping flag instead (else the personal-rest writeback would silently never fire)
+      const dgCamped = !camped && !wasCamping && S.player.camping === true;   // DUNGEON camp: no clock skip → detect the freshly-set camping flag instead (else the personal-rest recompute would silently never fire)
       S.time = t0;                                               // undo any skip — the world's clock never jumps
-      // Overworld: doCamp set state.lastRestDay to the fast-forwarded (next-morning) day; recompute it against the
-      // un-skipped clock and keep S in sync with p, or writeBackPP (which persists lastRestDay) would clobber it back
-      // to that skipped day and over-rest the hero.
-      // Dungeon: doCamp sets state.lastRestDay to plain curDay() (no skip to undo) — but that write must be
-      // mirrored onto p HERE, exactly like the overworld branch. _runActions (our caller) swaps only
-      // S.player/S.inventory, NOT the PP_KEYS — there is no swapInPP/writeBackPP around an RPC — so
-      // state.lastRestDay during this call is NOT this hero's, doCamp's write would never reach p, and the
-      // next tick's swapInPP would overwrite the stray value anyway. Mirror it and the rest actually sticks.
-      // (v2.56.2 withheld lastRestDay underground entirely → camping healed you but left you permanently
-      // Exhausted, since isExhausted() reads ONLY lastRestDay. Game-file doCamp now records every camp.)
-      if (camped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
-      else if (dgCamped) { S.lastRestDay = p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
+      // lastRestDay lives ON the player now (P2/S7), and the rotation pinned S.player = p before this RPC —
+      // so doCamp's own `p.lastRestDay = curDay()` already landed on the right hero (no mirror needed; the
+      // old S.lastRestDay sync died with the key's PP retirement). What survives is the RECOMPUTE:
+      // Overworld: doCamp stamped the FAST-FORWARDED (next-morning) day; we just un-skipped the clock, so
+      // re-stamp against the real curDay() or the hero is over-rested by a day.
+      // Dungeon: doCamp stamped plain curDay() (no skip to undo) — the re-stamp is value-identical, kept as
+      // belt-and-braces so both branches share one shape. (v2.56.2 withheld lastRestDay underground entirely →
+      // camping healed you but left you permanently Exhausted; game-file doCamp records every camp since.)
+      if (camped || dgCamped) { p.lastRestDay = (G.curDay ? G.curDay() : p.lastRestDay); p._exWas = false; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} }
       return;
     }
     if (RPC_OK.has(rpc) && typeof G[rpc] === 'function') G[rpc].apply(null, args);

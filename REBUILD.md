@@ -230,6 +230,30 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   MP delta: the heat teach is per-hero (one mage no longer silences every other's tip); tonics/
   sharpenLevel behavior-identical (were already per-player via PP). ARCHITECTURE.md adopt-list +
   style-resource bullets updated.
+- 2026-07-16: P2/S7 DONE — per-key retirement #3: shopPurchased + cargo + fishCd + lastRestDay moved onto
+  state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; buyWeapon/buyArmor/renderShop/buyGood/sellGood/
+  tryFish/tickFishing/resetFishing/updatePlayer-cd/daysSinceRest/doCamp/updateFatigue/doTravel/doTravelHold/
+  canInteract read p.*; snapshot player-block + applySnapshot root-fallback, field-keyed, NO v bump — fishCd
+  stays UNSAVED/reset-0 exactly as always; PP_KEYS 10→6, writeBackPP lines dropped, addPlayer seeds → template,
+  doCamp RPC's S-mirror dissolved with the un-skipped-clock recompute kept; characterOf shop slice folded to
+  {ingredients} with migrate.js S7 fold shop.shopPurchased/cargo → player.* (cargo normalized; lastRestDay
+  deliberately NOT defaulted — absent = join-rested, so old-row veterans don't join Exhausted); mp.html ghost
+  adopts S.cargo/S.lastRestDay DELETED per risk #7 + shop-open pre-seed/optimistic-buy/panel-sig repointed to
+  state.player.shopPurchased). REMAP +4 (now 9) — golden 1p 8/8 on the UNTOUCHED oracle + full prove
+  (speed/damage cascade@0, hunt exactly @700). mp-golden: all 4 diverge @sample 1 unmasked (shape; sample 0
+  matches because the boot-literal pin IS the remap view) → delta proven EXACTLY intended before re-record:
+  old-shape masking view (root keys re-presented from the LAST-SWAPPED hero, recovered via S.ingredients
+  object identity; boot-literal keys moved root-ward at sample 0) reproduces the pre-S7 oracle BYTE-FOR-BYTE
+  at all 124 samples, and old-vs-new engine end-state summaries are IDENTICAL per hero — then conscious
+  re-record, mp-check 4/4 + mp-prove all green. Battery 41/41; new asserts SEEN FAILING vs a pre-S7 HEAD
+  worktree (own dist build): 11 (migrate-roundtrip: 7 fold fixtures + REMAP pin + characterOf S7 emission +
+  real-path v1 fold + rest-day-survives-reboot), 1 (verify_fixes FIX1 rework — the writeback stomp), 2+2
+  (camp-exhaust/camp-seeker player-native rests), 2+crash (sp-flags-check §2d root-fallback/defaults/round-trip).
+  World self-test + typecheck green; live browser smoke: join/combat/downed/respawn clean, 0 console errors,
+  all 4 keys ride `me`→state.player with ZERO ghost root keys, renderShop reads p.cargo/p.shopPurchased in the
+  real DOM. Conscious MP deltas: a hero's lastRestDay now PERSISTS via the player slice (no more free rest on
+  every reconnect; old rows keep join-rested), and shop purchases/trade hold survive exactly as before via the
+  player slice instead of the shop slice.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

@@ -38,6 +38,10 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * migrate.js/serialize.mjs/world.js/dist) — all 7 layer-1 default asserts, the REMAP pin,
  * the characterOf S6 emission, the real-path v1 defaults, and boat-survives-reboot
  * (E.hasBoat came back undefined: the exact evaporation the move fixes). (2026-07-16.)
+ * S7 vacuity: SEEN FAILING (11 asserts) against a pre-S7 git worktree (HEAD 76326c6 + its own
+ * dist build) — all 7 layer-1 fold asserts, the REMAP pin, the characterOf S7 emission, the
+ * real-path v1 fold, and rest-day-survives-reboot (E.lastRestDay came back 1, not 9: the exact
+ * free-rest-per-reconnect the move fixes). (2026-07-16.)
  */
 const path = require('path');
 const fs = require('fs');
@@ -196,6 +200,20 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok(`${name}: S6 defaults — player.hasBoat false, player.wayfind true`,
     m.blob.player.hasBoat === false && m.blob.player.wayfind === true,
     JSON.stringify({ boat: m.blob.player.hasBoat, wf: m.blob.player.wayfind }));
+  { // S7 fold: shop.shopPurchased/cargo → player.* (MOVE — shop copies gone; cargo normalized to the
+    // full goods shape like the old apply-side Object.assign; fresh clones, never row refs).
+    // lastRestDay must stay ABSENT: no default, so addPlayer's join-rested stamp survives the load.
+    const sh = fx.shop || null;
+    const expSP = sh && Array.isArray(sh.shopPurchased) ? sh.shopPurchased : [];
+    const expCargo = Object.assign({ furs: 0, grain: 0, spice: 0, ore: 0 }, (sh && sh.cargo) || {});
+    ok(`${name}: S7 fold — shopPurchased/cargo land on player (shop copies removed), lastRestDay NOT synthesized`,
+      deepEq(m.blob.player.shopPurchased, expSP) && deepEq(m.blob.player.cargo, expCargo)
+      && m.blob.player.lastRestDay === undefined
+      && (!sh || !sh.shopPurchased || m.blob.player.shopPurchased !== sh.shopPurchased)
+      && (!sh || !sh.cargo || m.blob.player.cargo !== sh.cargo)
+      && (!m.blob.shop || (m.blob.shop.shopPurchased === undefined && m.blob.shop.cargo === undefined)),
+      JSON.stringify({ sp: m.blob.player.shopPurchased, cargo: m.blob.player.cargo, rest: m.blob.player.lastRestDay, shop: m.blob.shop && Object.keys(m.blob.shop) }));
+  }
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
     && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
@@ -278,8 +296,12 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.seenHeatTip', 'state.seenHeatTip'],       // S5
     ['state.player.hasBoat', 'state.hasBoat'],               // S6
     ['state.player.wayfind', 'state.wayfind'],               // S6
+    ['state.player.fishCd', 'state.fishCd'],                 // S7
+    ['state.player.lastRestDay', 'state.lastRestDay'],       // S7
+    ['state.player.cargo', 'state.cargo'],                   // S7
+    ['state.player.shopPurchased', 'state.shopPurchased'],   // S7
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
@@ -325,6 +347,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   F.level = 45; F.gold = 777; F.inventory.keys = 16;
   F.tonics = 2; F.sharpenLevel = 1; F.seenHeatTip = true;   // S5: exercise the fold through the REAL emission + load path
   F.hasBoat = true; F.wayfind = false;                      // S6: boat + guide pref must ride the emission too
+  F.shopPurchased = ['s7_blade']; F.cargo = { furs: 2, grain: 0, spice: 1, ore: 0 }; F.lastRestDay = 5;   // S7: town economy + rest day must ride it too
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
   ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold)',
     modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
@@ -334,9 +357,16 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     modern.player.hasBoat === true && modern.player.wayfind === false
     && modern.hasBoat === undefined && modern.wayfind === undefined,
     JSON.stringify({ boat: modern.player.hasBoat, wf: modern.player.wayfind }));
+  ok('characterOf (v4): shopPurchased/cargo/lastRestDay ride the PLAYER slice; the shop slice is down to ingredients (S7)',
+    deepEq(modern.player.shopPurchased, ['s7_blade']) && modern.player.cargo.furs === 2 && modern.player.cargo.spice === 1
+    && modern.player.lastRestDay === 5 && modern.player.fishCd === undefined
+    && modern.shop.shopPurchased === undefined && modern.shop.cargo === undefined && !!modern.shop.ingredients,
+    JSON.stringify({ sp: modern.player.shopPurchased, cargo: modern.player.cargo, rest: modern.player.lastRestDay, shop: Object.keys(modern.shop) }));
   // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
-  // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely):
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0 }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; };
+  // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely);
+  // pre-S7 eras carried shopPurchased/cargo in the SHOP slice and lastRestDay NOWHERE (a root key
+  // that characterOf never saved — every reconnect joined rested):
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; };
   const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); return r; };
   const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
@@ -355,6 +385,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     JSON.stringify({ t: A.tonics, s: A.sharpenLevel, tip: A.seenHeatTip }));
   ok('v1 load: S6 defaults land through the real path (no boat to restore, guide ON)',
     A.hasBoat === false && A.wayfind === true, JSON.stringify({ boat: A.hasBoat, wf: A.wayfind }));
+  ok('v1 load: shop.shopPurchased/cargo FOLD onto the hero; join-rested stands (no lastRestDay in an old row — S7 mapping through the real path)',
+    deepEq(A.shopPurchased, ['s7_blade']) && A.cargo.furs === 2 && A.cargo.spice === 1
+    && A.lastRestDay === (G.curDay ? G.curDay() : 1) && (A.fishCd | 0) === 0,
+    JSON.stringify({ sp: A.shopPurchased, cargo: A.cargo, rest: A.lastRestDay, curDay: G.curDay ? G.curDay() : 1 }));
   ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
@@ -375,6 +409,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
 
   // round-trip: today's save → migrate is a no-op; and it LOADS back equal
   A.hasBoat = true; A.wayfind = false;   // S6: a boat owner's row must round-trip (THE evaporation fix — pre-S6, reboots repossessed every boat)
+  A.shopPurchased = ['s7_rt']; A.cargo.ore = 4; A.lastRestDay = 9;   // S7: purchases/hold/rest-day must round-trip too (pre-S7, lastRestDay reset to join-rested on every reconnect)
   const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
@@ -385,6 +420,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     && E.tonics === A.tonics && E.sharpenLevel === A.sharpenLevel && E.seenHeatTip === A.seenHeatTip);
   ok('round-trip: the boat SURVIVES the reboot (S6 — hasBoat/wayfind restore off the player slice)',
     E.hasBoat === true && E.wayfind === false, JSON.stringify({ boat: E.hasBoat, wf: E.wayfind }));
+  ok('round-trip: purchases/hold/rest-day SURVIVE the reboot (S7 — a v4 row\'s own lastRestDay overrides join-rested; no more free rest per reconnect)',
+    deepEq(E.shopPurchased, ['s7_rt']) && E.cargo.ore === 4 && E.lastRestDay === 9,
+    JSON.stringify({ sp: E.shopPurchased, ore: E.cargo.ore, rest: E.lastRestDay }));
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

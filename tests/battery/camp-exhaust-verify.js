@@ -1,6 +1,7 @@
 const __RR = require('path').resolve(__dirname, '..', '..');
 // v2.56.5: camping in a dungeon must CLEAR Exhausted (v2.56.2 healed but never recorded the rest).
-// isExhausted() = curDay()-lastRestDay >= 2. lastRestDay is a PP_KEY (per-player) — only state.time is shared.
+// isExhausted() = curDay()-lastRestDay >= 2. lastRestDay lives ON state.player (P2/S7; formerly a
+// PP_KEY, swapped per slice) — only state.time is shared.
 const { World } = require('' + __RR + '/server/world.js');
 const DAY = 21600;   // real literal — G.DAY_FRAMES is uncaptured (undefined → NaN poisons the clock)
 let pass = 0, fail = 0;
@@ -12,32 +13,32 @@ const p = w.addPlayer('a', { name: 'A' });
 const p2 = w.addPlayer('b', { name: 'B' });
 
 // --- SP-shape check: drive doCamp directly with this hero swapped in ---
+// (P2/S7: lastRestDay/camping/campHealLeft live ON the player, so the S.player pin IS the swap.)
 const camp = (map, hero) => {
   S.player = hero; S.inventory = hero.inventory;
-  for (const k of ['lastRestDay', 'camping', 'campHealLeft', 'campTick']) S[k] = hero[k];
   S.map = map;
   S.enemies.length = 0;                       // no foes near → camp allowed
-  hero.camping = false; S.camping = false;
+  hero.camping = false;
   const t0 = S.time;
   G.doCamp();
-  return { t0, timeAfter: S.time, lastRestDay: S.lastRestDay, camping: S.player.camping };
+  return { t0, timeAfter: S.time, lastRestDay: hero.lastRestDay, camping: S.player.camping };
 };
 
 console.log('=== DUNGEON camp clears Exhausted ===');
 S.time = 6 * DAY + Math.floor(DAY * 0.45);    // day 7, midday
-S.lastRestDay = 1; p.lastRestDay = 1;         // rested on day 1 → 6 days ago → EXHAUSTED
+p.lastRestDay = 1;                            // rested on day 1 → 6 days ago → EXHAUSTED
 S.player = p;
-ok(G.isExhausted() === true, 'precondition: hero IS Exhausted before camping', 'daysSinceRest=' + (G.curDay()-(S.lastRestDay||1)));
+ok(G.isExhausted() === true, 'precondition: hero IS Exhausted before camping', 'daysSinceRest=' + (G.curDay()-(p.lastRestDay||1)));
 
 const r = camp('dungeon', p);
 ok(r.camping === true, 'dungeon camp engaged', 'camping=' + r.camping);
-ok(G.isExhausted() === false, 'dungeon camp CLEARS Exhausted  <-- the reported bug', 'daysSinceRest=' + (G.curDay()-(S.lastRestDay||1)));
+ok(G.isExhausted() === false, 'dungeon camp CLEARS Exhausted  <-- the reported bug', 'daysSinceRest=' + (G.curDay()-(p.lastRestDay||1)));
 ok(r.lastRestDay === G.curDay(), 'lastRestDay recorded as TODAY (no skip)', 'lastRestDay=' + r.lastRestDay + ' curDay=' + G.curDay());
 ok(r.timeAfter === r.t0, 'dungeon camp does NOT skip the shared clock', 'time ' + r.t0 + ' -> ' + r.timeAfter);
 
 console.log('\n=== OVERWORLD camp still behaves exactly as before ===');
 S.time = 6 * DAY + Math.floor(DAY * 0.45);
-S.lastRestDay = 1; p.lastRestDay = 1;
+p.lastRestDay = 1;
 S.player = p;
 const ow = camp('overworld', p);
 ok(ow.timeAfter > ow.t0, 'overworld camp STILL fast-forwards to next morning', 'time ' + ow.t0 + ' -> ' + ow.timeAfter);
@@ -55,7 +56,7 @@ S.enemies.length = 0;
 const tBefore = S.time;
 w._runRpc({ rpc: 'doCamp', args: [] }, p);    // only A camps
 w.tick();
-ok(p.lastRestDay === day, 'A: rest RECORDED on the player (handler mirrors it onto p — _runActions does NOT swap/writeback PP_KEYS around an RPC)', 'A.lastRestDay=' + p.lastRestDay + ' day=' + day);
+ok(p.lastRestDay === day, 'A: rest RECORDED on the player (P2/S7: doCamp writes state.player.lastRestDay directly — the rotation pin IS the swap, no mirror needed)', 'A.lastRestDay=' + p.lastRestDay + ' day=' + day);
 ok(p.camping === true, 'A: is camping', 'camping=' + p.camping);
 ok(p2.lastRestDay === 1, 'B: UNAFFECTED — resting is per-player, not shared', 'B.lastRestDay=' + p2.lastRestDay);
 ok(Math.abs(S.time - tBefore) <= 2, 'world clock did NOT jump for anyone', 'dt=' + (S.time - tBefore));

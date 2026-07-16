@@ -313,7 +313,7 @@ function tickCampRest() {
 }
 function tryFish() {
   const p = state.player;
-  if (state.fishCd > 0 || p.fishing) return false;
+  if (p.fishCd > 0 || p.fishing) return false;
   const ptx = Math.floor((p.x + p.w / 2) / TILE),
     pty = Math.floor((p.y + p.h / 2) / TILE);
   let near = false;
@@ -323,14 +323,14 @@ function tryFish() {
     }
   if (!near) return false;
   if (isWinter()) {
-    state.fishCd = 60;
+    p.fishCd = 60;
     log('The waters lie frozen — no fishing until the thaw.', 'lore');
     Sound.error();
     return true;
   }
   p.fishing = true;
   p.fishT = 80 + Math.floor(Math.random() * 50);
-  state.fishCd = 9999;
+  p.fishCd = 9999;
   Sound.tone(300, 0.2, 'sine', 0.1, { slideTo: 520 });
   log('🎣 You cast your line and wait for a bite…', 'lore');
   updateHUD();
@@ -342,7 +342,7 @@ function tickFishing() {
   if (p.moving) {
     p.fishing = false;
     p.fishT = 0;
-    state.fishCd = 30;
+    p.fishCd = 30;
     log('You reel your line back in.', 'lore');
     updateHUD();
     return;
@@ -353,7 +353,7 @@ function tickFishing() {
   }
   if (p.fishT <= 0) {
     p.fishing = false;
-    state.fishCd = 45;
+    p.fishCd = 45;
     resolveFishing();
   }
 }
@@ -363,7 +363,7 @@ function resetFishing() {
   if (!p || !p.fishing) return;
   p.fishing = false;
   p.fishT = 0;
-  state.fishCd = 0;
+  p.fishCd = 0;
 }
 function resolveFishing() {
   const p = state.player;
@@ -420,7 +420,7 @@ function nearWater() {
 
 // ---- rest / fatigue (minimal: auto-rest in towns; Camp [C]; Exhausted after 2 days) ----
 function daysSinceRest() {
-  return curDay() - (state.lastRestDay || 1);
+  return curDay() - (state.player.lastRestDay || 1);
 }
 function isExhausted() {
   return daysSinceRest() >= 2;
@@ -449,8 +449,8 @@ function doCamp() {
     if (target <= state.time) target += DAY_FRAMES;
     state.time = target;
   }
-  state.lastRestDay = curDay();
-  /* Only the SHARED CLOCK is overworld-only: skipping state.time underground would shove EVERY player's day forward in MP because state.time is world state. lastRestDay is NOT — it's a PP_KEY (per-player, swapped in/written back), and it is the ONE thing that clears Exhausted (isExhausted() = curDay()-lastRestDay >= 2). So EVERY successful camp records the rest, dungeon included, or camping underground heals you but leaves you permanently Exhausted (the v2.56.2 bug: this line was fenced behind the !inDungeon guard along with the clock skip). No skip underground means curDay() is simply today — exactly right. */ const heal =
+  p.lastRestDay = curDay();
+  /* Only the SHARED CLOCK is overworld-only: skipping state.time underground would shove EVERY player's day forward in MP because state.time is world state. lastRestDay is NOT — it lives ON the player (P2/S7; formerly a PP_KEY, swapped in/written back), and it is the ONE thing that clears Exhausted (isExhausted() = curDay()-lastRestDay >= 2). So EVERY successful camp records the rest, dungeon included, or camping underground heals you but leaves you permanently Exhausted (the v2.56.2 bug: this line was fenced behind the !inDungeon guard along with the clock skip). No skip underground means curDay() is simply today — exactly right. */ const heal =
     Math.round(p.maxHp * 0.35);
   p.camping = true;
   p.campHealLeft = heal;
@@ -485,7 +485,7 @@ function updateFatigue() {
     const tx = Math.floor((state.player.x + 11) / TILE),
       ty = Math.floor((state.player.y + 11) / TILE);
     if (isInTown(tx, ty)) {
-      state.lastRestDay = curDay();
+      state.player.lastRestDay = curDay();
       markTownVisited();
       const pl = state.player;
       if (facTierIdx('vigil') >= 2 && pl.hp < pl.maxHp && state.time % 18 === 0) {

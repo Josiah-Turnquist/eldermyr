@@ -575,6 +575,11 @@ function snapshot() {
          field-keyed readers, root fallback for pre-move saves, no version gate). */
       hasBoat: !!p.hasBoat,
       wayfind: p.wayfind !== false,
+      /* P2/S7: town-economy + fatigue keys ride the player slice (same doctrine). fishCd is
+         deliberately NOT saved — it never was (applySnapshot always reset it to 0). */
+      shopPurchased: [...(p.shopPurchased || [])],
+      cargo: { ...(p.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 }) },
+      lastRestDay: p.lastRestDay,
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -582,8 +587,7 @@ function snapshot() {
     dungeonLevel: state.dungeonLevel,
     maxDepth: state.maxDepth,
     map: state.map,
-    /* (tonics/sharpenLevel moved into the player block above — P2/S5) */
-    shopPurchased: [...state.shopPurchased],
+    /* (tonics/sharpenLevel moved into the player block above — P2/S5; shopPurchased — P2/S7) */
     visitedTowns: [...(state.visitedTowns || [])],
     bounty: state.bounty ? { ...state.bounty } : null,
     factions: { ...(state.factions || { vigil: 0, wilds: 0, dread: 0 }) },
@@ -617,10 +621,8 @@ function snapshot() {
       postedAt: typeof c.postedAt === 'number' ? c.postedAt : null,
     })),
     ingredients: { ...(state.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
-    cargo: { ...(state.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 }) },
-    /* (wayfind moved into the player block above — P2/S6; seenHeatTip likewise — P2/S5) */
+    /* (wayfind moved into the player block above — P2/S6; seenHeatTip — P2/S5; cargo/lastRestDay — P2/S7) */
     time: state.time,
-    lastRestDay: state.lastRestDay,
     weather: state.weather,
     nemesis: { ...state.nemesis },
     ascension: state.ascension || 0,

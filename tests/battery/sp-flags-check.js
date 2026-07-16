@@ -121,6 +121,41 @@ G.applySnapshot(s6);
 ok('S6 round-trip: boat + guide pref survive save→load', S.player.hasBoat === true && S.player.wayfind === false,
   JSON.stringify({ boat: S.player.hasBoat, wf: S.player.wayfind }));
 
+// ---------------------------------------------------------------- 2d. THE pre-S7 → S7 RELOCATION
+// P2/S7 moved shopPurchased/cargo/lastRestDay from state.X into the player slice (and fishCd onto
+// the player WITHOUT ever being saved — a load always resets it to 0, exactly as before). Same
+// doctrine as 2b/2c: a pre-move save holds them at the ROOT; the load reads them back LOSSLESSLY —
+// or a migrated hero re-buys owned shop stock, loses his trade hold, and load-screen rest resets.
+const preS7 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS7.player.shopPurchased; delete preS7.player.cargo; delete preS7.player.lastRestDay;
+preS7.shopPurchased = ['old_axe']; preS7.cargo = { furs: 0, grain: 5, spice: 0, ore: 1 }; preS7.lastRestDay = 6;   // the old root spots
+S.player.shopPurchased = []; S.player.cargo = { furs: 9, grain: 9, spice: 9, ore: 9 }; S.player.lastRestDay = 2; S.player.fishCd = 77;
+G.applySnapshot(preS7);
+ok('pre-S7 save: root shopPurchased/cargo/lastRestDay land LOSSLESSLY on the player (fishCd resets 0)',
+  S.player.shopPurchased.length === 1 && S.player.shopPurchased[0] === 'old_axe'
+  && S.player.cargo.grain === 5 && S.player.cargo.ore === 1 && S.player.lastRestDay === 6 && S.player.fishCd === 0,
+  JSON.stringify({ sp: S.player.shopPurchased, cargo: S.player.cargo, rest: S.player.lastRestDay, cd: S.player.fishCd }));
+// …and a save missing them EVERYWHERE (truly old) takes the safe defaults: nothing owned, empty hold, day-1 rest
+const preShop = JSON.parse(JSON.stringify(preS7));
+delete preShop.shopPurchased; delete preShop.cargo; delete preShop.lastRestDay;
+G.applySnapshot(preShop);
+ok('a save with NO shop/cargo/rest keys anywhere defaults to []/empty hold/lastRestDay 1',
+  S.player.shopPurchased.length === 0 && S.player.cargo.furs === 0 && S.player.cargo.grain === 0 && S.player.lastRestDay === 1,
+  JSON.stringify({ sp: S.player.shopPurchased, cargo: S.player.cargo, rest: S.player.lastRestDay }));
+// …and the S7 shape round-trips: the keys ride the player slice, never the root; fishCd is in NEITHER
+S.player.shopPurchased = ['new_bow']; S.player.cargo.spice = 2; S.player.lastRestDay = 4; S.player.fishCd = 33;
+const s7 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S7 snapshot: shopPurchased/cargo/lastRestDay ride the PLAYER slice, root is clean, fishCd saved NOWHERE',
+  s7.player.shopPurchased[0] === 'new_bow' && s7.player.cargo.spice === 2 && s7.player.lastRestDay === 4
+  && s7.shopPurchased === undefined && s7.cargo === undefined && s7.lastRestDay === undefined
+  && s7.fishCd === undefined && s7.player.fishCd === undefined,
+  JSON.stringify({ p: { sp: s7.player.shopPurchased, spice: s7.player.cargo.spice, rest: s7.player.lastRestDay }, root: { sp: s7.shopPurchased, rest: s7.lastRestDay } }));
+S.player.shopPurchased = []; S.player.lastRestDay = 1;
+G.applySnapshot(s7);
+ok('S7 round-trip: purchases/hold/rest-day survive save→load (fishCd back to 0)',
+  S.player.shopPurchased[0] === 'new_bow' && S.player.cargo.spice === 2 && S.player.lastRestDay === 4 && S.player.fishCd === 0,
+  JSON.stringify({ sp: S.player.shopPurchased, spice: S.player.cargo.spice, rest: S.player.lastRestDay, cd: S.player.fishCd }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

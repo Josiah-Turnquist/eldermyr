@@ -56,6 +56,11 @@ export const REMAP = [
   // P2/S6 — boat ownership + the [O] guide pref moved onto the player (shared-bugs #4/#6):
   { from: 'state.player.hasBoat', to: 'state.hasBoat' },
   { from: 'state.player.wayfind', to: 'state.wayfind' },
+  // P2/S7 — town-economy + fatigue PP keys moved onto the player (plan §7 group 3):
+  { from: 'state.player.fishCd', to: 'state.fishCd' },
+  { from: 'state.player.lastRestDay', to: 'state.lastRestDay' },
+  { from: 'state.player.cargo', to: 'state.cargo' },
+  { from: 'state.player.shopPurchased', to: 'state.shopPurchased' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

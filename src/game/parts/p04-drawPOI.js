@@ -468,7 +468,7 @@ function doTravelHold(i) {
   state.camera.x = p.x - __g.VIEW_W / 2;
   state.camera.y = p.y - __g.VIEW_H / 2;
   state.time += Math.floor(DAY_FRAMES * 0.32);
-  state.lastRestDay = curDay();
+  state.player.lastRestDay = curDay();
   __g._wasExhausted = isExhausted();
   recalcStats();
   spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 18, { color: '#a8c8ff', speed: 2, decay: 0.04 });

@@ -18,18 +18,22 @@ const A = w.addPlayer('A', 'Ava');
 const B = w.addPlayer('B', 'Bo');
 
 // ---------------------------------------------------------------------------
-// FIX 1 — lastRestDay persists (writeBackPP was omitting it → back to Exhausted)
+// FIX 1 — lastRestDay is PLAYER-NATIVE (P2/S7; history: as a root key it was once
+// omitted from writeBackPP → resting never persisted, then mirrored for a release,
+// and the key now lives on state.player so the stomp machinery is simply gone)
 // ---------------------------------------------------------------------------
 {
-  A.lastRestDay = 1;
-  // emulate a rest during A's slice: a monkey-patched updatePlayer bumps S.lastRestDay while S.player===A.
-  // Only writeBackPP (the fix) carries that back onto A. B must be untouched.
+  A.lastRestDay = 1; B.lastRestDay = 1;
+  // emulate a rest during A's slice: a monkey-patched updatePlayer stamps state.player.lastRestDay
+  // while S.player===A — the exact write shape the game uses post-S7 (doCamp/updateFatigue write p).
+  // Pre-S7 this FAILS: writeBackPP copied the untouched root S.lastRestDay back OVER A's stamp
+  // (seen failing against the pre-S7 tree — the stomp the retirement removes). B must stay untouched.
   const origUP = G.updatePlayer;
   let restedTo = null;
-  G.updatePlayer = function () { if (S.player === A) { S.lastRestDay = (G.curDay ? G.curDay() : 1) + 3; restedTo = S.lastRestDay; } return origUP.apply(this, arguments); };
+  G.updatePlayer = function () { if (S.player === A) { restedTo = S.player.lastRestDay = (G.curDay ? G.curDay() : 1) + 3; } return origUP.apply(this, arguments); };
   w.tick();
   G.updatePlayer = origUP;
-  ok('FIX1 lastRestDay persisted after writeBackPP', A.lastRestDay === restedTo && restedTo != null, 'A.lastRestDay=' + A.lastRestDay + ' expected=' + restedTo);
+  ok('FIX1 rest stamped during A\'s slice STICKS on A (player-native — no writeback stomp)', A.lastRestDay === restedTo && restedTo != null, 'A.lastRestDay=' + A.lastRestDay + ' expected=' + restedTo);
   ok('FIX1 B.lastRestDay untouched by A rest', B.lastRestDay !== restedTo, 'B.lastRestDay=' + B.lastRestDay);
 }
 // camp path: doCamp RPC records the rest on the acting hero.

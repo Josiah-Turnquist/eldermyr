@@ -31,14 +31,14 @@ out.push('=== FIX 1 — camp in dungeons (SP) ===');
   // v2.56.5: make the hero GENUINELY unrested first. The old setup camped on a fresh world where
   // curDay()===lastRestDay===1, so "lastRestDay unchanged" was TRIVIALLY true and this block passed
   // with EITHER behavior — which is exactly why it never caught the dungeon-camp Exhausted bug.
-  S.time = 6 * 21600 + Math.floor(21600 * 0.45); S.lastRestDay = 1;   // day 7, last rested day 1 → Exhausted
-  const t0 = S.time, rest0 = S.lastRestDay;
-  ok('dungeon: precondition — hero IS Exhausted before camping', G.isExhausted() === true, 'daysSinceRest=' + (G.curDay() - S.lastRestDay));
+  S.time = 6 * 21600 + Math.floor(21600 * 0.45); p.lastRestDay = 1;   // day 7, last rested day 1 → Exhausted (P2/S7: lastRestDay lives ON the player)
+  const t0 = S.time, rest0 = p.lastRestDay;
+  ok('dungeon: precondition — hero IS Exhausted before camping', G.isExhausted() === true, 'daysSinceRest=' + (G.curDay() - p.lastRestDay));
   G.doCamp();
   ok('dungeon: doCamp sets camping=true', p.camping === true);
   ok('dungeon: campHealLeft > 0 (~35% maxHp)', p.campHealLeft > 0 && approx(p.campHealLeft, Math.round(p.maxHp * 0.35), 1), 'campHealLeft=' + p.campHealLeft);
   ok('dungeon: state.time UNCHANGED (no shared-clock skip)', S.time === t0, 't0=' + t0 + ' now=' + S.time);
-  ok('dungeon: lastRestDay RECORDED as today → CLEARS Exhausted', S.lastRestDay === G.curDay() && S.lastRestDay !== rest0 && G.isExhausted() === false, 'rest0=' + rest0 + ' now=' + S.lastRestDay + ' curDay=' + G.curDay() + ' exhausted=' + G.isExhausted());
+  ok('dungeon: lastRestDay RECORDED as today → CLEARS Exhausted', p.lastRestDay === G.curDay() && p.lastRestDay !== rest0 && G.isExhausted() === false, 'rest0=' + rest0 + ' now=' + p.lastRestDay + ' curDay=' + G.curDay() + ' exhausted=' + G.isExhausted());
   ok('dungeon: energy restored + chill cleared', p.energy === p.maxEnergy && p.chillT === 0, 'energy=' + p.energy + ' chill=' + p.chillT);
   // heal over time via tickCampRest inside updatePlayer
   const hp0 = p.hp; let threw = null; try { for (let i = 0; i < 240; i++) G.updatePlayer(); } catch (e) { threw = String(e); }
@@ -71,7 +71,7 @@ out.push('\n=== FIX 1 — overworld camp UNCHANGED (time-skip + lastRestDay) ===
   const t0 = S.time, day0 = G.curDay();
   G.doCamp();
   ok('overworld: doCamp still FAST-FORWARDS the clock', S.time > t0, 't0=' + t0 + ' now=' + S.time);
-  ok('overworld: doCamp still sets lastRestDay = the (skipped) day', S.lastRestDay === G.curDay(), 'lastRestDay=' + S.lastRestDay + ' curDay=' + G.curDay());
+  ok('overworld: doCamp still sets lastRestDay = the (skipped) day', p.lastRestDay === G.curDay(), 'lastRestDay=' + p.lastRestDay + ' curDay=' + G.curDay());
   ok('overworld: camping=true + campHealLeft set', p.camping === true && p.campHealLeft > 0);
 })();
 
@@ -89,12 +89,12 @@ out.push('\n=== FIX 1 (MP) — world.js doCamp handler ===');
   S.time = 6 * 21600 + Math.floor(21600 * 0.45); A.lastRestDay = 1;   // day 7, last rested day 1 → Exhausted
   S.player = A; S.inventory = A.inventory; S.map = 'dungeon'; S.enemies = [];
   A.camping = false; A.campHealLeft = 0; A.hp = 30; A.maxHp = 200; A.energy = 5; A.maxEnergy = 100; A._exWas = true; A.x = 20 * TILE; A.y = 20 * TILE;
-  const t0 = S.time, rest0 = S.lastRestDay, aRest0 = A.lastRestDay;
+  const t0 = S.time, aRest0 = A.lastRestDay;
   let threw = null; try { w._runRpc({ rpc: 'doCamp', args: [] }, A); } catch (e) { threw = String(e && e.stack || e); }
   ok('MP dungeon: _runRpc doCamp runs without throwing', threw === null, threw || 'clean');
   ok('MP dungeon: handler recognizes the camp (camping flag) → camping=true', A.camping === true);
   ok('MP dungeon: world clock NEVER jumps (S.time unchanged)', S.time === t0, 't0=' + t0 + ' now=' + S.time);
-  ok('MP dungeon: rest RECORDED on the hero (lastRestDay is a PP_KEY → writeBackPP persists it; clears Exhausted)', A.lastRestDay === G.curDay() && A.lastRestDay !== aRest0, 'S=' + S.lastRestDay + ' p=' + A.lastRestDay + ' curDay=' + G.curDay() + ' was=' + aRest0);
+  ok('MP dungeon: rest RECORDED on the hero (P2/S7: doCamp writes state.player.lastRestDay — the RPC runs under the hero pin; clears Exhausted)', A.lastRestDay === G.curDay() && A.lastRestDay !== aRest0, 'p=' + A.lastRestDay + ' curDay=' + G.curDay() + ' was=' + aRest0);
   ok('MP dungeon: personal fatigue flag cleared (energy restored)', A._exWas === false && A.energy === A.maxEnergy, '_exWas=' + A._exWas + ' energy=' + A.energy);
   // --- OVERWORLD camp via the real RPC path (regression: clock restored, lastRestDay = un-skipped day) ---
   S.map = 'overworld'; S.enemies = [];
@@ -105,7 +105,7 @@ out.push('\n=== FIX 1 (MP) — world.js doCamp handler ===');
   let threw2 = null; try { w._runRpc({ rpc: 'doCamp', args: [] }, A); } catch (e) { threw2 = String(e && e.stack || e); }
   ok('MP overworld: _runRpc doCamp runs without throwing', threw2 === null, threw2 || 'clean');
   ok('MP overworld: world clock is RESTORED to t0 (the nap never jumps the shared day)', S.time === t1, 't1=' + t1 + ' now=' + S.time);
-  ok('MP overworld: lastRestDay recomputed against the UN-skipped clock (S + p)', S.lastRestDay === expectDay && A.lastRestDay === expectDay, 'lastRestDay=' + S.lastRestDay + ' expect=' + expectDay);
+  ok('MP overworld: lastRestDay recomputed against the UN-skipped clock (on the hero)', A.lastRestDay === expectDay, 'lastRestDay=' + A.lastRestDay + ' expect=' + expectDay);
   ok('MP overworld: camping=true', A.camping === true);
 })();
 
