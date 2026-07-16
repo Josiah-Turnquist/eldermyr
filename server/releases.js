@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v2.59.2',
+    date: '2026-07-15',
+    title: 'Beasts with a head now face where they are going',
+    notes: [
+      'Your steed flew backwards when you flew west. Nothing in the realm had ever been drawn facing a direction &mdash; which nobody could tell while every creature was a blob or a skull staring straight at you. Give a wyrm a head and a tail and it becomes rather obvious.',
+      'The steed, the wild Emberwyrm, the sea serpent and the Dire Hound now turn to face their travel. The slimes, bats and hooded casters do not &mdash; they have no front to speak of, and turning them would be meaningless.',
+      'Beasts keep looking at you when you strike them, rather than spinning about from the shove, and a foe standing level with you no longer flickers between facings.',
+      'Riding beside a companion, their steed faces their heading too, not yours.',
+    ],
+  },
+  {
     version: 'v2.59.1',
     date: '2026-07-15',
     title: 'Your Emberwyrm is the same beast tamed as it was wild',
