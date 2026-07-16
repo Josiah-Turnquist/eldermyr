@@ -287,6 +287,18 @@ function partyIn() {
   for (const pl of party()) if ((pl.map || state.map) === state.map) out.push(pl);
   return out;
 } // P2/S3: party WORLD-SCOPED to whatever world is swapped into the state singletons right now (plan risk #9). The server runs these same fns against the shared overworld AND the party dungeon (world-slot swap), and a hazard that looped the whole roster would hit delvers in overworld coordinates (or vice versa). p.map is server-stamped ('overworld'/'dungeon'); single-player never sets it, so (undefined || state.map) === state.map keeps this [state.player] — byte-identical SP, zero extra RNG draws. Iteration stays JOIN ORDER (party()'s contract).
+function actAs(p, fn) {
+  const pp = state.player,
+    pi = state.inventory;
+  state.player = p;
+  if (p.inventory) state.inventory = p.inventory;
+  try {
+    return fn(p);
+  } finally {
+    state.player = pp;
+    state.inventory = pi;
+  }
+} // P2/S4: THE acting-hero context for per-hero sim phases (canonizes the inline pin p23's pinnacleHazard already ships). Pins ONLY player + inventory — the two slots that survive P2 (plan §1's runAs shape); PP keys keep riding the server's swapInPP until their retirement slices, so an actAs body must not touch state.<PP-key>. Single-player: p === state.player and p.inventory is undefined, so both pins are no-ops — byte-identical. MP callers iterate party() in JOIN ORDER.
 function makeGreatBeast(h, tx, ty) {
   const e = makeBoss(tx, ty);
   e.isGreatBeast = true;

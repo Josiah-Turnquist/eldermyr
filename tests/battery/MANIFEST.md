@@ -83,6 +83,9 @@ These are pre-existing, documented flakes in the source suites — not tree regr
 ### The hazards fold (rebuild P2/S3)
 - `hazards-mp-verify` — snow chill / fire tiles / hostile projectiles loop the game's world-scoped `partyIn()` in-sim (world.js players[1..N] patches deleted): the non-first player takes hazard damage, players[0] unchanged, vamp heal preserved, a delver-tagged hero is NOT hit by overworld shots, a dungeon shot hits a fellow delver, the downed are spared. (The pinnacle menace half of the fold is guarded by `mp-pinnacle-verify` §4.)
 
+### The onNewDay World/Hero split (rebuild P2/S4, #116)
+- `newday-mp-verify` — the day tick no longer fires per-player effects against a stale pin: `dailyHoldingIncome` pays EVERY hero the full per-head tribute (besieged outposts pay nobody; delver-tagged and downed heroes still draw — `party()`, not `partyIn()`, tribute isn't positional); `legionDaily` raises fresh captains at the PARTY's level (`state._partyLevel`); `maybeRespawnDragon` gates on the whole party (one tamed hero, even while pinned, no longer parks the wild Emberwyrm). The per-head tribute also has an ACTIVE assert inside the `mp-day-rollover` golden scenario itself.
+
 ### Liberation / restore regression tiers
 - `t1-knockdown` — co-op knockdown must NOT run the SP `gameOver` path.
 - `t2-liberation` — no premature liberation from partitioned combat.

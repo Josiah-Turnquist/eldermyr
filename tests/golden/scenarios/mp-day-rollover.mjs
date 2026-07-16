@@ -7,10 +7,12 @@
  * possible at 700; #2 during tick 2200), with the post-Great-Hunt world state
  * reconstructed so maybeRespawnHunts does REAL work at crossing #1.
  *
- * This is the baseline S4 (the onNewDay World/Hero split) re-records and
- * asserts against; until then it freezes today's behavior, INCLUDING the known
- * #116 bug (onNewDay firing against whichever hero the previous tick last
- * pinned) — the bug is deterministic, so it hashes stably.
+ * P2/S4 (the onNewDay World/Hero split, #116) re-recorded this baseline: setup
+ * seeds an OWNED outpost so each crossing's dailyHoldingIncome does real work,
+ * and postTick actively asserts EVERY hero draws the full per-head tribute.
+ * Evidence pair (S4 report): same scenario, pre-split engine -> A=110/B=0 gold
+ * and the assert throws; split engine -> A=110/B=110, first hash divergence
+ * exactly at tick 700 (samples 0-6 identical).
  *
  * Determinism contract: fixed setup, tick-derived box walks (A and B on
  * opposite rotations), fixed re-park tick. Players visited in JOIN ORDER.
@@ -48,6 +50,14 @@ export default {
     for (let i = S.enemies.length - 1; i >= 0; i--) { if (S.enemies[i] && S.enemies[i].isGreatBeast) S.enemies.splice(i, 1); }
     S.huntRespawnDay = 2;
 
+    // An OWNED outpost (liberated + rebuilt, level 1), so the boundary's
+    // dailyHoldingIncome does REAL work: tribute = 40 + level*15 = 55/hero/day.
+    // dread rep is 0 (< 15) so maybeRaidHolding still returns BEFORE its RNG
+    // draw — seeding the outpost shifts no random stream on either engine.
+    if (!S.holdings || !S.holdings[0]) throw new Error('no holdings[0] to seed');
+    S.holdings[0].liberated = true;
+    S.holdings[0].built = true;
+
     // Park just before the day-1 -> 2 boundary; the run TICKS across it.
     S.time = DAY_FRAMES - PRE;
   },
@@ -67,6 +77,24 @@ export default {
       // Move WITHIN day 2 (floor(t/DAY_FRAMES)=1 both sides of the set, so no
       // boundary is skipped). Crossing #2 then happens naturally ~tick 2200.
       ctx.G.state.time = 2 * DAY_FRAMES - PRE;
+    }
+    // P2/S4 ACTIVE ASSERT (the plan's S4 gate): BOTH heroes' gold moves at each
+    // crossing — every hero draws the outpost's full tribute (per-head pay), not
+    // just whoever the previous tick left pinned (#116). Tribute is the run's
+    // ONLY gold source (no shops, no scripted kills), so the check is exact.
+    // SEEN FAILING on the pre-split engine: B.gold stayed 0 while A drew 110.
+    if (t === PRE + 20 || t === REPARK_TICK + PRE + 20) {
+      const S = ctx.G.state;
+      const per = 40 + (S.holdings[0].level || 1) * 15; // dailyHoldingIncome's rate
+      const days = t < REPARK_TICK ? 1 : 2;
+      for (const p of ctx.players) {
+        if (p.gold !== per * days) {
+          throw new Error(
+            `S4 tribute assert @t=${t}: hero ${p.id} gold=${p.gold}, expected ${per * days} ` +
+            `(${days} crossing(s) x ${per}/hero) — daily income must reach EVERY hero`,
+          );
+        }
+      }
     }
   },
 };

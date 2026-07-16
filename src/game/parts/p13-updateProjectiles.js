@@ -167,7 +167,8 @@ function updateProjectiles() {
         state.player = _sp;
       } else {
         for (const pl of _party) {
-          if (pl.downed) continue; /* bleed-out owns the downed — don't pile on (MP-only field, undefined in SP) */
+          if (pl.downed)
+            continue; /* bleed-out owns the downed — don't pile on (MP-only field, undefined in SP) */
           if (projHitsRect(pr, pl)) {
             const _sp = state.player,
               _si = state.inventory;
@@ -566,7 +567,16 @@ function updateTime() {
 }
 function maybeRespawnDragon() {
   if (state.map !== 'overworld') return;
-  if (state.dragon.tamed || !state.dragonRespawnDay || curDay() < state.dragonRespawnDay) return;
+  // P2/S4 (#116): the wild Emberwyrm returns while ANY hero still has it untamed — one tamed
+  // hero no longer parks it for the whole room. MP heroes each carry p.dragon (a PP slice);
+  // the SP hero has none, so (p.dragon || state.dragon) reads the singleton there — the exact
+  // old gate, same truth value, zero extra draws.
+  if (
+    party().every((p) => (p.dragon || state.dragon).tamed) ||
+    !state.dragonRespawnDay ||
+    curDay() < state.dragonRespawnDay
+  )
+    return;
   if (state.enemies.some((e) => e.isWildDragon)) {
     state.dragonRespawnDay = null;
     return;
@@ -579,15 +589,32 @@ function maybeRespawnDragon() {
   );
   Sound.boss && Sound.boss();
 }
-function onNewDay() {
-  maybeRaiseNemesis();
+function onNewDayHero() {
+  // Per-HERO daily effects — the caller pins the acting hero (actAs), so state.player IS the
+  // hero here. party(), not partyIn(): tribute isn't positional; delvers and downed heroes
+  // draw their share too.
   dailyHoldingIncome();
+}
+function onNewDayWorld() {
+  // Once-per-WORLD daily effects: shared rosters, raids, revivals, respawns. Runs AFTER the
+  // hero loop, preserving the old single-hero order — tribute lands before the day's raid can
+  // besiege the outpost that pays it.
   maybeRaidHolding();
   reviveCompanions();
   maybeRespawnDragon();
   maybeRespawnHunts();
   maybeRespawnLegion();
   maybeRespawnPinnacle();
+}
+function onNewDay() {
+  // P2/S4 (#116) — the World/Hero split. The composition preserves the old body's exact call
+  // order (raise -> income -> raid -> revive -> respawns); with party() = [state.player] and
+  // actAs a self-pin, single-player runs the byte-identical sequence. In MP, EVERY hero draws
+  // the holding income (per-head pay — outposts are party assets, the quests-went-per-player
+  // precedent), not just whoever the previous tick last left pinned.
+  maybeRaiseNemesis();
+  for (const p of party()) actAs(p, onNewDayHero);
+  onNewDayWorld();
 }
 // #2 CYCLES: once the whole roster is cleared, wait a few in-world days, then respawn it harder & richer.
 // Persistent counters (huntCycle/legionCycle) ride the save; the enemy's e.cycle (stamped in the generators)

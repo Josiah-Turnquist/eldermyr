@@ -41,6 +41,8 @@ const SUITES = [
   't1-knockdown', 't2-liberation', 't3-restore', 't4-regression',
   // the hazards fold (rebuild P2/S3): hazard fns loop the world-scoped party themselves
   'hazards-mp-verify',
+  // the onNewDay World/Hero split (rebuild P2/S4, #116): per-head tribute, party-level captains, party dragon gate
+  'newday-mp-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

@@ -194,3 +194,22 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   battery 39/39, world self-test green, typecheck clean. REMAP stays empty (S2 moves no
   keys). Per-player iteration order = state.players JOIN ORDER — documented in party()/rig
   comments as the determinism contract the baselines freeze.
+- 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
+  `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
+  `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).
+  Every hero now draws the FULL per-head holding tribute (downed + delvers included; design call
+  flagged for the cutover notes); `legionDaily` raises captains at `state._partyLevel ||
+  state.player.level`; `maybeRespawnDragon` gates on `party().every(tamed)` via `(p.dragon ||
+  state.dragon)`; maybeRaidHolding untouched (factions still shared until its S5-S12 slice);
+  world.js:915 byte-unchanged. Gates: golden 1p 8/8 UNTOUCHED oracle (REMAP still empty) + full
+  1p prove (hunt control still diverges exactly @700); mp-golden re-recorded CONSCIOUSLY —
+  mp-day-rollover setup now seeds an owned outpost + postTick actively asserts BOTH heroes' gold
+  (assert SEEN FAILING on the pre-split engine: A=110/B=0; engine-only divergence pinned: same
+  scenario, old-vs-new engine first diverges EXACTLY @tick 700, samples 0-6 identical, summaries
+  A:110/B:0 → A:110/B:110; mp-overworld-combat hashes byte-identical to the old oracle), mp-check
+  4/4 + mp-prove all green on the new baseline; NEW battery suite `newday-mp-verify` (10 asserts:
+  per-head tribute, besieged pays nobody, downed/delver still paid, captain at party level 5..8
+  vs stale-pin 1..4/9..12, dragon un-parked) — SEEN FAILING (6 asserts, all 5 sections) against a
+  scratch artifact with the split textually reverted; battery 41/41, vtune-verify +
+  legion-mp-verify green, world self-test + typecheck green. ARCHITECTURE.md gains the
+  day-tick World/Hero bullet.

@@ -56,7 +56,7 @@ function legionDaily() {
         r = i;
         break;
       }
-    const w = mkWarlord(1, r, state.player.level + Math.floor(Math.random() * 3));
+    const w = mkWarlord(1, r, (state._partyLevel || state.player.level) + Math.floor(Math.random() * 3)); // P2/S4 (#116): a fresh captain rises at the PARTY's level (the server stamps _partyLevel each tick; SP never sets it, so the hero's own level — unchanged draws, unchanged value)
     L.warlords.push(w);
     log(`A new captain rises in the Dread Legion: ${w.name} seizes ${REGION_NAMES[w.region]}.`, 'lore');
   }

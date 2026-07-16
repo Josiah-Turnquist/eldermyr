@@ -133,6 +133,17 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   only touches `state.player` will silently hit one hero. `partyIn()` (not `party()`) is the rule
   for anything positional: it filters to `p.map === state.map`, so a fn running against the
   swapped-in dungeon never hits topside heroes in wrong coordinates (and vice versa).
+- **The day tick is split World/Hero** (P2/S4, #116). `onNewDay` = `maybeRaiseNemesis()` →
+  `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` — the old single-hero call
+  order, preserved exactly. A new DAILY effect goes in `onNewDayHero` if it touches one hero's
+  state (holding tribute lives there — every hero draws the full per-head amount, downed and
+  delving included: `party()`, not `partyIn()`, since money isn't positional) or in
+  `onNewDayWorld` if it's roster/respawn work; never in between, and never reading
+  `state.player` from world code (at the day tick it's whatever the previous tick left pinned —
+  scale to the party via `state._partyLevel || state.player.level`, the `legionDaily` idiom).
+  `actAs(p, fn)` (in the game, beside `party()`) pins ONLY `state.player`/`state.inventory` —
+  an `actAs` body must not touch a PP-slice `state.<key>`; those still ride `swapInPP` until
+  their retirement slices.
 - **Projectiles are partitioned by SHOOTER** (`_projectilesByShooter`, both worlds), not run once
   under `players[0]`. `updateProjectiles` re-pins `state.player` to each friendly shot's `ownerRef`
   *itself* (so hits credit the shooter) — a swap at the call site cannot follow a swap that happens
