@@ -75,7 +75,10 @@ function applySnapshot(s) {
   state.factions = s.factions || { vigil: 0, wilds: 0, dread: 0 };
   state.legion = s.legion || null;
   if (!state.legion || !state.legion.warlords || !state.legion.warlords.length) genLegion();
-  state.hasBoat = !!s.hasBoat;
+  /* P2/S6 player-carried (same doctrine as tonics/sharpenLevel above): a new save holds it in
+     s.player, a pre-move save at the root — read back LOSSLESSLY, explicit so a stale session
+     value can never survive loading an old save. */
+  p.hasBoat = s.player.hasBoat !== undefined ? !!s.player.hasBoat : !!s.hasBoat;
   state.sailing = false;
   state.huntsSlain = s.huntsSlain || [];
   state.huntCycle = s.huntCycle || 0;
@@ -126,7 +129,8 @@ function applySnapshot(s) {
   state.fishCd = 0;
   if (!p.foodBuff) p.foodBuff = null;
   if (!p.foodT) p.foodT = 0;
-  state.wayfind = s.wayfind !== false;
+  p.wayfind = s.player.wayfind !== undefined ? s.player.wayfind !== false : s.wayfind !== false;
+  /* P2/S6 player-carried [O] pref — default ON when absent everywhere, like the old root read */
   p.seenHeatTip = s.player.seenHeatTip !== undefined ? !!s.player.seenHeatTip : !!s.seenHeatTip;
   /* P2/S5 player-carried; pre-move saves hold it at the root (lossless fallback), truly old saves lack it everywhere → default false, so the tip still shows once */ state.time = s.time || 0;
   state.lastRestDay = s.lastRestDay || 1;
@@ -262,8 +266,8 @@ window.addEventListener('keydown', (e) => {
     else if (state.scene === 'travel') closeTravel();
   }
   if (k === 'o' && state.scene === 'play') {
-    state.wayfind = state.wayfind === false;
-    log('Objective guide ' + (state.wayfind ? 'ON — follow the arrow' : 'OFF — wander free') + '.', 'lore');
+    state.player.wayfind = state.player.wayfind === false;
+    log('Objective guide ' + (state.player.wayfind ? 'ON — follow the arrow' : 'OFF — wander free') + '.', 'lore');
     Sound.blip && Sound.blip();
   }
 });
@@ -299,7 +303,7 @@ function startGame() {
   state.legionCycle = 0;
   state.legionRespawnDay = null;
   state.loreFound = [];
-  state.hasBoat = false;
+  state.player.hasBoat = false; // P2/S6: player-carried (fresh start = no boat, guide pref keeps its literal default)
   state.sailing = false;
   state.allies = [];
   state.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };

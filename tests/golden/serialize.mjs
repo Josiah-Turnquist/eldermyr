@@ -53,6 +53,9 @@ export const REMAP = [
   { from: 'state.player.tonics', to: 'state.tonics' },
   { from: 'state.player.sharpenLevel', to: 'state.sharpenLevel' },
   { from: 'state.player.seenHeatTip', to: 'state.seenHeatTip' },
+  // P2/S6 — boat ownership + the [O] guide pref moved onto the player (shared-bugs #4/#6):
+  { from: 'state.player.hasBoat', to: 'state.hasBoat' },
+  { from: 'state.player.wayfind', to: 'state.wayfind' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

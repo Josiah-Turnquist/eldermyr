@@ -212,7 +212,7 @@ function toggleMount() {
 }
 function toggleBoat() {
   const p = state.player;
-  if (!state.hasBoat) {
+  if (!p.hasBoat) {
     log('You have no boat — seek the Shipwright by the western sea.', 'combat');
     Sound.error();
     return;
@@ -272,7 +272,7 @@ function toggleBoat() {
   updateHUD();
 }
 function buyBoat() {
-  if (state.hasBoat) {
+  if (state.player.hasBoat) {
     log('You already own a boat. Press [B] beside open water to set sail.', 'lore');
     Sound.error();
     return;
@@ -284,7 +284,8 @@ function buyBoat() {
     return;
   }
   state.player.gold -= cost;
-  state.hasBoat = true;
+  state.player.hasBoat = true; // P2/S6: YOUR boat (per-hero + persisted), not the room's
+
   Sound.jingle();
   addShake(2);
   log(

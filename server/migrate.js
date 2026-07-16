@@ -34,6 +34,10 @@
  *     · S5: shop.tonics/shop.sharpenLevel → player.tonics/player.sharpenLevel
  *       (defaults 0/0); player.seenHeatTip default false (no historical source —
  *       the aura teach re-shows once per hero, intended).
+ *     · S6: player.hasBoat default false (NO historical source — boats were shared
+ *       root state and never persisted at all, so every reboot repossessed them;
+ *       a 250 g re-buy is the honest floor) + player.wayfind default true (the [O]
+ *       guide pref; client-local in MP, so the save copy is only the SP default).
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -133,6 +137,11 @@ function migrateCharacter(oldBlob) {
     if (out.player.sharpenLevel === undefined) out.player.sharpenLevel = (sh ? sh.sharpenLevel : 0) | 0;
     if (out.player.seenHeatTip === undefined) out.player.seenHeatTip = false;
     if (out.shop) { delete out.shop.tonics; delete out.shop.sharpenLevel; }
+    // ---- S6: boat + guide pref (plan §3 #4/#6) — pre-move rows never carried either anywhere
+    // (hasBoat was shared-and-never-saved; wayfind was an SP root key outside characterOf), so
+    // there is nothing to fold: defaults only, pass-through when a v4 row already has them.
+    if (out.player.hasBoat === undefined) out.player.hasBoat = false;
+    if (out.player.wayfind === undefined) out.player.wayfind = true;
   }
 
   out.quests = q;

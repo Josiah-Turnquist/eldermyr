@@ -194,6 +194,24 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   battery 39/39, world self-test green, typecheck clean. REMAP stays empty (S2 moves no
   keys). Per-player iteration order = state.players JOIN ORDER — documented in party()/rig
   comments as the determinism contract the baselines freeze.
+- 2026-07-16: P2/S6 DONE — per-key retirement #2: hasBoat (shared-bug #6) + wayfind (#4) moved onto
+  state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; toggleBoat/buyBoat/drawWayfinder/
+  minimap-pulse/[O]-keydown read p.*; snapshot player-block + applySnapshot root-fallback, field-keyed,
+  NO v bump; world.js _doInstant buyBoat reads p.hasBoat; migrate.js defaults hasBoat:false/wayfind:true;
+  NOT PP keys — they were SHARED, that was the bug). mp.html: [O] wired as a TAB-LOCAL pref (game keydown
+  never attaches in MP — plan §3.4's "game's own keydown" assumption was false, [O] was dead) + reconcile
+  re-stamps it after the wholesale adopt; no ghost adopts existed to delete. REMAP +2 (now 5) — golden 1p
+  8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt exactly @700). mp-golden: all 4
+  diverge @sample 0 (shape) → delta proven EXACTLY intended before re-record: old-shape masking view
+  (players[i] + the pre-pin literal boot hero masked to root) reproduces the pre-S6 oracle BYTE-FOR-BYTE
+  at all 124 samples, root key-absence + per-hero values spot-checked — then conscious re-record, mp-check
+  4/4 + mp-prove all green. Battery 41/41; new asserts SEEN FAILING vs the pre-S6 scratch tree: 11
+  (migrate defaults ×7 fixtures + REMAP pin + characterOf emission + real-path v1 defaults + boat-survives-
+  reboot), 3 (sp-flags-check §2c root-fallback/root-clean/round-trip), 7 (verify_fixes FIX6 — incl. the
+  live communal-bug demo: pre-S6, boatless N SAILED on B's purchase; post-S6 refused). World self-test +
+  typecheck green. Conscious MP deltas: a hero's boat is HIS (bought once, no longer room-communal) and
+  now SURVIVES reboots (was never in characterOf — evaporated every scale-to-zero); [O] guide toggle works
+  in MP for the first time, per tab. ARCHITECTURE.md adopt-list bullet gains the client-pref inversion.
 - 2026-07-16: P2/S5 DONE — first per-key retirement: tonics + sharpenLevel (PP_KEYS) and seenHeatTip
   (shared-bug #5) moved onto state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; buyTonic/
   tonicCost/magicShot read p.*; snapshot player-block + applySnapshot root-fallback, field-keyed, NO v

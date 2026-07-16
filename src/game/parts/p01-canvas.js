@@ -225,6 +225,14 @@ let state = {
     tonics: 0,
     sharpenLevel: 0,
     seenHeatTip: false,
+    // PER-HERO BOAT + GUIDE PREF (P2/S6) — same Pillar-1 carrier again. hasBoat = Shipwright
+    // purchase (was a SHARED root key: in co-op one hero's 250 g bought the whole room a boat,
+    // and it was never saved — every reboot repossessed it; on the player it persists via
+    // snapshot()'s whitelist/characterOf and rides `me` with no adopt line). wayfind = the [O]
+    // objective-guide toggle (per-hero preference; in MP the client re-stamps its own local
+    // value after each snapshot adopt, so the server copy is only the SP-save default).
+    hasBoat: false,
+    wayfind: true,
   },
   inventory: {
     weapons: [
@@ -265,9 +273,8 @@ let state = {
   bounty: null,
   factions: { vigil: 0, wilds: 0, dread: 0 },
   allies: [],
-  hasBoat: false,
+  // (hasBoat/wayfind moved onto state.player — P2/S6, see the player literal above)
   sailing: false,
-  wayfind: true,
   ingredients: { herb: 0, berry: 0, mushroom: 0, fish: 0 },
   fishCd: 0,
   cargo: { furs: 0, grain: 0, spice: 0, ore: 0 },

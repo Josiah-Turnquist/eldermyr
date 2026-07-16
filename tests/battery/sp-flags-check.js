@@ -90,6 +90,37 @@ G.applySnapshot(s5);
 ok('S5 round-trip: player-slice values survive save→load', S.player.tonics === 4 && S.player.seenHeatTip === true,
   JSON.stringify({ t: S.player.tonics, tip: S.player.seenHeatTip }));
 
+// ---------------------------------------------------------------- 2c. THE pre-S6 → S6 RELOCATION
+// P2/S6 moved hasBoat + wayfind from state.X into the player slice. Same doctrine as 2b:
+// a pre-move save holds them at the ROOT; the load must read them back LOSSLESSLY (field-keyed
+// fallback, no version gate) — or a returning captain loses his 250 g boat and a switched-off
+// guide arrow pops back on.
+const preS6 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS6.player.hasBoat; delete preS6.player.wayfind;
+preS6.hasBoat = true; preS6.wayfind = false;                    // the old root spots
+S.player.hasBoat = false; S.player.wayfind = true;
+G.applySnapshot(preS6);
+ok('pre-S6 save: root hasBoat/wayfind land LOSSLESSLY on the player',
+  S.player.hasBoat === true && S.player.wayfind === false,
+  JSON.stringify({ boat: S.player.hasBoat, wf: S.player.wayfind }));
+// …and a save missing them EVERYWHERE (truly old) takes the safe defaults: no boat, guide ON
+const preBoat = JSON.parse(JSON.stringify(preS6));
+delete preBoat.hasBoat; delete preBoat.wayfind;
+G.applySnapshot(preBoat);
+ok('a save with NO boat/guide keys anywhere defaults to hasBoat=false, wayfind=true',
+  S.player.hasBoat === false && S.player.wayfind === true,
+  JSON.stringify({ boat: S.player.hasBoat, wf: S.player.wayfind }));
+// …and the S6 shape round-trips: the keys ride the player slice, never the root
+S.player.hasBoat = true; S.player.wayfind = false;
+const s6 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S6 snapshot: hasBoat/wayfind ride the PLAYER slice, root is clean',
+  s6.player.hasBoat === true && s6.player.wayfind === false && s6.hasBoat === undefined && s6.wayfind === undefined,
+  JSON.stringify({ p: { boat: s6.player.hasBoat, wf: s6.player.wayfind }, root: { boat: s6.hasBoat, wf: s6.wayfind } }));
+S.player.hasBoat = false; S.player.wayfind = true;
+G.applySnapshot(s6);
+ok('S6 round-trip: boat + guide pref survive save→load', S.player.hasBoat === true && S.player.wayfind === false,
+  JSON.stringify({ boat: S.player.hasBoat, wf: S.player.wayfind }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

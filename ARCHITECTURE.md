@@ -222,7 +222,12 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
   each needs an explicit `G.state.X = me.X` adoption (sailing, dragon, cargo, allies,
   floorMod…). Fields that live ON the player need **no adopt line** (`S.player = snap.me` is
   the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
-  seenHeatTip), its old adopt line must be DELETED, or panels read a stale ghost `state.X`.
+  seenHeatTip; S6: hasBoat/wayfind), its old adopt line must be DELETED, or panels read a
+  stale ghost `state.X`. ONE inversion of the rule: a player key that is a **client-side
+  preference** (S6: `wayfind`, the [O] guide toggle — the game's own keydown never attaches
+  in MP) gets the opposite treatment — the client re-stamps its tab-local value *after* the
+  wholesale adopt (`S.player.wayfind = localWayfind`), because the wholesale adopt would
+  otherwise stomp the toggle with the server's save-default every snapshot.
 - **The client must never GENERATE shared world state.** The welcome handler nukes the
   client-random features (`state.pois/shrines/loreStones = []`) and adopts the server's; the
   Dread Legion roster is the same class of data and `window.genLegion` is **stubbed to a no-op

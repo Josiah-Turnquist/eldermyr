@@ -571,6 +571,10 @@ function snapshot() {
       tonics: p.tonics | 0,
       sharpenLevel: p.sharpenLevel | 0,
       seenHeatTip: !!p.seenHeatTip,
+      /* P2/S6: boat ownership + the [O] guide pref ride the player slice too (same doctrine —
+         field-keyed readers, root fallback for pre-move saves, no version gate). */
+      hasBoat: !!p.hasBoat,
+      wayfind: p.wayfind !== false,
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -584,7 +588,7 @@ function snapshot() {
     bounty: state.bounty ? { ...state.bounty } : null,
     factions: { ...(state.factions || { vigil: 0, wilds: 0, dread: 0 }) },
     legion: state.legion ? JSON.parse(JSON.stringify(state.legion)) : null,
-    hasBoat: !!state.hasBoat,
+    /* (hasBoat moved into the player block above — P2/S6) */
     huntsSlain: [...(state.huntsSlain || [])],
     huntCycle: state.huntCycle || 0,
     huntRespawnDay: state.huntRespawnDay || null,
@@ -614,8 +618,7 @@ function snapshot() {
     })),
     ingredients: { ...(state.ingredients || { herb: 0, berry: 0, mushroom: 0, fish: 0 }) },
     cargo: { ...(state.cargo || { furs: 0, grain: 0, spice: 0, ore: 0 }) },
-    wayfind: state.wayfind !== false,
-    /* (seenHeatTip moved into the player block above — P2/S5) */
+    /* (wayfind moved into the player block above — P2/S6; seenHeatTip likewise — P2/S5) */
     time: state.time,
     lastRestDay: state.lastRestDay,
     weather: state.weather,

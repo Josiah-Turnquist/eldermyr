@@ -440,7 +440,7 @@ function drawMapMarkers(x, W, H) {
       x.fill();
     }
   }
-  if (state.wayfind !== false && typeof currentObjective === 'function') {
+  if (state.player.wayfind !== false && typeof currentObjective === 'function') {
     const o = currentObjective();
     if (o) {
       const pl = 0.5 + Math.sin(Date.now() / 260) * 0.5;

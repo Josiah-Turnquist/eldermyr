@@ -34,6 +34,10 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * block deleted + characterOf's shop slice reverted + REMAP emptied — all 7 layer-1 fold
  * asserts, the REMAP-table pin, the characterOf v4 emission, and the real-path v1 load
  * (A.tonics came back 0, the exact cutover regression the mapping prevents). (2026-07-16.)
+ * S6 vacuity: SEEN FAILING (11 asserts) against a pre-S6 scratch tree (HEAD copies of
+ * migrate.js/serialize.mjs/world.js/dist) — all 7 layer-1 default asserts, the REMAP pin,
+ * the characterOf S6 emission, the real-path v1 defaults, and boat-survives-reboot
+ * (E.hasBoat came back undefined: the exact evaporation the move fixes). (2026-07-16.)
  */
 const path = require('path');
 const fs = require('fs');
@@ -187,6 +191,11 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
       && (!m.blob.shop || (m.blob.shop.tonics === undefined && m.blob.shop.sharpenLevel === undefined)),
       JSON.stringify({ t: m.blob.player.tonics, s: m.blob.player.sharpenLevel, tip: m.blob.player.seenHeatTip, shop: m.blob.shop && Object.keys(m.blob.shop) }));
   }
+  // S6 defaults: pre-move rows carried hasBoat/wayfind NOWHERE (shared root, never saved) —
+  // the importer must supply player.hasBoat:false (250 g re-buy, documented) + player.wayfind:true.
+  ok(`${name}: S6 defaults — player.hasBoat false, player.wayfind true`,
+    m.blob.player.hasBoat === false && m.blob.player.wayfind === true,
+    JSON.stringify({ boat: m.blob.player.hasBoat, wf: m.blob.player.wayfind }));
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
     && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
@@ -267,8 +276,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.tonics', 'state.tonics'],                 // S5
     ['state.player.sharpenLevel', 'state.sharpenLevel'],     // S5
     ['state.player.seenHeatTip', 'state.seenHeatTip'],       // S5
+    ['state.player.hasBoat', 'state.hasBoat'],               // S6
+    ['state.player.wayfind', 'state.wayfind'],               // S6
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
@@ -313,13 +324,19 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // era-downgrade a REAL modern save into honest v1/v2/v3 rows
   F.level = 45; F.gold = 777; F.inventory.keys = 16;
   F.tonics = 2; F.sharpenLevel = 1; F.seenHeatTip = true;   // S5: exercise the fold through the REAL emission + load path
+  F.hasBoat = true; F.wayfind = false;                      // S6: boat + guide pref must ride the emission too
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
   ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold)',
     modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
     && modern.shop.tonics === undefined && modern.shop.sharpenLevel === undefined,
     JSON.stringify({ p: { t: modern.player.tonics, s: modern.player.sharpenLevel, tip: modern.player.seenHeatTip }, shop: Object.keys(modern.shop) }));
-  // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere:
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0 }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; };
+  ok('characterOf (v4): hasBoat/wayfind ride the PLAYER slice, nothing at the root (S6)',
+    modern.player.hasBoat === true && modern.player.wayfind === false
+    && modern.hasBoat === undefined && modern.wayfind === undefined,
+    JSON.stringify({ boat: modern.player.hasBoat, wf: modern.player.wayfind }));
+  // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
+  // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely):
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0 }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; };
   const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); return r; };
   const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
@@ -336,6 +353,8 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('v1 load: shop.tonics/sharpenLevel FOLD onto the hero; the heat teach re-arms (S5 mapping through the real path)',
     A.tonics === 2 && A.sharpenLevel === 1 && A.seenHeatTip === false,
     JSON.stringify({ t: A.tonics, s: A.sharpenLevel, tip: A.seenHeatTip }));
+  ok('v1 load: S6 defaults land through the real path (no boat to restore, guide ON)',
+    A.hasBoat === false && A.wayfind === true, JSON.stringify({ boat: A.hasBoat, wf: A.wayfind }));
   ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
@@ -355,6 +374,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     JSON.stringify({ d: D.enteredDungeon, k: D.gotKey, f: D.enteredFrozen }));
 
   // round-trip: today's save → migrate is a no-op; and it LOADS back equal
+  A.hasBoat = true; A.wayfind = false;   // S6: a boat owner's row must round-trip (THE evaporation fix — pre-S6, reboots repossessed every boat)
   const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
@@ -363,6 +383,8 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     E.level === A.level && E.gold === A.gold && (E.inventory.keys | 0) === (A.inventory.keys | 0)
     && E.quests.slay.count === A.quests.slay.count && E.enteredDungeon === A.enteredDungeon && E.maxDepth === A.maxDepth
     && E.tonics === A.tonics && E.sharpenLevel === A.sharpenLevel && E.seenHeatTip === A.seenHeatTip);
+  ok('round-trip: the boat SURVIVES the reboot (S6 — hasBoat/wayfind restore off the player slice)',
+    E.hasBoat === true && E.wayfind === false, JSON.stringify({ boat: E.hasBoat, wf: E.wayfind }));
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

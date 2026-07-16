@@ -499,7 +499,8 @@ class World {
     p.inventory = clone(INV_TEMPLATE);
     p.held = {}; p.actions = [];
     // per-player town-economy state — each hero shops, empowers and trades independently
-    // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5)
+    // (tonics/sharpenLevel/seenHeatTip ride PLAYER_TEMPLATE now — the game's player literal seeds them; P2/S5.
+    //  hasBoat:false + wayfind:true likewise since P2/S6 — a hero's boat is his own and persists via the player slice.)
     p.shopPurchased = [];
     p.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 };
     p.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
@@ -855,9 +856,9 @@ class World {
       return { kind: 'toast', text, cls: 'quest' };
     }
     if (fn === 'buyBoat') {
-      const had = !!S.hasBoat, g0 = p.gold | 0;
+      const had = !!p.hasBoat, g0 = p.gold | 0;   // P2/S6: hasBoat lives ON the player (our caller pinned S.player = p, so the game writes p directly)
       if (typeof G.buyBoat === 'function') G.buyBoat();
-      if (!had && S.hasBoat) return { kind: 'toast', text: '★ You acquire a sturdy boat! Press [B] by open water to set sail.', cls: 'quest' };
+      if (!had && p.hasBoat) return { kind: 'toast', text: '★ You acquire a sturdy boat! Press [B] by open water to set sail.', cls: 'quest' };
       if (had) return { kind: 'toast', text: 'You already own a boat. Press [B] beside open water to sail.', cls: 'lore' };
       return { kind: 'toast', text: `A boat costs 250 gold — return when you can pay (you have ${g0}).`, cls: 'combat' };
     }

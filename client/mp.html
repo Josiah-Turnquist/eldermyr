@@ -654,6 +654,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const f = nearestFeature(56); if (!f) return;
     try { G.log && G.log(f === 'lore' ? 'You study the Realm-stone…' : 'You reach out to the shrine…', 'lore'); } catch (_e) {}
   }
+  let localWayfind = true;   // [O] objective guide is a CLIENT pref (P2/S6): p.wayfind rides `me` as the SP-save default only — this local value is authoritative on this tab (re-stamped after every snapshot adopt; no RPC, plan §3.4)
   realWinAdd('keydown', (e) => {
     const k = e.key.toLowerCase();
     wake();
@@ -687,6 +688,10 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         e.preventDefault();
       } else if (snap && snap.rift && Math.hypot(pred.x - snap.rift.x, pred.y - snap.rift.y) < 58) { actions.push('enterRift'); e.preventDefault(); }   // #14 breach the deep rift
       else { actions.push('interact'); interactFlavor(); }   // world feature: shrine/lore/dragon/outpost/fish
+    }
+    if (k === 'o') {   // [O] toggle the objective guide — pure client pref; the game's own keydown never attaches in MP (its listeners are swallowed during eval above), so this branch IS the toggle
+      localWayfind = !localWayfind;
+      try { G.log && G.log('Objective guide ' + (localWayfind ? 'ON — follow the arrow' : 'OFF — wander free') + '.', 'lore'); G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
     }
     if (k === 'shift' || k === 'l') actions.push('dodge');
     // abilities / potion / mount → server RPCs (applied to this player)
@@ -965,6 +970,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
+    S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
     if (snap.me.inventory) S.inventory = snap.me.inventory;
     if (snap.me.cargo) S.cargo = snap.me.cargo;                 // per-player trade hold + forage (for the shop's trade panel)
     if (snap.me.ingredients) S.ingredients = snap.me.ingredients;

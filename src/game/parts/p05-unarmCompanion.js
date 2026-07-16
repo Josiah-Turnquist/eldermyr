@@ -542,7 +542,7 @@ function currentObjective() {
   return null;
 }
 function drawWayfinder() {
-  if (state.wayfind === false || state.scene !== 'play' || state.map !== 'overworld') return;
+  if (state.player.wayfind === false || state.scene !== 'play' || state.map !== 'overworld') return;
   const o = currentObjective();
   if (!o) return;
   const p = state.player;

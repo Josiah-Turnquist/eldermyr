@@ -143,6 +143,67 @@ const B = w.addPlayer('B', 'Bo');
 }
 
 // ---------------------------------------------------------------------------
+// FIX 6 (P2/S6) — hasBoat is PER-PLAYER + persisted; wayfind seeds ON per hero.
+// Pre-S6 both were SHARED root keys: one hero's 250 g bought the whole room a
+// boat, and no boat ever survived a reboot (hasBoat was outside characterOf).
+// ---------------------------------------------------------------------------
+{
+  const N = w.addPlayer('N', 'NoBoat');                     // a broke, boatless bystander
+  ok('FIX6 heroes seed boatless with the guide ON (PLAYER_TEMPLATE carries the S6 keys)',
+    N.hasBoat === false && N.wayfind === true && B.hasBoat === false, 'N.hasBoat=' + N.hasBoat + ' N.wayfind=' + N.wayfind);
+
+  // B buys at the Shipwright through the REAL co-op path (resolveInteract → _doInstant → G.buyBoat)
+  const ship = (S.npcs || []).find((n) => n.id === 'shipwright');
+  ok('FIX6 setup: the Shipwright exists', !!ship, ship ? 'at ' + Math.round(ship.x) + ',' + Math.round(ship.y) : 'MISSING');
+  B.map = 'overworld'; B.x = ship.x; B.y = ship.y; B.gold = 300;
+  const res1 = w.resolveInteract('B', 'shipwright');
+  ok('FIX6 B buys a boat (toast + 250 g)', !!res1 && res1.kind === 'toast' && /acquire a sturdy boat/.test(res1.text) && B.gold === 50,
+    (res1 ? res1.text.slice(0, 40) : 'null') + ' gold=' + B.gold);
+  ok('FIX6 the boat is B\'s ALONE (per-player, not the room\'s)', B.hasBoat === true && A.hasBoat === false && N.hasBoat === false,
+    'B=' + B.hasBoat + ' A=' + A.hasBoat + ' N=' + N.hasBoat);
+  const res2 = w.resolveInteract('B', 'shipwright');
+  ok('FIX6 re-interact: B already owns one (no double charge)', !!res2 && /already own/.test(res2.text) && B.gold === 50, res2 && res2.text.slice(0, 40));
+
+  // sail gate reads p.hasBoat: B sails, boatless N (same water) is refused
+  let wx = -1, wy = -1;
+  const m = G.maps.overworld;
+  for (let ty = 4; ty < m.length - 4 && wx < 0; ty++) for (let tx = 4; tx < m[0].length - 4; tx++) {
+    const t = G.getTile('overworld', tx, ty), tw = G.getTile('overworld', tx - 1, ty);
+    // water with a WALKABLE west shore: sail-out finds the water, and landfall can
+    // return to the very tile B stood on (worldgen is unseeded here — be robust)
+    if (t === G.T.WATER && tw !== G.T.WATER && !G.SOLID.has(tw)) { wx = tx; wy = ty; break; }
+  }
+  ok('FIX6 setup: found open water with a walkable shore', wx > 0, wx + ',' + wy);
+  B.x = (wx - 1) * TILE; B.y = wy * TILE; B.sailing = false;
+  N.x = (wx - 1) * TILE; N.y = wy * TILE; N.sailing = false; N.map = 'overworld';
+  B.actions.push({ rpc: 'toggleBoat', args: [] });
+  N.actions.push({ rpc: 'toggleBoat', args: [] });
+  w.tick();
+  ok('FIX6 boat owner B sets sail', B.sailing === true, 'B.sailing=' + B.sailing);
+  ok('FIX6 boatless N is refused at the same shore (gate reads p.hasBoat)', N.sailing === false, 'N.sailing=' + N.sailing);
+  B.actions.push({ rpc: 'toggleBoat', args: [] });                       // landfall so the regression block below starts B grounded
+  w.tick();
+  ok('FIX6 B makes landfall', B.sailing === false, 'B.sailing=' + B.sailing);
+
+  // persistence + wire: the player slice carries both keys with zero adopt lines
+  const chB = w.characterOf('B'), chN = w.characterOf('N');
+  ok('FIX6 characterOf persists the boat (pre-S6 it was NOT saved at all)', chB.player.hasBoat === true && chN.player.hasBoat === false,
+    'B=' + chB.player.hasBoat + ' N=' + chN.player.hasBoat);
+  ok('FIX6 characterOf persists the guide pref', chB.player.wayfind === true && typeof chN.player.wayfind === 'boolean', 'B.wf=' + chB.player.wayfind);
+  const snapB = JSON.parse(JSON.stringify(w.snapshotFor('B')));
+  ok('FIX6 hasBoat/wayfind ride `me` on the wire (safeClone keeps player scalars)',
+    snapB.me.hasBoat === true && snapB.me.wayfind === true, 'me.hasBoat=' + snapB.me.hasBoat + ' me.wayfind=' + snapB.me.wayfind);
+
+  // client audit (risk #7): wayfind lives on the player now, so the wholesale `S.player = snap.me`
+  // would stomp the [O] toggle every snapshot — the client must re-stamp its tab-local pref
+  // (headless can't press keys; pin the shipped source like objclient's RECONCILE_SRC probes)
+  const MP = require('fs').readFileSync(REPO + '/client/mp.html', 'utf8');
+  ok('FIX6 client: [O] is a tab-local pref re-stamped after the wholesale adopt',
+    /S\.player\.wayfind = localWayfind/.test(MP) && /localWayfind = !localWayfind/.test(MP)
+    && MP.indexOf('S.player = snap.me;') < MP.indexOf('S.player.wayfind = localWayfind'));
+}
+
+// ---------------------------------------------------------------------------
 // REGRESSION — 3 players, 300 ticks incl. a live dungeon delve, zero exceptions
 // ---------------------------------------------------------------------------
 {
