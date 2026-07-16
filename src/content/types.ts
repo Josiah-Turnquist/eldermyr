@@ -25,8 +25,8 @@ export interface ElementDef {
 }
 
 /** The eight base enemy kinds (p03 makeEnemy's table, migrated in P3/S2). The other three
- * drawEnemy keys (boss/dragon/kraken) keep their own factories and join this registry as
- * draw-hook entries in S3 (which also adds the then-required `draw`/`faces` fields). */
+ * drawEnemy keys (EnemyArtKey below) keep their own factories and joined the registry as
+ * draw-hook-only entries in P3/S3. */
 export type EnemyKindKey =
   | 'slime'
   | 'bat'
@@ -36,6 +36,96 @@ export type EnemyKindKey =
   | 'archer'
   | 'healer'
   | 'serpent';
+
+/** drawEnemy keys with factory-owned stats: they carry ONLY art in this registry until
+ * the S5 apex slice moves their factories' scaling into apex.ts. */
+export type EnemyArtKey = 'dragon' | 'kraken' | 'boss';
+
+/** A gradient handed back by DrawView's surface — structural, so content never needs the
+ * DOM lib (the chunk is compiled platform-neutral and the purity rule bans ambient DOM). */
+export interface DrawGradient {
+  addColorStop(offset: number, color: string): void;
+}
+
+/** The 2D drawing surface a draw hook receives — the exact method/property subset the
+ * migrated p20 art uses, structurally typed (never the DOM type: content code must stay
+ * lib-independent, and a hook reaching for anything outside this contract is a type
+ * error, which is the render-purity discipline in compile-time form). */
+export interface Draw2D {
+  fillStyle: string | DrawGradient;
+  strokeStyle: string;
+  lineWidth: number;
+  lineCap: string;
+  font: string;
+  textAlign: string;
+  save(): void;
+  restore(): void;
+  clip(): void;
+  beginPath(): void;
+  closePath(): void;
+  fill(): void;
+  stroke(): void;
+  arc(x: number, y: number, r: number, a0: number, a1: number): void;
+  ellipse(x: number, y: number, rx: number, ry: number, rot: number, a0: number, a1: number): void;
+  fillRect(x: number, y: number, w: number, h: number): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  quadraticCurveTo(cx: number, cy: number, x: number, y: number): void;
+  translate(x: number, y: number): void;
+  scale(x: number, y: number): void;
+  fillText(text: string, x: number, y: number): void;
+  createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): DrawGradient;
+}
+
+/** What drawEnemy hands every draw hook (P3/S3; REBUILD.md purity amendment: hooks get
+ * their surface as an ARGUMENT — never ambient globals, which module scope + the
+ * content-purity token grep enforce). One object, re-stamped per call by the in-part
+ * dispatch — hooks must not retain it across calls.
+ * `g2d` is deliberately NOT named after the game's ambient context so the purity grep
+ * keeps its teeth. `shade`/`rgbOf` are the game's memoised tint helpers (p20). */
+export interface DrawView {
+  readonly g2d: Draw2D;
+  /** Screen-space top-left of the creature (world x/y minus camera). */
+  readonly sx: number;
+  readonly sy: number;
+  /** Hit-flash / telegraph white-out phase — precomputed by the in-part prelude and
+   * stamped VERBATIM (its `|| (e.tele && …)` short-circuit hands `null` for a tele-less
+   * foe, never coerced — hooks read truthiness only). */
+  readonly flash: boolean | null;
+  /** shade(hex, amt, mul?): additive amt, multiplicative mul (darkens saturated hues). */
+  shade(hex: string, amt: number, mul?: number): string;
+  /** rgbOf(hex): "r,g,b" triplet for rgba() glows with a live alpha. */
+  rgbOf(hex: string): string;
+}
+
+/** The read-only view of an enemy instance a draw hook receives — the exact field set
+ * the 11 migrated branches read. readonly: draw hooks PAINT, they never write sim state
+ * (the other half of the purity rule, type-enforced). Per-kind fields are optional here;
+ * a hook that owns the kind may assert them (e.g. the charger's `e.dvx!`). */
+export interface EnemyDrawn {
+  readonly w: number;
+  readonly h: number;
+  readonly color: string;
+  readonly wobble: number;
+  /** Charger wind-up/run state machine (init hook seeds it). */
+  readonly chargeState?: number;
+  readonly dvx?: number;
+  /** Cosmetic facing bit — set by updateEnemies ONLY for kinds with `faces: true`. */
+  readonly _faceL?: number;
+  /** Wild Emberwyrm ready to tame (the [E] TAME label). */
+  readonly subdued?: boolean;
+}
+
+/** Art contract every drawEnemy key must satisfy. `draw` is MANDATORY: a kind without a
+ * draw hook is a compile error, not an invisible enemy (the DESIGN-doc silent-failure
+ * class this registry dissolves). */
+export interface EnemyArt {
+  /** Paint the creature. Verbatim p20 art: everything through `v.g2d` in screen space. */
+  draw(v: DrawView, e: EnemyDrawn): void;
+  /** This kind has an unambiguous head/tail — updateEnemies tracks `_faceL` for it (the
+   * derived FACING map in enemies.ts), and its draw hook mirrors about its own centre. */
+  readonly faces?: boolean;
+}
 
 /** The freshly-built enemy instance an `init` hook receives — exactly the fields the p03
  * per-type blocks touch. Hooks mutate the INSTANCE only, never registry rows (plan risk #3:
@@ -56,7 +146,7 @@ export interface EnemyInst {
   aquatic?: boolean;
 }
 
-export interface EnemyKind {
+export interface EnemyKind extends EnemyArt {
   readonly name: string;
   readonly hp: number;
   readonly atk: number;

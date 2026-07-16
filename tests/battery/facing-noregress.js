@@ -5,6 +5,11 @@ const __RR = require('path').resolve(__dirname, '..', '..');
    ASSEMBLED FROM git-HEAD's src/game/ and under one assembled from the working tree, through the same
    counting canvas, then diffs the op streams op-for-op. (P1 wrap: the monolith is deleted — both sides
    assemble shell + parts in manifest order; draw ops have no other guard, golden hashes {state,maps}.)
+   P3/S3: coverage widened from the 3 facing kinds to ALL ELEVEN drawEnemy creatures (+ the steed) —
+   this suite is the op-for-op oracle for the art migration into src/content/enemies.ts entry.draw
+   hooks (HEAD side renders the inline branches, WT side the registry hooks; both must emit the
+   identical op stream). Date.now()-driven wiggle only ever rides Y/alpha in the shipped art, so the
+   recorded X streams stay deterministic — same property the 3-kind version always relied on.
    Run as: node facing-noregress.js <HEAD|WT>  — the parent forks both and compares the JSON. */
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), Module = require('module');
 
@@ -98,7 +103,7 @@ globalThis.__COUNT_CTX = (real) => new Proxy({}, {
 // GAME_HTML is honored natively by load-game.js since P1 (highest precedence) — only the
 // CAPTURE patch remains.
 let lg = fs.readFileSync(LG, 'utf8')
-  .replace('const CAPTURE = [', "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon',");
+  .replace('const CAPTURE = [', "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon', 'makeKraken', 'makeBoss',");
 const m = new Module(LG, null);
 m.filename = LG; m.paths = Module._nodeModulePaths(path.dirname(LG));
 process.env.GAME_HTML = TMP;
@@ -114,8 +119,10 @@ S.player.heat = 0; S.player.cloaked = false;
 const grab = (fn) => { R.ops = []; TX = { a: 1, e: 0 }; stack = []; R.rec = true; fn(); R.rec = false; return R.ops.slice(); };
 const out = {};
 out.steed = grab(() => G.drawPlayer());
-for (const type of ['dragon', 'serpent', 'charger']) {
-  const e = type === 'dragon' ? G.makeWildDragon(20, 20) : G.makeEnemy(20, 20, type);
+// P3/S3: every drawEnemy kind, built by its REAL factory (kraken/boss have no makeEnemy row).
+const FACTORY = { dragon: () => G.makeWildDragon(20, 20), kraken: () => G.makeKraken(20, 20), boss: () => G.makeBoss(20, 20) };
+for (const type of ['slime', 'bat', 'skeleton', 'mage', 'charger', 'archer', 'healer', 'serpent', 'dragon', 'kraken', 'boss']) {
+  const e = FACTORY[type] ? FACTORY[type]() : G.makeEnemy(20, 20, type);
   e.x = S.camera.x + 200; e.y = S.camera.y + 200; e.hitFlash = 0; e.tele = null; e.wobble = 1; e.hp = e.maxHp;
   if (type === 'charger') { e.chargeState = 2; e.dvx = 3; }   // dvx>0 = running RIGHT: the shipped case the smear fix must not disturb
   e._faceL = 0;

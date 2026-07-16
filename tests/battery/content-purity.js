@@ -17,21 +17,32 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  *       the shipped element rows, and the game's own elemRgb() (NAMES → build-generated
  *       namespace) reads THROUGH the p17 alias into the registry — a perturbed
  *       src/content/elements.ts fails 5c/5d (the S1 vacuity probe);
+ *       S3 (creature art): the enemies registry holds all ELEVEN drawEnemy kinds (5e),
+ *       every entry carries a MANDATORY draw hook, dragon/kraken/boss are draw-hook-only
+ *       entries with NO stats until the S5 apex slice (5h), and the facing data is
+ *       registry-derived: FACING = exactly the entries flagged `faces` (charger/serpent/
+ *       dragon), faceDz = 6 (5i);
  *   §6  mutation canary (plan risk #3): after a 3,000-tick 2-hero headless run, the live
  *       CONTENT still equals a fresh re-eval of the chunk in an isolated vm context —
  *       registries are deliberately NOT frozen (sloppy-mode writes to frozen objects fail
  *       SILENTLY), so this is the tripwire for sim writes reaching registry objects.
  *       S2 (hook-bearing registries): the projection is FUNCTION-AWARE — hooks serialize
  *       as their source text, so a replaced/wrapped init hook fails the canary too (the
- *       plain-JSON projection was blind to functions);
+ *       plain-JSON projection was blind to functions); S3: the DRAW hooks ride the same
+ *       projection (6b now also demands a draw-op token in the serialized sources);
  *   §7  the S2 enemy/dungeon registries, probed in a CHILD process (argv 's2-child') that
- *       loads the same artifact with makeEnemy/makeDungeonEnemy added to CAPTURE (the
- *       facing-noregress patch pattern): raw entry pins reach the factory, init hooks run
- *       with the SAME forced Math.random() draws in the SAME order (wobble first), the
- *       wild-spawn walk + the dungeon pool-growth knob read THROUGH the registry (runtime
- *       perturb → factory output moves → restore), and the strict `r < t` row semantics
- *       hold at the 0.55 boundary. Child-side mutations never touch this process's
- *       CONTENT, so §6 stays honest.
+ *       loads the same artifact with makeEnemy/makeDungeonEnemy/drawEnemy added to
+ *       CAPTURE (the facing-noregress patch pattern): raw entry pins reach the factory,
+ *       init hooks run with the SAME forced Math.random() draws in the SAME order (wobble
+ *       first), the wild-spawn walk + the dungeon pool-growth knob read THROUGH the
+ *       registry (runtime perturb → factory output moves → restore), and the strict
+ *       `r < t` row semantics hold at the 0.55 boundary. S3 (§7u-7x): drawEnemy
+ *       DISPATCHES through the registry — a swapped slime.draw hook receives the
+ *       in-part DrawView (g2d surface + numeric sx/sy + boolean flash + working
+ *       shade/rgbOf) and the live instance, restores clean; and updateEnemies reads the
+ *       facing table THROUGH CONTENT.facing (poke slime in → a slime grows _faceL;
+ *       restore → the next slime stays clean). Child-side mutations never touch this
+ *       process's CONTENT, so §6 stays honest.
  *
  * Tree resolution: the source tree under test is the one the artifact belongs to
  * (<tree>/dist/eldermyr.html → <tree>/src/content), so pointing GAME_HTML at a scratch
@@ -63,7 +74,7 @@ if (process.argv[2] === 's2-child') {
   const LG = path.join(__RR, 'server-spike', 'load-game.js');
   const lgSrc = fs
     .readFileSync(LG, 'utf8')
-    .replace('const CAPTURE = [', "const CAPTURE = [ 'makeEnemy', 'makeDungeonEnemy',");
+    .replace('const CAPTURE = [', "const CAPTURE = [ 'makeEnemy', 'makeDungeonEnemy', 'drawEnemy',");
   const m = new Module(LG, null);
   m.filename = LG;
   m.paths = Module._nodeModulePaths(path.dirname(LG));
@@ -140,6 +151,62 @@ if (process.argv[2] === 's2-child') {
   C.dungeons.poolGrowth = oldPG;
   out.restoredDg3 = dgPick(3);
   S.dungeonThemeData = null;
+  // ---- S3 (§7u-7x): drawEnemy dispatch + DrawView seam + facing through-ness ------------
+  const probeFoe = G.makeEnemy(2, 2, 'slime');
+  probeFoe.x = S.camera.x + 200;
+  probeFoe.y = S.camera.y + 200;
+  probeFoe.hitFlash = 0;
+  probeFoe.tele = null;
+  let realThrew = null;
+  try {
+    G.drawEnemy(probeFoe);
+  } catch (err) {
+    realThrew = String(err);
+  }
+  out.realDrawClean = realThrew; // the registry hook runs headless without throwing
+  const oldDraw = C.enemies.slime.draw;
+  let seen = null;
+  C.enemies.slime.draw = (v, e2) => {
+    seen = {
+      g2dOk: !!v.g2d && typeof v.g2d.fillRect === 'function',
+      sx: v.sx,
+      sy: v.sy,
+      flash: v.flash,
+      shadeOk: typeof v.shade === 'function' && v.shade('#000000', 10) === '#0a0a0a',
+      rgbOk: typeof v.rgbOf === 'function' && v.rgbOf('#ff7838') === '255,120,56',
+      eIsInstance: e2 === probeFoe,
+    };
+  };
+  G.drawEnemy(probeFoe);
+  out.drawPoked = seen;
+  // flash rides VERBATIM from the prelude: `false || (e.tele && …)` → null for a
+  // tele-less foe (hooks read truthiness only — the type says boolean|null on purpose)
+  out.drawPokedSx = seen && seen.sx === probeFoe.x - S.camera.x && seen.sy === probeFoe.y - S.camera.y && (seen.flash === false || seen.flash === null);
+  C.enemies.slime.draw = oldDraw;
+  seen = null;
+  G.drawEnemy(probeFoe);
+  out.drawRestored = seen === null;
+  // facing: updateEnemies must read the table THROUGH the registry object (p20 alias)
+  S.map = 'overworld';
+  const fFoe = G.makeEnemy(2, 2, 'slime');
+  fFoe.x = S.player.x - 200;
+  fFoe.y = S.player.y;
+  S.enemies = [fFoe];
+  G.updateEnemies();
+  out.faceClean = fFoe._faceL === undefined; // slime has no front — never tracked
+  C.facing.slime = 1;
+  G.updateEnemies();
+  const facedRight = fFoe._faceL; // hero is RIGHT of it → faces right (0), but SET now
+  fFoe.x = S.player.x + 200;
+  G.updateEnemies();
+  out.facePoked = facedRight === 0 && fFoe._faceL === 1;
+  delete C.facing.slime;
+  const fFoe2 = G.makeEnemy(2, 2, 'slime');
+  fFoe2.x = S.player.x - 200;
+  fFoe2.y = S.player.y;
+  S.enemies = [fFoe2];
+  G.updateEnemies();
+  out.faceRestored = fFoe2._faceL === undefined;
   console.log(JSON.stringify(out));
   process.exit(0);
 }
@@ -197,9 +264,18 @@ ok('5c. fire.color is the shipped value (#ff7838) — content edits REACH the ga
 ok('5d. the game\'s own elemRgb() reads THROUGH the registry (p17 alias → CONTENT)',
   !!(NS && C) && NS.elemRgb('fire') === C.elements.fire.rgb && NS.elemRgb('frost') === C.elements.frost.rgb && NS.elemRgb('bogus') === '192,192,208');
 // S2: the enemy-kind + dungeon registries (shape/value pins; behavior probes live in §7).
-ok('5e. enemies registry holds exactly the eight shipped kinds, in order', !!C && JSON.stringify(Object.keys(C.enemies || {})) === JSON.stringify(['slime', 'bat', 'skeleton', 'mage', 'charger', 'archer', 'healer', 'serpent']));
+// S3: the registry holds ALL ELEVEN drawEnemy kinds — the 8 spawnable ones first (order
+// preserved), then the three factory-stat kinds as draw-hook-only entries.
+ok('5e. enemies registry holds exactly the eleven drawEnemy kinds, in order', !!C && JSON.stringify(Object.keys(C.enemies || {})) === JSON.stringify(['slime', 'bat', 'skeleton', 'mage', 'charger', 'archer', 'healer', 'serpent', 'dragon', 'kraken', 'boss']));
 ok('5f. slime.hp is the shipped value (11) — enemy edits REACH the game', !!C && C.enemies.slime.hp === 11, C && C.enemies.slime && C.enemies.slime.hp);
 ok('5g. dungeon pool growth is the shipped pair (archer@3, healer@4)', !!C && JSON.stringify(C.dungeons && C.dungeons.poolGrowth) === JSON.stringify([{ minLevel: 3, add: 'archer' }, { minLevel: 4, add: 'healer' }]));
+ok('5h. dragon/kraken/boss are draw-hook-ONLY entries (no stats until the S5 apex slice)',
+  !!C && ['dragon', 'kraken', 'boss'].every((k) => C.enemies[k] && typeof C.enemies[k].draw === 'function' && !('hp' in C.enemies[k]) && !('atk' in C.enemies[k])));
+ok('5i. every entry carries a draw hook; FACING derives to exactly {charger,dragon,serpent}; faceDz=6',
+  !!C && Object.keys(C.enemies).every((k) => typeof C.enemies[k].draw === 'function')
+  && JSON.stringify(Object.keys(C.facing || {}).sort()) === JSON.stringify(['charger', 'dragon', 'serpent'])
+  && Object.keys(C.enemies).filter((k) => C.enemies[k].faces).sort().join(',') === Object.keys(C.facing).sort().join(',')
+  && C.faceDz === 6);
 
 // ---- §6 mutation canary: 3k ticks, then live CONTENT vs a fresh chunk re-eval ------------
 const w = new World();
@@ -217,7 +293,8 @@ const live = proj(globalThis.CONTENT);
 const fresh = proj(sb.CONTENT);
 ok('6a. after 3000 headless ticks CONTENT equals a fresh chunk re-eval (no sim write reached the registry)', live === fresh,
   live === fresh ? null : 'live ' + String(live).slice(0, 120) + ' … vs fresh ' + String(fresh).slice(0, 120));
-ok('6b. the canary projection SEES the hooks (init sources serialized, not dropped)', live.includes('"fn:') && live.includes('aquatic'));
+ok('6b. the canary projection SEES the hooks (init AND draw sources serialized, not dropped)',
+  live.includes('"fn:') && live.includes('aquatic') && live.includes('quadraticCurveTo'));
 
 // ---- §7 the S2 registries drive the real factories (child process — see header) ----------
 const childOut = cp.execFileSync(process.execPath, [__filename, 's2-child'], {
@@ -248,6 +325,15 @@ ok('7q. dungeon pool below the gates: level 2 tail is the theme pool (slime — 
 ok('7r. archer joins the pool at depth 3 (registry knob)', P.dg3 === 'archer', P.dg3);
 ok('7s. healer joins the pool at depth 4 (registry knob)', P.dg4 === 'healer', P.dg4);
 ok('7t. a poked poolGrowth row REACHES makeDungeonEnemy (serpent@3) and restores clean (archer)', P.pokedDg3 === 'serpent' && P.restoredDg3 === 'archer', P.pokedDg3 + '/' + P.restoredDg3);
+// ---- S3: the draw dispatch + the DrawView seam + registry-derived facing -----------------
+ok('7u. the registry draw hook renders headless without throwing (real slime.draw)', P.realDrawClean === null, P.realDrawClean);
+ok('7v. a swapped slime.draw REACHES drawEnemy with the full DrawView (g2d surface, prelude sx/sy/flash, working shade/rgbOf, the live instance)',
+  !!P.drawPoked && P.drawPoked.g2dOk === true && P.drawPoked.shadeOk === true && P.drawPoked.rgbOk === true && P.drawPoked.eIsInstance === true && P.drawPokedSx === true,
+  JSON.stringify(P.drawPoked));
+ok('7w. slime.draw restores clean (the probe never fires again)', P.drawRestored === true);
+ok('7x. updateEnemies reads facing THROUGH CONTENT.facing (slime untracked → poked in: _faceL 0 then 1 → restored: untracked)',
+  P.faceClean === true && P.facePoked === true && P.faceRestored === true,
+  'clean=' + P.faceClean + ' poked=' + P.facePoked + ' restored=' + P.faceRestored);
 
 console.log(`\ncontent-purity: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
