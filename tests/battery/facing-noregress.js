@@ -56,8 +56,9 @@ globalThis.__COUNT_CTX = (real) => new Proxy({}, {
   set(_t, k, v) { try { real[k] = v; } catch (e) {} return true; },
 });
 
+// GAME_HTML is honored natively by load-game.js since P1 (highest precedence) — only the
+// CAPTURE patch remains.
 let lg = fs.readFileSync(LG, 'utf8')
-  .replace("const htmlPath = path.join(__dirname, '..', 'eldermyr-rpg.html');", 'const htmlPath = process.env.GAME_HTML;')
   .replace('const CAPTURE = [', "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon',");
 const m = new Module(LG, null);
 m.filename = LG; m.paths = Module._nodeModulePaths(path.dirname(LG));

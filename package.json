@@ -20,7 +20,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "acorn": "^8.17.0",
     "esbuild": "^0.28.1",
+    "prettier": "^3.9.5",
     "typescript": "^7.0.2"
   }
 }

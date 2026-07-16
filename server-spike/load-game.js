@@ -145,11 +145,10 @@ const CAPTURE = [
 function loadGame() {
   if (global.__game) return global.__game;
   installBrowserStubs();
-  // ELDERMYR_GAME_FILE lets the test rigs point at a rebuilt artifact (dist/eldermyr.html)
-  // while everything else keeps loading the canonical file.
-  const htmlPath = process.env.ELDERMYR_GAME_FILE
-    ? path.resolve(process.env.ELDERMYR_GAME_FILE)
-    : path.join(__dirname, '..', 'eldermyr-rpg.html');
+  // Test-rig overrides: GAME_HTML (suite-internal, e.g. a patched throwaway copy) beats
+  // ELDERMYR_GAME_FILE (ambient, e.g. the whole battery aimed at dist/eldermyr.html).
+  // Single line — tests/battery/flat-loader.js anchors on it textually.
+  const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'eldermyr-rpg.html'));
   const html = fs.readFileSync(htmlPath, 'utf8');
   const a = html.indexOf('<script>'); const b = html.indexOf('</script>', a);
   if (a < 0 || b < 0) throw new Error('Could not locate <script> block in eldermyr-rpg.html');

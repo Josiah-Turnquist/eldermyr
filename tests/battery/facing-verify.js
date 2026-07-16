@@ -52,10 +52,12 @@ const reset = () => { R.depth = 0; R.maxDepth = 0; R.underflow = false; R.saves 
 const Module = require('module');
 const LG = '' + __RR + '/server-spike/load-game.js';
 let lg = fs.readFileSync(LG, 'utf8');
-const A0 = "const htmlPath = path.join(__dirname, '..', 'eldermyr-rpg.html');";
+// load-game.js honors GAME_HTML natively (highest precedence) since P1 — no htmlPath
+// patch needed; the anchor assertion below still guards against silent drift.
+const A0 = "const htmlPath = path.resolve(process.env.GAME_HTML || process.env.ELDERMYR_GAME_FILE || path.join(__dirname, '..', 'eldermyr-rpg.html'));";
 const B0 = 'const CAPTURE = [';
 if (!lg.includes(A0) || !lg.includes(B0)) throw new Error('load-game.js anchors drifted — patch would be vacuous');
-lg = lg.replace(A0, "const htmlPath = process.env.GAME_HTML;").replace(B0, "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon',");
+lg = lg.replace(B0, "const CAPTURE = [ 'drawEnemy', 'makeEnemy', 'makeWildDragon',");
 if (!lg.includes('drawEnemy')) throw new Error('CAPTURE patch did not apply');
 const _m = new Module(LG, null);
 _m.filename = LG; _m.paths = Module._nodeModulePaths(path.dirname(LG));

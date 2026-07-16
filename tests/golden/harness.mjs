@@ -114,6 +114,13 @@ function hashRoot(G) {
 //            large buff shifts kill timing enough to also diverge the WORLD. We
 //            use ×8 so the control demonstrates deep propagation, not just that
 //            a constant is hashed (speed already covers the tiny-nudge case).
+//   hunt   — the day-rollover control: scale the GREAT_HUNTS table's base hp/atk
+//            via the captured TABLE OBJECT (mutating the shared object DOES reach
+//            the game's lexical reads; only reassignment is dead). The table is
+//            OUTSIDE the hash root {state, maps}, so clean/perturbed runs stay
+//            byte-identical until onNewDay→maybeRespawnHunts consumes it at the
+//            first day boundary — a divergence can ONLY have flowed through the
+//            boundary path, which is exactly what it is meant to prove.
 function applyPerturb(G, kind) {
   if (kind === 'speed') {
     G.state.player.speed *= 1.01;
@@ -122,6 +129,9 @@ function applyPerturb(G, kind) {
     if (!w) throw new Error('no equipped weapon to perturb');
     w.atk = (w.atk || 0) * 8;
     try { G.recalcStats(); } catch (_e) {}
+  } else if (kind === 'hunt') {
+    if (!Array.isArray(G.GREAT_HUNTS) || !G.GREAT_HUNTS.length) throw new Error('GREAT_HUNTS not captured');
+    for (const h of G.GREAT_HUNTS) { h.hp = Math.round(h.hp * 1.5); h.atk = Math.round(h.atk * 1.5); }
   } else {
     throw new Error('unknown perturb: ' + kind);
   }
@@ -139,6 +149,8 @@ function summarize(G) {
     kills: (S.quests && S.quests.slay && S.quests.slay.count) | 0,
     maxDepth: S.maxDepth | 0, map: S.map, enemies: S.enemies.length,
     enemyHp: Math.round(ehp), scene: S.scene,
+    day: (typeof G.curDay === 'function') ? G.curDay() : null,
+    huntCycle: S.huntCycle | 0, beasts: S.enemies.filter((e) => e && e.isGreatBeast).length,
   };
 }
 
@@ -193,7 +205,9 @@ function spawnRun(scenarioId, seed, opts = {}) {
   const args = [HARNESS, 'run', scenarioId, String(seed)];
   if (opts.perturb) args.push('--perturb', opts.perturb);
   const t0 = Date.now();
-  const res = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // env: explicit inherit so ELDERMYR_GAME_FILE (and the CWD it resolves against)
+  // reaches every child — the child's load-game.js is what actually honors it.
+  const res = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: process.env });
   const ms = Date.now() - t0;
   if (res.status !== 0) {
     throw new Error(`child failed (${scenarioId}/${seed}) status=${res.status}\nSTDERR:\n${res.stderr}\nSTDOUT:\n${res.stdout}`);
@@ -289,6 +303,22 @@ function cmdProve() {
       console.log(`         propagation → clean{pos ${c.px},${c.py} hp ${c.hp} enemies ${c.enemies}@${c.enemyHp}hp} vs ${kind}{pos ${d.px},${d.py} hp ${d.hp} enemies ${d.enemies}@${d.enemyHp}hp}`);
     }
   }
+  // (b2) onNewDay-path control: the GREAT_HUNTS table sits OUTSIDE the hash root,
+  // so its perturbation is INVISIBLE until onNewDay→maybeRespawnHunts consumes it
+  // at the day-1→2 boundary (during tick 699). Pre-boundary samples must be
+  // IDENTICAL and the first divergent sample must be EXACTLY tick 700 — that pins
+  // the divergence to the boundary path and nothing else.
+  {
+    const id = 'day-rollover';
+    const clean = spawnRun(id, SEED_PRIMARY);
+    const dirty = spawnRun(id, SEED_PRIMARY, { perturb: 'hunt' });
+    const div = firstDivergence(clean.hashes, dirty.hashes);
+    const ok = !!div && div.tick === 700;
+    allGood = allGood && ok;
+    const c = clean.summary, d = dirty.summary;
+    console.log(`    ${ok ? 'PASS' : 'FAIL'} ${id} +hunt (GREAT_HUNTS hp/atk ×1.5 — table is outside the hash root): first divergence tick ${div ? div.tick : 'NEVER'} (expected exactly 700: onNewDay fires during tick 699; samples 0–6 pre-boundary ${div && div.tick >= 700 ? 'identical' : 'DIFFER — leak!'})`);
+    console.log(`         boundary did real work → day ${c.day} (2 crossings), huntCycle ${c.huntCycle}, ${c.beasts} beasts respawned; world enemyHp clean ${c.enemyHp} vs perturbed ${d.enemyHp}`);
+  }
 
   // (c) Seed variance.
   console.log('\n(c) SEED VARIANCE — a different seed yields a different trajectory:');
@@ -305,9 +335,22 @@ function cmdProve() {
   process.exit(allGood ? 0 : 1);
 }
 
+// The game file under test. ELDERMYR_GAME_FILE (absolute, or relative to the CWD —
+// the SAME semantics as server-spike/load-game.js's override) points the whole
+// harness at a rebuilt artifact, e.g.:
+//   ELDERMYR_GAME_FILE=dist/eldermyr.html node tests/golden/harness.mjs check
+// The actual game LOAD honors it inside load-game.js (in each child process — the
+// env rides spawnRun's inherited environment); this resolver is for the harness's
+// own direct read (version stamp).
+function gameFilePath() {
+  return process.env.ELDERMYR_GAME_FILE
+    ? path.resolve(process.env.ELDERMYR_GAME_FILE)
+    : path.resolve(__dirname, '../../eldermyr-rpg.html');
+}
+
 function gameVersion() {
   try {
-    const html = fs.readFileSync(path.resolve(__dirname, '../../eldermyr-rpg.html'), 'utf8');
+    const html = fs.readFileSync(gameFilePath(), 'utf8');
     const m = html.match(/GAME_VERSION\s*=\s*'([^']+)'/);
     return m ? m[1] : 'unknown';
   } catch (_e) { return 'unknown'; }

@@ -1,26 +1,493 @@
-function updateHeatAura(p,el){ if((p._auraCd=(p._auraCd|0)-1)>0) return; p._auraCd=HEAT_AURA_TICKS;
-  const cx=p.x+p.w/2, cy=p.y+p.h/2, hot=Math.max(0,Math.min(1,((p.heat||0)-HEAT_AURA_MIN)/(100-HEAT_AURA_MIN)));
-  const rad=48+48*hot, r2=rad*rad, dmg=Math.max(1,Math.round((1+(p.atk||1)*0.12)*(0.5+hot)*0.5));   // hotter = wider field + harder tick. Radius maxes at 96px (3 tiles) — 130px was 8 tiles ACROSS, most of a dungeon room; tick damage is HALF the pre-v2.56.3 formula.
-  for(const e of [...state.enemies]){ if(e.hp<=0) continue; const ex=e.x+e.w/2-cx, ey=e.y+e.h/2-cy; if(ex*ex+ey*ey>r2) continue; e.hp-=afxHit(e,dmg); if((e.hitFlash||0)<3) e.hitFlash=3; applyElementOnHit(e,el,dmg,AURA_ELEM_OPT); if(Math.random()<0.4) spawnBurst(e.x+e.w/2,e.y+e.h/2,2,{color:elemColor(el),speed:1.1,up:0.4,decay:0.07,size:2}); if(e.hp<=0) killEnemy(e); } }
-function onHitDealt(e,dmg,crit){ applyLifesteal(e,dmg); hitStop=Math.max(hitStop,crit?5:2); if(crit){ addShake(2); spawnBurst(e.x+e.w/2,e.y+e.h/2,8,{color:'#fff060',speed:3,decay:0.05}); } }
-function updateStaminaBar(){ const p=state.player; const f=document.getElementById('st-fill'); if(f) f.style.width=(p.stamina/p.maxStamina*100)+'%'; const t=document.getElementById('st-text'); if(t) t.textContent=Math.floor(p.stamina)+' / '+p.maxStamina; }
-function meleeSwing(){ const p=state.player; const wel=(equippedWeapon()||{}).element; const cleave=hasPerk('melee',0); const reach=cleave?40:30; let hx=p.x,hy=p.y,hw=p.w,hh=p.h; if(p.dir==='up'){ hy-=reach; hh+=reach; } if(p.dir==='down'){ hh+=reach; } if(p.dir==='left'){ hx-=reach; hw+=reach; } if(p.dir==='right'){ hw+=reach; } if(cleave){ hx-=7; hy-=7; hw+=14; hh+=14; } const hitbox={x:hx,y:hy,w:hw,h:hh}; let hitAny=false; for(const e of [...state.enemies]){ if(rectOverlap(hitbox,e)){ const crit=(p.riposteT>0)||(Math.random()<p.crit); if(p.riposteT>0){ p.riposteT=0; floatDamage(e.x+e.w/2,e.y-10,'RIPOSTE!','#ffd24a'); }/* perfect-dodge riposte: guaranteed crit, once */ let dmg=Math.max(1,Math.round((p.atk-e.def+Math.floor(Math.random()*3))*playerDmgMul()*execMul(e))); if(hasPerk('melee',2)&&e.hp<e.maxHp*0.3) dmg=Math.round(dmg*1.25); if(crit) dmg=Math.round(dmg*2*weakMul(e,'crit')); e.hp-=afxHit(e,dmg); e.hitFlash=8; if(!e.isBoss) e.stunT=Math.max(e.stunT||0,4); hitAny=true; floatDamage(e.x+e.w/2,e.y,dmg,crit?'#fff060':'#ffe060'); spawnBurst(e.x+e.w/2,e.y+e.h/2,crit?9:5,{color:crit?'#fff060':'#ffe060',speed:crit?3:2.2,decay:0.06}); applyElementOnHit(e,wel,dmg); onHitDealt(e,dmg,crit); const kb=Math.round((e.isBoss?5:16)*(1+0.014*(profLvl('melee')-1))); if(p.dir==='up') e.y-=kb; if(p.dir==='down') e.y+=kb; if(p.dir==='left') e.x-=kb; if(p.dir==='right') e.x+=kb; if(checkHazardFall(e)) continue; gainProf('melee',1+Math.floor(dmg/4)); if(e.hp<=0){ if(hasPerk('melee',1)){ p.stamina=Math.min(p.maxStamina,p.stamina+14); updateStaminaBar(); } killEnemy(e); } } } if(hitAny){ Sound.hit(); state.player.momentum=Math.min(5,(state.player.momentum||0)+1); state.player._momoDecay=0; }/* MOMENTUM: a connecting swing builds a pip (max 5) and refreshes idle-decay */ }
+function updateHeatAura(p, el) {
+  if ((p._auraCd = (p._auraCd | 0) - 1) > 0) return;
+  p._auraCd = HEAT_AURA_TICKS;
+  const cx = p.x + p.w / 2,
+    cy = p.y + p.h / 2,
+    hot = Math.max(0, Math.min(1, ((p.heat || 0) - HEAT_AURA_MIN) / (100 - HEAT_AURA_MIN)));
+  const rad = 48 + 48 * hot,
+    r2 = rad * rad,
+    dmg = Math.max(1, Math.round((1 + (p.atk || 1) * 0.12) * (0.5 + hot) * 0.5)); // hotter = wider field + harder tick. Radius maxes at 96px (3 tiles) — 130px was 8 tiles ACROSS, most of a dungeon room; tick damage is HALF the pre-v2.56.3 formula.
+  for (const e of [...state.enemies]) {
+    if (e.hp <= 0) continue;
+    const ex = e.x + e.w / 2 - cx,
+      ey = e.y + e.h / 2 - cy;
+    if (ex * ex + ey * ey > r2) continue;
+    e.hp -= afxHit(e, dmg);
+    if ((e.hitFlash || 0) < 3) e.hitFlash = 3;
+    applyElementOnHit(e, el, dmg, AURA_ELEM_OPT);
+    if (Math.random() < 0.4)
+      spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 2, {
+        color: elemColor(el),
+        speed: 1.1,
+        up: 0.4,
+        decay: 0.07,
+        size: 2,
+      });
+    if (e.hp <= 0) killEnemy(e);
+  }
+}
+function onHitDealt(e, dmg, crit) {
+  applyLifesteal(e, dmg);
+  hitStop = Math.max(hitStop, crit ? 5 : 2);
+  if (crit) {
+    addShake(2);
+    spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 8, { color: '#fff060', speed: 3, decay: 0.05 });
+  }
+}
+function updateStaminaBar() {
+  const p = state.player;
+  const f = document.getElementById('st-fill');
+  if (f) f.style.width = (p.stamina / p.maxStamina) * 100 + '%';
+  const t = document.getElementById('st-text');
+  if (t) t.textContent = Math.floor(p.stamina) + ' / ' + p.maxStamina;
+}
+function meleeSwing() {
+  const p = state.player;
+  const wel = (equippedWeapon() || {}).element;
+  const cleave = hasPerk('melee', 0);
+  const reach = cleave ? 40 : 30;
+  let hx = p.x,
+    hy = p.y,
+    hw = p.w,
+    hh = p.h;
+  if (p.dir === 'up') {
+    hy -= reach;
+    hh += reach;
+  }
+  if (p.dir === 'down') {
+    hh += reach;
+  }
+  if (p.dir === 'left') {
+    hx -= reach;
+    hw += reach;
+  }
+  if (p.dir === 'right') {
+    hw += reach;
+  }
+  if (cleave) {
+    hx -= 7;
+    hy -= 7;
+    hw += 14;
+    hh += 14;
+  }
+  const hitbox = { x: hx, y: hy, w: hw, h: hh };
+  let hitAny = false;
+  for (const e of [...state.enemies]) {
+    if (rectOverlap(hitbox, e)) {
+      const crit = p.riposteT > 0 || Math.random() < p.crit;
+      if (p.riposteT > 0) {
+        p.riposteT = 0;
+        floatDamage(e.x + e.w / 2, e.y - 10, 'RIPOSTE!', '#ffd24a');
+      }
+      /* perfect-dodge riposte: guaranteed crit, once */ let dmg = Math.max(
+        1,
+        Math.round((p.atk - e.def + Math.floor(Math.random() * 3)) * playerDmgMul() * execMul(e)),
+      );
+      if (hasPerk('melee', 2) && e.hp < e.maxHp * 0.3) dmg = Math.round(dmg * 1.25);
+      if (crit) dmg = Math.round(dmg * 2 * weakMul(e, 'crit'));
+      e.hp -= afxHit(e, dmg);
+      e.hitFlash = 8;
+      if (!e.isBoss) e.stunT = Math.max(e.stunT || 0, 4);
+      hitAny = true;
+      floatDamage(e.x + e.w / 2, e.y, dmg, crit ? '#fff060' : '#ffe060');
+      spawnBurst(e.x + e.w / 2, e.y + e.h / 2, crit ? 9 : 5, {
+        color: crit ? '#fff060' : '#ffe060',
+        speed: crit ? 3 : 2.2,
+        decay: 0.06,
+      });
+      applyElementOnHit(e, wel, dmg);
+      onHitDealt(e, dmg, crit);
+      const kb = Math.round((e.isBoss ? 5 : 16) * (1 + 0.014 * (profLvl('melee') - 1)));
+      if (p.dir === 'up') e.y -= kb;
+      if (p.dir === 'down') e.y += kb;
+      if (p.dir === 'left') e.x -= kb;
+      if (p.dir === 'right') e.x += kb;
+      if (checkHazardFall(e)) continue;
+      gainProf('melee', 1 + Math.floor(dmg / 4));
+      if (e.hp <= 0) {
+        if (hasPerk('melee', 1)) {
+          p.stamina = Math.min(p.maxStamina, p.stamina + 14);
+          updateStaminaBar();
+        }
+        killEnemy(e);
+      }
+    }
+  }
+  if (hitAny) {
+    Sound.hit();
+    state.player.momentum = Math.min(5, (state.player.momentum || 0) + 1);
+    state.player._momoDecay = 0;
+  } /* MOMENTUM: a connecting swing builds a pip (max 5) and refreshes idle-decay */
+}
 // #4: only NOTABLE foes announce themselves in the GUI log — basic mobs are silent (sound + floating damage + burst already convey the hit/kill). Bosses, elites, nemesis/warlords, Great Hunts, the wyrm, and named creatures stay loud.
-function notableEnemy(e){ return !!(e&&(e.isBoss||e.isNemesis||e.dread||e.isGreatBeast||e.elite||e.isWildDragon||e.isFinalBoss||e.named)); }
-function killEnemy(e){
+function notableEnemy(e) {
+  return !!(
+    e &&
+    (e.isBoss ||
+      e.isNemesis ||
+      e.dread ||
+      e.isGreatBeast ||
+      e.elite ||
+      e.isWildDragon ||
+      e.isFinalBoss ||
+      e.named)
+  );
+}
+function killEnemy(e) {
   // The Emberwyrm cannot be felled below Level 20 — enforced HERE (not just the updateEnemies band check),
   // because burst damage (crit/exec/ultimate/DOT/companions) can cross 16%→dead in one hit and skip that guard.
-  if(e.isWildDragon&&state.player.level<20){ e.hp=Math.round(e.maxHp*0.6); addShake(6); spawnBurst(e.x+e.w/2,e.y+e.h/2,18,{color:'#ff8030',speed:2.6,decay:0.04}); Sound.boss&&Sound.boss(); log('The Emberwyrm ROARS — your killing blow glances off its ancient scales. None so untested may fell it (Level 20).','combat'); return; }
+  if (e.isWildDragon && state.player.level < 20) {
+    e.hp = Math.round(e.maxHp * 0.6);
+    addShake(6);
+    spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 18, { color: '#ff8030', speed: 2.6, decay: 0.04 });
+    Sound.boss && Sound.boss();
+    log(
+      'The Emberwyrm ROARS — your killing blow glances off its ancient scales. None so untested may fell it (Level 20).',
+      'combat',
+    );
+    return;
+  }
   // PINNACLE ordered-kill (BEFORE the splice): an add slain OUT of order — its rise-index beyond the boss's kill-cursor —
   // RISES again (full hp, brief stun/flash, capped at _rezN=3) while the boss lives; in order (or once the boss is dead, or
   // the cap is hit) it advances the cursor and dies for good. Gated on _pinRef.hp>0, so a fallen boss's court dies normally (no softlock).
-  if(e._pinRef){ if(e._pinRef.hp>0&&(e._rezN||0)<3&&(e._orderIdx||0)>((e._pinRef._nextKill)||0)){ e._rezN=(e._rezN||0)+1; e.hp=e.maxHp; e.hitFlash=10; e.stunT=Math.max(e.stunT||0,28); const _rx=e.x+e.w/2,_ry=e.y+e.h/2; spawnBurst(_rx,_ry,14,{color:e.color,speed:2.4,decay:0.045}); spawnRing(_rx,_ry,'#b0d0ff'); floatDamage(_rx,_ry-14,'RISEN!','#b0d0ff'); Sound.tone&&Sound.tone(120,0.4,'sawtooth',0.16,{slideTo:220}); addShake(3); log('The dead do not stay down!','combat'); return; } e._pinRef._nextKill=Math.max(e._pinRef._nextKill||0,(e._orderIdx||0)+1); }
-  const idx=state.enemies.indexOf(e); if(idx>-1) state.enemies.splice(idx,1); const cx=e.x+e.w/2,cy=e.y+e.h/2; if(e.afxSplit&&!e._splitChild) afxSplitDeath(e); gainXP(e.xp); state.player.gold+=Math.round(e.gold*((e.isBoss||e.isNemesis||e.dread)?dreadLootBonus():1)); if(notableEnemy(e)) log(`${e.name} defeated! +${e.xp} XP, +${e.gold} gold.`,'good'); tryDropLoot(e); if(!state.quests.slay.done){ state.quests.slay.count++; if(state.quests.slay.count>=state.quests.slay.target){ state.quests.slay.done=true; log('Quest complete: Slay 5 monsters!','quest'); } updateQuests(); } if(e.isBoss){ Sound.boss(); addShake(11); spawnBurst(cx,cy,30,{color:e.color,speed:3.6,decay:0.028}); spawnBurst(cx,cy,16,{color:'#ffffff',speed:2.4,decay:0.04}); log(`${e.name} is vanquished!`,'good'); if(state.map==='dungeon'&&!e.isFinalBoss&&Math.random()<0.3){ state.inventory.keys++; if(state.quests.key&&!state.quests.key.done){ state.quests.key.done=true; updateQuests(); }/* a boss-dropped key also satisfies (and PERSISTS) the 'Find the Dungeon Key' quest — the overworld pickup was the only completion-set site before */ log('🗝 A DUNGEON KEY tumbles from the fallen lord!','good'); } if(e.isFinalBoss){ state.flags.krakenDead=true; saveGame(); victory(); } else { if(state.map==='dungeon') log('The way deeper lies open. How far can you go?','quest'); saveGame(); } } else { Sound.enemyDie(); addShake(1.5); spawnBurst(cx,cy,12,{color:e.color,speed:2.4,decay:0.04}); } if(e.isNemesis) defeatNemesis(e); if(e.isGreatBeast){ if(state.huntsSlain&&!state.huntsSlain.includes(e.huntKey)) state.huntsSlain.push(e.huntKey); if((state.huntsSlain||[]).length>=GREAT_HUNTS.length&&!state.huntRespawnDay) state.huntRespawnDay=curDay()+3; dropGreatBeastReward(e); addRep('vigil',8); addRep('wilds',-12); log(`★ ${e.name} falls! Its legendary trophy is yours — the realm will remember this hunt.`,'quest'); } if(e.isPinnacle){ if(!state.pinnacleSlain) state.pinnacleSlain=[]; const _pinFirst=!state.pinnacleSlain.includes(e.pinKey); if(_pinFirst) state.pinnacleSlain.push(e.pinKey); if(!state.pinnacleRespawnDay) state.pinnacleRespawnDay=curDay()+4; dropPinnacleReward(e,_pinFirst); addRep('vigil',10); addRep('wilds',-14); addRep('dread',3); log(`★ ${e.name} is vanquished — an apex terror falls! The realm will sing of this day.`,'quest'); }/* PINNACLE kill: compute _pinFirst BEFORE the dedup push (else the drop would always see the key already slain), record the slain key, schedule the cycle respawn, drop the (Stage-B) reward, and log an EPIC line ('★'/'vanquished'/'falls') the Stage-C feed broadcast will pick up. Cycle bumps in maybeRespawnPinnacle. */ if(e.raidTown!==undefined&&e.raidTown!==null) checkRaidLiberation(e.raidTown); if(e.isWildDragon){ addRep('wilds',-30); addRep('vigil',4); state.dragonRespawnDay=curDay()+2; log("The Emberwyrm's ashes swirl over the lair… such beasts do not stay dead.",'lore'); } else if(e.isFinalBoss){ addRep('vigil',15); } else if(e.isNemesis||e.dread){ addRep('vigil',5); addRep('dread',7); } else if(e.isBoss){ addRep('vigil',3); addRep('dread',1.5); } else if(state.map==='overworld'){ addRep('wilds',-0.4); addRep('vigil',0.15); } bountyProgress('kill',e); if(e.poiKey){ const poi=(state.pois||[]).find(pp=>pp.key===e.poiKey); if(poi&&!poi.cleared&&!state.enemies.some(x=>x.poiKey===e.poiKey)) clearPOI(poi); } if(e.holdKey!==undefined&&!state.enemies.some(x=>x.holdKey===e.holdKey)) liberateHolding(e.holdKey); if(e._markN>0&&e._markBy&&!e._burstKill){ const _mk=e._markBy, _late=!!(_mk.prof&&_mk.prof.ranged&&_mk.prof.ranged.lvl>=MASTERY_LVLS[2]); if(_late){ const _mn=Math.min(3,e._markN||1),_br=70+26*_mn,_bd=Math.max(1,Math.round((_mk.atk||1)*0.4*_mn)); addShake(3); spawnBurst(cx,cy,10+4*_mn,{color:'#5ce0ff',speed:3.2,decay:0.04}); Sound.tone&&Sound.tone(340,0.16,'sawtooth',0.13,{slideTo:90}); floatDamage(cx,cy-16,'BURST!','#5ce0ff'); for(const o of [...state.enemies]){ if(o===e||o.hp<=0) continue; if(Math.hypot((o.x+o.w/2)-cx,(o.y+o.h/2)-cy)<_br){ o.hp-=afxHit(o,_bd); if((o.hitFlash||0)<6)o.hitFlash=6; floatDamage(o.x+o.w/2,o.y,_bd,'#5ce0ff'); o._markBy=_mk; o._markN=Math.min(3,(o._markN||0)+1); if(o.hp<=0){ o._burstKill=1; try{ killEnemy(o); } finally { o._burstKill=0; } } } } _mk._lastMarkN=_mn; _mk._markShowT=180; } else { let nn=null,nd=1e9; for(const o of state.enemies){ if(o===e||o.hp<=0) continue; const dx=o.x-e.x,dy=o.y-e.y,dd=dx*dx+dy*dy; if(dd<nd){ nd=dd; nn=o; } } if(nn){ nn._markBy=_mk; nn._markN=Math.min(3,(nn._markN||0)+1); _mk._lastMarkN=nn._markN; _mk._markShowT=180; } } }/* QUARRY kill-chain: EARLY (marker's ranged<24) a marked kill transfers ONE Mark to the nearest foe, NO area dmg; LATE (Double Nock capstone, ranged>=24) it detonates a DEADEYE BURST — corpse AoE scaled by the kill's Marks that spreads a Mark to EVERY nearby foe. NON-CHAINING: a foe the burst kills is tagged `_burstKill` FIRST, and that tag vetoes this whole block on re-entry — so ONE kill = AT MOST ONE burst. Without it the burst re-marked its survivors and killEnemy'd its victims, and each of THOSE deaths burst again — a single marked kill chain-reacted across a whole room ("half the enemies just immediately die"). The tag is CAUSAL (only burst-caused deaths are muted — a later player/ally/bell kill of a burst-MARKED survivor still bursts, that's the payoff) and is scoped to the CALL by the finally, NOT left on the object: killEnemy has two paths that return with the foe ALIVE and still in state.enemies (the wyrm's Lv-20 guard, the pinnacle add's out-of-order resurrect). A tag left stranded on one of those would silently kill that foe's capstone burst forever AND ride packScalar onto the wire (it's a number). The finally also survives a throw from the nested kill. Only the nearest-scan / in-radius scan (kill-rate, not frame-rate). */ updateHUD(); }
-function tryDropLoot(e){ const boss=e.isBoss||e.isNemesis; const chance=(boss||e.treasure)?1:(e.elite?0.12:0.008); if(Math.random()>chance) return; const cyc=e.cycle||0; const level=state.map==='dungeon'?state.dungeonLevel:state.player.level; let rIdx=rollRarity(level,boss); if(e._afxN){ for(let i=0;i<e._afxN;i++) if(Math.random()<0.30) rIdx=Math.min(4,rIdx+1); }/* each elite affix: 30% chance of +1 rarity tier (trimmed from 45% — it was over-inflating elite legendaries) */ if(cyc>0) rIdx=Math.max(rIdx,Math.min(4,2+cyc)); const inner=Math.random()<0.6?genWeapon(level,rIdx):genArmor(level,rIdx); if(cyc>0){ ensureCycleAffix(inner,rIdx); state.player.gold+=100+cyc*100; } let item=inner.atk!==undefined?{weapon:inner}:{armor:inner}; if((cyc>0&&Math.random()<0.14)||(boss&&rIdx>=4&&Math.random()<0.22)){ const pw=rollPatternWeapon(); if(pw) item={weapon:pw}; }   /* #5: pattern weapons are legendary/vault/hunt-drop tier — legion-cycle warlords or any legendary boss drop */ const tx=Math.floor((e.x+e.w/2)/TILE),ty=Math.floor((e.y+e.h/2)/TILE); const o=findOpenTile(state.map,tx,ty); state.pickups.push(makePickup(o.tx,o.ty,'loot',item)); if(boss) log('The fallen lord drops a glittering prize!','quest'); }
-function floatDamage(x,y,amount,color){ const wrap=document.getElementById('game-wrap'); const rect=canvas.getBoundingClientRect(); const scale=rect.width/VIEW_W; const sx=(x-state.camera.x)*scale+rect.left-wrap.getBoundingClientRect().left; const sy=(y-state.camera.y)*scale+rect.top-wrap.getBoundingClientRect().top; const el=document.createElement('div'); el.className='float-dmg'; el.style.color=color; el.style.left=sx+'px'; el.style.top=sy+'px'; el.textContent=(typeof amount==='number'?'-'+amount:amount); wrap.appendChild(el); setTimeout(()=>el.remove(),800); }
+  if (e._pinRef) {
+    if (e._pinRef.hp > 0 && (e._rezN || 0) < 3 && (e._orderIdx || 0) > (e._pinRef._nextKill || 0)) {
+      e._rezN = (e._rezN || 0) + 1;
+      e.hp = e.maxHp;
+      e.hitFlash = 10;
+      e.stunT = Math.max(e.stunT || 0, 28);
+      const _rx = e.x + e.w / 2,
+        _ry = e.y + e.h / 2;
+      spawnBurst(_rx, _ry, 14, { color: e.color, speed: 2.4, decay: 0.045 });
+      spawnRing(_rx, _ry, '#b0d0ff');
+      floatDamage(_rx, _ry - 14, 'RISEN!', '#b0d0ff');
+      Sound.tone && Sound.tone(120, 0.4, 'sawtooth', 0.16, { slideTo: 220 });
+      addShake(3);
+      log('The dead do not stay down!', 'combat');
+      return;
+    }
+    e._pinRef._nextKill = Math.max(e._pinRef._nextKill || 0, (e._orderIdx || 0) + 1);
+  }
+  const idx = state.enemies.indexOf(e);
+  if (idx > -1) state.enemies.splice(idx, 1);
+  const cx = e.x + e.w / 2,
+    cy = e.y + e.h / 2;
+  if (e.afxSplit && !e._splitChild) afxSplitDeath(e);
+  gainXP(e.xp);
+  state.player.gold += Math.round(e.gold * (e.isBoss || e.isNemesis || e.dread ? dreadLootBonus() : 1));
+  if (notableEnemy(e)) log(`${e.name} defeated! +${e.xp} XP, +${e.gold} gold.`, 'good');
+  tryDropLoot(e);
+  if (!state.quests.slay.done) {
+    state.quests.slay.count++;
+    if (state.quests.slay.count >= state.quests.slay.target) {
+      state.quests.slay.done = true;
+      log('Quest complete: Slay 5 monsters!', 'quest');
+    }
+    updateQuests();
+  }
+  if (e.isBoss) {
+    Sound.boss();
+    addShake(11);
+    spawnBurst(cx, cy, 30, { color: e.color, speed: 3.6, decay: 0.028 });
+    spawnBurst(cx, cy, 16, { color: '#ffffff', speed: 2.4, decay: 0.04 });
+    log(`${e.name} is vanquished!`, 'good');
+    if (state.map === 'dungeon' && !e.isFinalBoss && Math.random() < 0.3) {
+      state.inventory.keys++;
+      if (state.quests.key && !state.quests.key.done) {
+        state.quests.key.done = true;
+        updateQuests();
+      }
+      /* a boss-dropped key also satisfies (and PERSISTS) the 'Find the Dungeon Key' quest — the overworld pickup was the only completion-set site before */ log(
+        '🗝 A DUNGEON KEY tumbles from the fallen lord!',
+        'good',
+      );
+    }
+    if (e.isFinalBoss) {
+      state.flags.krakenDead = true;
+      saveGame();
+      victory();
+    } else {
+      if (state.map === 'dungeon') log('The way deeper lies open. How far can you go?', 'quest');
+      saveGame();
+    }
+  } else {
+    Sound.enemyDie();
+    addShake(1.5);
+    spawnBurst(cx, cy, 12, { color: e.color, speed: 2.4, decay: 0.04 });
+  }
+  if (e.isNemesis) defeatNemesis(e);
+  if (e.isGreatBeast) {
+    if (state.huntsSlain && !state.huntsSlain.includes(e.huntKey)) state.huntsSlain.push(e.huntKey);
+    if ((state.huntsSlain || []).length >= GREAT_HUNTS.length && !state.huntRespawnDay)
+      state.huntRespawnDay = curDay() + 3;
+    dropGreatBeastReward(e);
+    addRep('vigil', 8);
+    addRep('wilds', -12);
+    log(`★ ${e.name} falls! Its legendary trophy is yours — the realm will remember this hunt.`, 'quest');
+  }
+  if (e.isPinnacle) {
+    if (!state.pinnacleSlain) state.pinnacleSlain = [];
+    const _pinFirst = !state.pinnacleSlain.includes(e.pinKey);
+    if (_pinFirst) state.pinnacleSlain.push(e.pinKey);
+    if (!state.pinnacleRespawnDay) state.pinnacleRespawnDay = curDay() + 4;
+    dropPinnacleReward(e, _pinFirst);
+    addRep('vigil', 10);
+    addRep('wilds', -14);
+    addRep('dread', 3);
+    log(`★ ${e.name} is vanquished — an apex terror falls! The realm will sing of this day.`, 'quest');
+  }
+  /* PINNACLE kill: compute _pinFirst BEFORE the dedup push (else the drop would always see the key already slain), record the slain key, schedule the cycle respawn, drop the (Stage-B) reward, and log an EPIC line ('★'/'vanquished'/'falls') the Stage-C feed broadcast will pick up. Cycle bumps in maybeRespawnPinnacle. */ if (
+    e.raidTown !== undefined &&
+    e.raidTown !== null
+  )
+    checkRaidLiberation(e.raidTown);
+  if (e.isWildDragon) {
+    addRep('wilds', -30);
+    addRep('vigil', 4);
+    state.dragonRespawnDay = curDay() + 2;
+    log("The Emberwyrm's ashes swirl over the lair… such beasts do not stay dead.", 'lore');
+  } else if (e.isFinalBoss) {
+    addRep('vigil', 15);
+  } else if (e.isNemesis || e.dread) {
+    addRep('vigil', 5);
+    addRep('dread', 7);
+  } else if (e.isBoss) {
+    addRep('vigil', 3);
+    addRep('dread', 1.5);
+  } else if (state.map === 'overworld') {
+    addRep('wilds', -0.4);
+    addRep('vigil', 0.15);
+  }
+  bountyProgress('kill', e);
+  if (e.poiKey) {
+    const poi = (state.pois || []).find((pp) => pp.key === e.poiKey);
+    if (poi && !poi.cleared && !state.enemies.some((x) => x.poiKey === e.poiKey)) clearPOI(poi);
+  }
+  if (e.holdKey !== undefined && !state.enemies.some((x) => x.holdKey === e.holdKey))
+    liberateHolding(e.holdKey);
+  if (e._markN > 0 && e._markBy && !e._burstKill) {
+    const _mk = e._markBy,
+      _late = !!(_mk.prof && _mk.prof.ranged && _mk.prof.ranged.lvl >= MASTERY_LVLS[2]);
+    if (_late) {
+      const _mn = Math.min(3, e._markN || 1),
+        _br = 70 + 26 * _mn,
+        _bd = Math.max(1, Math.round((_mk.atk || 1) * 0.4 * _mn));
+      addShake(3);
+      spawnBurst(cx, cy, 10 + 4 * _mn, { color: '#5ce0ff', speed: 3.2, decay: 0.04 });
+      Sound.tone && Sound.tone(340, 0.16, 'sawtooth', 0.13, { slideTo: 90 });
+      floatDamage(cx, cy - 16, 'BURST!', '#5ce0ff');
+      for (const o of [...state.enemies]) {
+        if (o === e || o.hp <= 0) continue;
+        if (Math.hypot(o.x + o.w / 2 - cx, o.y + o.h / 2 - cy) < _br) {
+          o.hp -= afxHit(o, _bd);
+          if ((o.hitFlash || 0) < 6) o.hitFlash = 6;
+          floatDamage(o.x + o.w / 2, o.y, _bd, '#5ce0ff');
+          o._markBy = _mk;
+          o._markN = Math.min(3, (o._markN || 0) + 1);
+          if (o.hp <= 0) {
+            o._burstKill = 1;
+            try {
+              killEnemy(o);
+            } finally {
+              o._burstKill = 0;
+            }
+          }
+        }
+      }
+      _mk._lastMarkN = _mn;
+      _mk._markShowT = 180;
+    } else {
+      let nn = null,
+        nd = 1e9;
+      for (const o of state.enemies) {
+        if (o === e || o.hp <= 0) continue;
+        const dx = o.x - e.x,
+          dy = o.y - e.y,
+          dd = dx * dx + dy * dy;
+        if (dd < nd) {
+          nd = dd;
+          nn = o;
+        }
+      }
+      if (nn) {
+        nn._markBy = _mk;
+        nn._markN = Math.min(3, (nn._markN || 0) + 1);
+        _mk._lastMarkN = nn._markN;
+        _mk._markShowT = 180;
+      }
+    }
+  }
+  /* QUARRY kill-chain: EARLY (marker's ranged<24) a marked kill transfers ONE Mark to the nearest foe, NO area dmg; LATE (Double Nock capstone, ranged>=24) it detonates a DEADEYE BURST — corpse AoE scaled by the kill's Marks that spreads a Mark to EVERY nearby foe. NON-CHAINING: a foe the burst kills is tagged `_burstKill` FIRST, and that tag vetoes this whole block on re-entry — so ONE kill = AT MOST ONE burst. Without it the burst re-marked its survivors and killEnemy'd its victims, and each of THOSE deaths burst again — a single marked kill chain-reacted across a whole room ("half the enemies just immediately die"). The tag is CAUSAL (only burst-caused deaths are muted — a later player/ally/bell kill of a burst-MARKED survivor still bursts, that's the payoff) and is scoped to the CALL by the finally, NOT left on the object: killEnemy has two paths that return with the foe ALIVE and still in state.enemies (the wyrm's Lv-20 guard, the pinnacle add's out-of-order resurrect). A tag left stranded on one of those would silently kill that foe's capstone burst forever AND ride packScalar onto the wire (it's a number). The finally also survives a throw from the nested kill. Only the nearest-scan / in-radius scan (kill-rate, not frame-rate). */ updateHUD();
+}
+function tryDropLoot(e) {
+  const boss = e.isBoss || e.isNemesis;
+  const chance = boss || e.treasure ? 1 : e.elite ? 0.12 : 0.008;
+  if (Math.random() > chance) return;
+  const cyc = e.cycle || 0;
+  const level = state.map === 'dungeon' ? state.dungeonLevel : state.player.level;
+  let rIdx = rollRarity(level, boss);
+  if (e._afxN) {
+    for (let i = 0; i < e._afxN; i++) if (Math.random() < 0.3) rIdx = Math.min(4, rIdx + 1);
+  }
+  /* each elite affix: 30% chance of +1 rarity tier (trimmed from 45% — it was over-inflating elite legendaries) */ if (
+    cyc > 0
+  )
+    rIdx = Math.max(rIdx, Math.min(4, 2 + cyc));
+  const inner = Math.random() < 0.6 ? genWeapon(level, rIdx) : genArmor(level, rIdx);
+  if (cyc > 0) {
+    ensureCycleAffix(inner, rIdx);
+    state.player.gold += 100 + cyc * 100;
+  }
+  let item = inner.atk !== undefined ? { weapon: inner } : { armor: inner };
+  if ((cyc > 0 && Math.random() < 0.14) || (boss && rIdx >= 4 && Math.random() < 0.22)) {
+    const pw = rollPatternWeapon();
+    if (pw) item = { weapon: pw };
+  }
+  /* #5: pattern weapons are legendary/vault/hunt-drop tier — legion-cycle warlords or any legendary boss drop */ const tx =
+      Math.floor((e.x + e.w / 2) / TILE),
+    ty = Math.floor((e.y + e.h / 2) / TILE);
+  const o = findOpenTile(state.map, tx, ty);
+  state.pickups.push(makePickup(o.tx, o.ty, 'loot', item));
+  if (boss) log('The fallen lord drops a glittering prize!', 'quest');
+}
+function floatDamage(x, y, amount, color) {
+  const wrap = document.getElementById('game-wrap');
+  const rect = canvas.getBoundingClientRect();
+  const scale = rect.width / VIEW_W;
+  const sx = (x - state.camera.x) * scale + rect.left - wrap.getBoundingClientRect().left;
+  const sy = (y - state.camera.y) * scale + rect.top - wrap.getBoundingClientRect().top;
+  const el = document.createElement('div');
+  el.className = 'float-dmg';
+  el.style.color = color;
+  el.style.left = sx + 'px';
+  el.style.top = sy + 'px';
+  el.textContent = typeof amount === 'number' ? '-' + amount : amount;
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
 // Slower early leveling: a front-loaded surcharge (up to +45% at L1) fades to 0 by L7+, so the early game is a
 // deliberate ramp while the mid/late curve is unchanged (the base geometric curve matches the old one from L7 on).
-function xpForLevel(L){ let base=22; for(let i=2;i<=L;i++) base=Math.floor(base*1.58)+6; return Math.round(base*(1+Math.max(0,0.45*(7-L)/6))); }
-function gainXP(amount){ const p=state.player; p.xp+=amount; while(p.xp>=p.xpNext){ p.xp-=p.xpNext; p.level++; p.xpNext=xpForLevel(p.level); p.maxHp+=8; p.hp=p.maxHp; p.skillPoints+=2; recalcStats(); Sound.levelup(); addShake(2); spawnBurst(p.x+p.w/2,p.y+p.h/2,22,{color:'#90ff90',speed:2.8,decay:0.03}); log(`LEVEL UP! You are now level ${p.level}. +2 skill points — press K in town!`,'good'); bumpCompanionLevels(); if(p.level>=20&&state.quests.dragon&&state.quests.dragon.hidden){ state.quests.dragon.hidden=false; updateQuests(); log('You are mighty enough to tame a wild beast! Seek the Emberwyrm in the Emberwaste, far to the southeast.','quest'); } saveGame(); } }
-function playerTakeDamage(amount){ const p=state.player; if(p.dodge>0&&p.invuln>0){ if(styleOf(equippedWeapon())==='melee'){ p.riposteT=120; p._momoDecay=0; floatDamage(p.x+p.w/2,p.y-6,'PERFECT!','#ffd24a'); Sound.tone&&Sound.tone(700,0.12,'sine',0.1,{slideTo:1050}); } if(p.uFrostNova){ const _nx=p.x+p.w/2,_ny=p.y+p.h/2,_nn=10,_nd=Math.max(1,Math.round((p.atk||8)*0.6)); for(let _k=0;_k<_nn;_k++){ const _a=_k/_nn*6.28; addProjectile(_nx,_ny,Math.cos(_a)*3.0,Math.sin(_a)*3.0,_nd,{friendly:true,kind:'bolt',color:'#bfe9ff',r:7,life:60,pierce:1,style:'ranged',element:'frost',ownerRef:p}); } for(const _e of [...state.enemies]){ if(_e.hp<=0) continue; if(Math.hypot((_e.x+_e.w/2)-_nx,(_e.y+_e.h/2)-_ny)<92){ _e.chillT=Math.max(_e.chillT||0,_e.frostImmune?0:70); } } addShake(3); spawnBurst(_nx,_ny,14,{color:'#bfe9ff',speed:2.7,decay:0.05}); floatDamage(_nx,_ny-14,'FROST NOVA','#bfe9ff'); Sound.tone&&Sound.tone(520,0.18,'sine',0.1,{slideTo:900}); }/* TIDECALLER'S AEGIS: a perfect dodge (p.uFrostNova is the recalcStats-derived scalar — no gear read in this enemy-combat seam) releases friendly frost projectiles (their damage/chill run the normal afxHit + applyElementOnHit gates) plus an immediate chill (status only, not a parallel damage path) around the dodger; ownerRef:p credits the dodging player */ return; }/* PERFECT DODGE seam: a hit negated by ACTIVE roll i-frames (p.dodge>0) — melee keeps its pips (we return before the drop) and opens a 2s guaranteed-crit riposte */ if(p.invuln>0) return; if((p.evasion||0)>0&&Math.random()<p.evasion){ p.invuln=14; floatDamage(p.x+p.w/2,p.y,'DODGE','#a0e0ff'); Sound.tone(620,0.09,'sine',0.09,{slideTo:880}); spawnBurst(p.x+p.w/2,p.y+p.h/2,5,{color:'#a0e0ff',speed:1.8,decay:0.08}); return; } let dmg=Math.max(Math.ceil(amount*0.45),amount-p.def); if(p.fort>0) dmg=Math.max(1,Math.round(dmg*(1-p.fort))); if(p.blessDR>0) dmg=Math.max(1,Math.round(dmg*(1-p.blessDR))); p.hp-=dmg; p.invuln=40; if(p.cloaked||p._stillT){ p.cloaked=false; p._stillT=0; }/* GRAVEWOOL: taking a hit breaks the cloak */ if(p.momentum>0) p.momentum=Math.max(0,p.momentum-2);/* MOMENTUM: taking a real hit bleeds 2 pips */ if(p.camping){ p.camping=false; p.campHealLeft=0; log('Your rest is broken!','combat'); } degrade(equippedWeapon(),0.18); degrade(equippedArmor(),0.3); floatDamage(p.x+p.w/2,p.y,dmg,'#ff6060'); Sound.hurt(); addShake(5); hurtFlash=1; spawnBurst(p.x+p.w/2,p.y+p.h/2,8,{color:'#ff5050',speed:2,up:0.6,grav:0.14,decay:0.04}); log(`You take ${dmg} damage!`,'combat'); updateHUD(); if(p.hp<=0){ p.hp=0; updateHUD(); gameOver(); } return dmg; }/* return the damage actually dealt (undefined on dodge/evade/invuln) — vampiric elites heal off it */
-function projHitsRect(pr,r){ return pr.x>r.x&&pr.x<r.x+r.w&&pr.y>r.y&&pr.y<r.y+r.h; }
+function xpForLevel(L) {
+  let base = 22;
+  for (let i = 2; i <= L; i++) base = Math.floor(base * 1.58) + 6;
+  return Math.round(base * (1 + Math.max(0, (0.45 * (7 - L)) / 6)));
+}
+function gainXP(amount) {
+  const p = state.player;
+  p.xp += amount;
+  while (p.xp >= p.xpNext) {
+    p.xp -= p.xpNext;
+    p.level++;
+    p.xpNext = xpForLevel(p.level);
+    p.maxHp += 8;
+    p.hp = p.maxHp;
+    p.skillPoints += 2;
+    recalcStats();
+    Sound.levelup();
+    addShake(2);
+    spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 });
+    log(`LEVEL UP! You are now level ${p.level}. +2 skill points — press K in town!`, 'good');
+    bumpCompanionLevels();
+    if (p.level >= 20 && state.quests.dragon && state.quests.dragon.hidden) {
+      state.quests.dragon.hidden = false;
+      updateQuests();
+      log(
+        'You are mighty enough to tame a wild beast! Seek the Emberwyrm in the Emberwaste, far to the southeast.',
+        'quest',
+      );
+    }
+    saveGame();
+  }
+}
+function playerTakeDamage(amount) {
+  const p = state.player;
+  if (p.dodge > 0 && p.invuln > 0) {
+    if (styleOf(equippedWeapon()) === 'melee') {
+      p.riposteT = 120;
+      p._momoDecay = 0;
+      floatDamage(p.x + p.w / 2, p.y - 6, 'PERFECT!', '#ffd24a');
+      Sound.tone && Sound.tone(700, 0.12, 'sine', 0.1, { slideTo: 1050 });
+    }
+    if (p.uFrostNova) {
+      const _nx = p.x + p.w / 2,
+        _ny = p.y + p.h / 2,
+        _nn = 10,
+        _nd = Math.max(1, Math.round((p.atk || 8) * 0.6));
+      for (let _k = 0; _k < _nn; _k++) {
+        const _a = (_k / _nn) * 6.28;
+        addProjectile(_nx, _ny, Math.cos(_a) * 3.0, Math.sin(_a) * 3.0, _nd, {
+          friendly: true,
+          kind: 'bolt',
+          color: '#bfe9ff',
+          r: 7,
+          life: 60,
+          pierce: 1,
+          style: 'ranged',
+          element: 'frost',
+          ownerRef: p,
+        });
+      }
+      for (const _e of [...state.enemies]) {
+        if (_e.hp <= 0) continue;
+        if (Math.hypot(_e.x + _e.w / 2 - _nx, _e.y + _e.h / 2 - _ny) < 92) {
+          _e.chillT = Math.max(_e.chillT || 0, _e.frostImmune ? 0 : 70);
+        }
+      }
+      addShake(3);
+      spawnBurst(_nx, _ny, 14, { color: '#bfe9ff', speed: 2.7, decay: 0.05 });
+      floatDamage(_nx, _ny - 14, 'FROST NOVA', '#bfe9ff');
+      Sound.tone && Sound.tone(520, 0.18, 'sine', 0.1, { slideTo: 900 });
+    }
+    /* TIDECALLER'S AEGIS: a perfect dodge (p.uFrostNova is the recalcStats-derived scalar — no gear read in this enemy-combat seam) releases friendly frost projectiles (their damage/chill run the normal afxHit + applyElementOnHit gates) plus an immediate chill (status only, not a parallel damage path) around the dodger; ownerRef:p credits the dodging player */ return;
+  }
+  /* PERFECT DODGE seam: a hit negated by ACTIVE roll i-frames (p.dodge>0) — melee keeps its pips (we return before the drop) and opens a 2s guaranteed-crit riposte */ if (
+    p.invuln > 0
+  )
+    return;
+  if ((p.evasion || 0) > 0 && Math.random() < p.evasion) {
+    p.invuln = 14;
+    floatDamage(p.x + p.w / 2, p.y, 'DODGE', '#a0e0ff');
+    Sound.tone(620, 0.09, 'sine', 0.09, { slideTo: 880 });
+    spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 5, { color: '#a0e0ff', speed: 1.8, decay: 0.08 });
+    return;
+  }
+  let dmg = Math.max(Math.ceil(amount * 0.45), amount - p.def);
+  if (p.fort > 0) dmg = Math.max(1, Math.round(dmg * (1 - p.fort)));
+  if (p.blessDR > 0) dmg = Math.max(1, Math.round(dmg * (1 - p.blessDR)));
+  p.hp -= dmg;
+  p.invuln = 40;
+  if (p.cloaked || p._stillT) {
+    p.cloaked = false;
+    p._stillT = 0;
+  }
+  /* GRAVEWOOL: taking a hit breaks the cloak */ if (p.momentum > 0) p.momentum = Math.max(0, p.momentum - 2);
+  /* MOMENTUM: taking a real hit bleeds 2 pips */ if (p.camping) {
+    p.camping = false;
+    p.campHealLeft = 0;
+    log('Your rest is broken!', 'combat');
+  }
+  degrade(equippedWeapon(), 0.18);
+  degrade(equippedArmor(), 0.3);
+  floatDamage(p.x + p.w / 2, p.y, dmg, '#ff6060');
+  Sound.hurt();
+  addShake(5);
+  hurtFlash = 1;
+  spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 8, {
+    color: '#ff5050',
+    speed: 2,
+    up: 0.6,
+    grav: 0.14,
+    decay: 0.04,
+  });
+  log(`You take ${dmg} damage!`, 'combat');
+  updateHUD();
+  if (p.hp <= 0) {
+    p.hp = 0;
+    updateHUD();
+    gameOver();
+  }
+  return dmg;
+} /* return the damage actually dealt (undefined on dodge/evade/invuln) — vampiric elites heal off it */
+function projHitsRect(pr, r) {
+  return pr.x > r.x && pr.x < r.x + r.w && pr.y > r.y && pr.y < r.y + r.h;
+}

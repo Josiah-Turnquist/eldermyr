@@ -13,8 +13,11 @@ node tests/golden/harness.mjs record    # (re)write oracle.json from the current
 node tests/golden/harness.mjs run <scenario> <seed> [--perturb speed|damage]   # one worker, prints hashes
 ```
 
-Scenarios: `overworld-combat`, `dungeon`, `daily-life` (3000 ticks each, hashed every 100).
-`check` reports the FIRST divergent tick per scenario.
+Scenarios: `overworld-combat`, `dungeon`, `daily-life`, `day-rollover` (3000 ticks each, hashed
+every 100; `day-rollover` parks `state.time` just before two day boundaries so `updateTime()`
+itself fires `onNewDay` — hunt respawn at crossing #1, quiet daily path at #2).
+`check` reports the FIRST divergent tick per scenario. `ELDERMYR_GAME_FILE=dist/eldermyr.html`
+(absolute or CWD-relative, same as load-game.js) points every run at a rebuilt artifact.
 
 ## How it works
 
