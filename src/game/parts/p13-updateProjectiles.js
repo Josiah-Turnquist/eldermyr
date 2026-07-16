@@ -1,5 +1,11 @@
 function updateProjectiles() {
   const p = state.player;
+  const _party = partyIn();
+  /* P2/S3: hostile shots hit-test EVERY hero in this world (join order — first overlap wins, exactly
+     the old players[0]-then-patch priority), retiring world.js's players[1..N] hostile patches in both
+     worlds. World-scoped (partyIn, plan risk #9): an overworld arrow must never hit-test a delver's
+     dungeon coordinates. Hoisted once per call: players cannot move (or change worlds) mid-pass.
+     SP: partyIn() === [state.player] → the loop degenerates to the old single test. */
   for (let i = state.projectiles.length - 1; i >= 0; i--) {
     const pr = state.projectiles[i];
     if (pr.seek) steerSeek(pr);
@@ -159,14 +165,28 @@ function updateProjectiles() {
           }
         }
         state.player = _sp;
-      } else if (projHitsRect(pr, p)) {
-        const _pd = playerTakeDamage(pr.dmg) || 0;
-        if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp) afxVampHeal(pr.ownerRef, _pd);
-        /* vampiric archer/caster elites heal off their landed shots (ownerRef is the shooting ENEMY on hostile projectiles; packScalar drops it on the wire) */ if (
-          pr.element === 'frost'
-        )
-          state.player.chillT = Math.max(state.player.chillT || 0, 90);
-        dead = true;
+      } else {
+        for (const pl of _party) {
+          if (pl.downed) continue; /* bleed-out owns the downed — don't pile on (MP-only field, undefined in SP) */
+          if (projHitsRect(pr, pl)) {
+            const _sp = state.player,
+              _si = state.inventory;
+            state.player = pl;
+            if (pl.inventory) state.inventory = pl.inventory;
+            /* playerTakeDamage reads state.player (+ equipped gear off state.inventory), so pin both
+               to the struck hero; SP: self-assignments (pl === state.player), byte-identical. */
+            const _pd = playerTakeDamage(pr.dmg) || 0;
+            if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp) afxVampHeal(pr.ownerRef, _pd);
+            /* vampiric archer/caster elites heal off their landed shots (ownerRef is the shooting ENEMY on hostile projectiles; packScalar drops it on the wire) */ if (
+              pr.element === 'frost'
+            )
+              pl.chillT = Math.max(pl.chillT || 0, 90);
+            state.player = _sp;
+            state.inventory = _si;
+            dead = true;
+            break;
+          }
+        }
       }
     }
     if (dead) {

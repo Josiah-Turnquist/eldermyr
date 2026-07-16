@@ -162,6 +162,22 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   layers); inert REMAP overlay scaffolding in golden serialize.mjs (identity-preserving,
   $ref-safe; unit-proven round-trip). Gates: battery 39/39, golden 8/8 on the UNCHANGED
   oracle, world self-test green, typecheck clean. Zero sim-behavior change.
+- 2026-07-16: P2/S3 DONE — hazards fold: snow chill (updateWeather), fire burns (updateFires),
+  hostile-shot hit-tests (updateProjectiles) and the pinnacle party menace (pinnacleHazard) now loop
+  the game's new WORLD-SCOPED `partyIn()` (p22, beside party(); p.map-filtered per risk #9 — SP:
+  [state.player], byte-identical) in-sim; ALL four world.js players[1..N] damage patches deleted
+  (snow replica, ow hostile+fires block, pinnacle Stage C pass, dungeon hostile block) + orphaned
+  frozenLimit. Gates: golden 1p 8/8 UNTOUCHED oracle (REMAP still empty — no keys moved); mp-golden
+  4/4 with NO re-record — the recorded scenarios never enter a hazard path (proven: hashes identical
+  before/after), so the behavioral delta is guarded by NEW battery suite `hazards-mp-verify`
+  (17 asserts: non-first player hit by shots/fire/chill, vamp heal, downed spared, delver-tag NOT hit
+  by overworld shots, dungeon shot hits fellow delver) — SEEN FAILING (8 asserts) with partyIn
+  perturbed to pre-fold [state.player], plus verify-cleanup ITEM3 (reworked: real updateWeather now
+  IS the chill source) and mp-pinnacle-verify §4 failing under the same perturbation; battery 40/40,
+  mp-prove all green (speed cascades@0, hunt exactly @700), world self-test + typecheck green.
+  ARCHITECTURE.md per-player-effect + Stage C bullets rewritten. Conscious MP deltas: downed heroes
+  now spared by ALL hazards incl. players[0]; a wander-home pinnacle boss menaces nobody; a stale
+  delver pin can no longer be chilled/burned in wrong-world coordinates.
 - 2026-07-16: P2/S2 DONE — `party()` canonized in the game (ONE definition beside
   partyLvl/partyN in p22; p23's dawn-melt inline idiom now calls it; SP never sets
   state.players → byte-identical, golden 8/8 on the untouched oracle) + the 2-PLAYER GOLDEN

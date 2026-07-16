@@ -100,7 +100,31 @@ function pinnacleHazard(e, pcx, pcy) {
       );
       addShake(2);
     }
-  } else e._hazT = 0; // outside the shrinking ring: drowning (King) / the killing dark (Shepherd) — throttled dmg+chill on the ACTING player (party-wide pass is Stage C)
+  } else e._hazT = 0; // outside the shrinking ring: drowning (King) / the killing dark (Shepherd) — throttled dmg+chill on the ACTING player
+  if (state.time % 42 === 0) {
+    /* P2/S3: the party-wide arena menace (Stage C), folded in from world.js's MP-only pass — any OTHER
+       hero of this world outside the ring but within leash takes the same throttled drowning/killing-dark
+       + chill. Same 42-tick clock throttle, same damage, only READS the arenaR shrunk above. The acting
+       duelist (state.player, this boss's bucketed nearest hero) is skipped — the per-frame _hazT block
+       above already owns them. Runs only when the duelist is engaged (the wander-home branch returns
+       before this: a boss walking home menaces nobody — when the NEAREST hero is beyond leash, so is
+       everyone else). downed heroes are spared. SP: partyIn() === [state.player] → the skip empties the
+       loop; zero writes, zero RNG draws, byte-identical. */
+    for (const pl of partyIn()) {
+      if (pl === state.player || pl.downed) continue;
+      const pd2 = Math.hypot(pl.x + pl.w / 2 - lx, pl.y + pl.h / 2 - ly);
+      if (pd2 > e.arenaR && pd2 <= PIN_LEASH) {
+        const _sp = state.player,
+          _si = state.inventory;
+        state.player = pl;
+        if (pl.inventory) state.inventory = pl.inventory;
+        playerTakeDamage(Math.max(4, Math.round(e.atk * 0.4)));
+        state.player = _sp;
+        state.inventory = _si;
+        pl.chillT = Math.max(pl.chillT || 0, 80);
+      }
+    }
+  }
   return false;
 }
 function maybeRespawnPinnacle() {

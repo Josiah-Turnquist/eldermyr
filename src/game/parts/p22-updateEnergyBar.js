@@ -282,6 +282,11 @@ function partyN() {
 function party() {
   return state.players && state.players.length ? state.players : [state.player];
 } // P2/S2: THE one definition of the MP-roster idiom (the p23 dawn-melt precedent). The server sets state.players; single-player NEVER does, so this is [state.player] — same array, same draws, byte-identical SP. Converted loops iterate party() in state.players JOIN ORDER (the determinism contract the 2p golden baselines freeze).
+function partyIn() {
+  const out = [];
+  for (const pl of party()) if ((pl.map || state.map) === state.map) out.push(pl);
+  return out;
+} // P2/S3: party WORLD-SCOPED to whatever world is swapped into the state singletons right now (plan risk #9). The server runs these same fns against the shared overworld AND the party dungeon (world-slot swap), and a hazard that looped the whole roster would hit delvers in overworld coordinates (or vice versa). p.map is server-stamped ('overworld'/'dungeon'); single-player never sets it, so (undefined || state.map) === state.map keeps this [state.player] — byte-identical SP, zero extra RNG draws. Iteration stays JOIN ORDER (party()'s contract).
 function makeGreatBeast(h, tx, ty) {
   const e = makeBoss(tx, ty);
   e.isGreatBeast = true;

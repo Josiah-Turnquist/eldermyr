@@ -60,9 +60,6 @@ try { global.__libGate = null; } catch (_e) {}
 // epic = broadcast to EVERYONE (someone slew a boss/hunt/nemesis, found a legendary, freed a town)
 const FEED_BROADCAST = /vanquished|is slain| falls!|has fallen|legendary|Emberwyrm|Kraken|Overlord|Dawnbreaker|liberated|Sealstone|great beast|falls!|★/i;
 const OW_W = G.OW_W || 347, OW_H = G.OW_H || 291;
-// The frozen-wastes band (== the game's isFrozenTile, which isn't exported): biomeMap[y][x]===1 iff
-// y<=frozenLimit(x). Pure math over OW_H + tx, so we replicate the per-player snow chill EXACTLY.
-function frozenLimit(tx) { return Math.round(OW_H * 0.17 + Math.sin(tx * 0.18) * 4 + Math.sin(tx * 0.06) * 3); }
 const TOWN_R2 = (20 * TILE) ** 2;   // "main town vicinity" — bosses can't see players within this of the Eldermyr spawn
 // Enemy density (server-owned). The game seeds ~127 foes across the whole 347x291 map and
 // caps at 46 — so the map-wide count sits ABOVE the cap and maybeSpawnWild never fires near
@@ -447,8 +444,9 @@ class World {
   // one pass under players[0] would credit players[0] for EVERY ranged and magic kill in the room — two of
   // the three combat styles — and a pure-ranged hero's "Slay monsters (0/5)" would never retire. Bucketing by
   // owner and running the REAL updateProjectiles once per bucket makes state.player and the slice agree.
-  // Hostile + unowned shots ride one final pass under pool[0] (their player-hit test reads state.player;
-  // world.js patches players[1..N] right after, exactly as before). Every projectile is stepped exactly once:
+  // Hostile + unowned shots ride one final pass under pool[0] — (P2/S3) their player-hit test loops the
+  // game's world-scoped partyIn() itself, so every hero of the swapped-in world is a target (the old
+  // players[1..N] patches are gone). Every projectile is stepped exactly once:
   // buckets are disjoint, each pass walks its own array backwards, and shots spawned mid-pass (the Quarry-Mark
   // frost lance, `ownerRef: po`) land in that owner's bucket and are recombined below.
   _projectilesByShooter(pool) {
@@ -916,11 +914,10 @@ class World {
       for (const pr of S.projectiles) if (pr.friendly && !pr.ownerRef) pr.ownerRef = p;   // stamp the SHOOTER — hits credit their lifesteal/crit/prof/XP (not players[0])
       if (S.companions) for (const c of S.companions) if (!c.ownerId) c.ownerId = p.id;   // a fresh recruit follows its RECRUITER
       if (S.allies) for (const a of S.allies) if (!a._owner) a._owner = p.id;   // a thrall/bound-elite summoned this slice fights for its summoner
-      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is NOT skippable: enterDungeon() sets state.maxDepth=1 on THIS tick and `continue` used to throw it away (as did every other PP write the entering slice made). The overworld-only work below (exhaustion/snow chill) is what we're skipping, not the slice.
+      if (p.map === 'dungeon') { writeBackPP(p); continue; }   // just entered — its dungeon runs next tick. The writeback is NOT skippable: enterDungeon() sets state.maxDepth=1 on THIS tick and `continue` used to throw it away (as did every other PP write the entering slice made). The overworld-only work below (the exhaustion edge) is what we're skipping, not the slice.
       if (G.isExhausted) { const ex = !!G.isExhausted(); if (ex !== p._exWas) { p._exWas = ex; if (G.recalcStats) try { G.recalcStats(); } catch (_e) {} } }
-      // Winter snow chill: updateWeather (shared phase) only chills players[0]; apply it to EVERY hero standing on a
-      // frozen tile during snow-weather (frozen band = y<=frozenLimit(x), i.e. the game's own isFrozenTile condition).
-      if (S.weather === 'snow' && S.time % 150 === 0) { const ftx = Math.floor((p.x + p.w / 2) / TILE), fty = Math.floor((p.y + p.h / 2) / TILE); if (fty <= frozenLimit(ftx)) p.chillT = Math.max(p.chillT || 0, 75); }
+      // (P2/S3) The winter snow-chill replica died here: updateWeather itself now chills every
+      // overworld hero (it loops the game's world-scoped partyIn()), so the shared phase covers all.
       writeBackPP(p);
     }
 
@@ -1033,65 +1030,10 @@ class World {
       }
     }
 
-    // The shared systems above only damage players[0]. Melee is already per-partition,
-    // but enemy PROJECTILES and FIRE check only state.player — so make them hurt the
-    // OTHER players too (players[1..N]; index 0 was handled by updateProjectiles/Fires).
-    if (players.length > 1) {
-      if (G.projHitsRect && G.playerTakeDamage && S.projectiles.length) {
-        for (let i = S.projectiles.length - 1; i >= 0; i--) {
-          const pr = S.projectiles[i];
-          if (pr.friendly) continue;
-          for (let j = 1; j < players.length; j++) {
-            const pl = players[j];
-            if (pl.downed) continue;      // already down — bleed-out governs, don't pile on
-            if (G.projHitsRect(pr, pl)) {
-              S.player = pl; S.inventory = pl.inventory;
-              let _pd = 0; try { _pd = G.playerTakeDamage(pr.dmg) || 0; } catch (e) { this._err('playerTakeDamage', e); }
-                if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp && G.afxVampHeal) { try { G.afxVampHeal(pr.ownerRef, _pd); } catch (_e) {} }   // vampiric elites heal off EVERY player they hit, not just the tick's first
-              if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
-              S.projectiles.splice(i, 1);
-              break;
-            }
-          }
-        }
-      }
-      if (G.playerTakeDamage && S.fires && S.fires.length && S.map === 'overworld' && S.time % 18 === 0) {
-        for (const f of S.fires) for (let j = 1; j < players.length; j++) {
-          const pl = players[j];
-          if (pl.downed) continue;
-          if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
-            S.player = pl; S.inventory = pl.inventory;
-            try { G.playerTakeDamage(3); } catch (e) { this._err('playerTakeDamage', e); }
-          }
-        }
-      }
-    }
-
-    // Party-wide PINNACLE hazard: pinnacleHazard (inside updateEnemies) only drowns/darks the boss's ONE
-    // bucketed (nearest) hero — so the shrinking ring threatens ONLY the duelist. Menace the REST of the party
-    // too: any other engaged hero outside the ring (but still within leash of the lair) takes the same
-    // throttled drowning (King) / killing-dark (Shepherd) + chill. Mirrors the fire-to-all-players loop; only
-    // READS the live arenaR (already shrunk this tick by the partition's pinnacleHazard — never shrinks here).
-    if (players.length > 1 && G.playerTakeDamage && S.map === 'overworld' && S.time % 42 === 0) {
-      const PIN_LEASH = 980;   // mirrors the game's PIN_LEASH — beyond it the boss wanders home & stops hazarding, so distant/town heroes stay safe
-      let eligible = null;     // DEFER the filter-alloc until a pinnacle boss is actually FOUND → the common (no-boss) tick does one bare scan with NO per-tick allocation
-      for (const e of S.enemies) {
-        if (!e.isPinnacle || !e.arenaR) continue;
-        if (!eligible) { eligible = players.filter((p) => !p.downed && !inTown(p)); if (!eligible.length) break; }
-        const lx = (e._lairTx != null ? e._lairTx : Math.floor((e.x + e.w / 2) / TILE)) * TILE + 16;
-        const ly = (e._lairTy != null ? e._lairTy : Math.floor((e.y + e.h / 2) / TILE)) * TILE + 16;
-        const owner = nearestPlayer(e, eligible);   // the bucketed hero — pinnacleHazard already hit them this tick; don't double-dip
-        for (const pl of eligible) {
-          if (pl === owner) continue;
-          const pdl = Math.hypot((pl.x + pl.w / 2) - lx, (pl.y + pl.h / 2) - ly);
-          if (pdl > e.arenaR && pdl <= PIN_LEASH) {
-            S.player = pl; S.inventory = pl.inventory;
-            try { G.playerTakeDamage(Math.max(4, Math.round(e.atk * 0.4))); } catch (er) { this._err('pinHazard', er); }
-            pl.chillT = Math.max(pl.chillT || 0, 80);
-          }
-        }
-      }
-    }
+    // (P2/S3) The players[1..N] damage patches died here — the game fns themselves now loop the
+    // world-scoped party (partyIn): hostile projectiles hit-test every hero inside updateProjectiles,
+    // updateFires burns every hero on a burning tile, and pinnacleHazard menaces the non-duelist
+    // heroes outside the ring (the Stage C party-wide pass) — for players[0] AND [1..N] alike.
 
     // ============================ THE DUNGEON (party-shared) ============================
     // ONE shared instance: the first enterer creates it, everyone else joins in. Delvers see
@@ -1168,27 +1110,10 @@ class World {
             }
             S.companions = allC;
           }
-          // projectiles, partitioned by shooter (hostile/unowned ride a final pass under the first delver, who is
-          // also the only one updateProjectiles' own player-hit test sees — the others are patched below)
+          // projectiles, partitioned by shooter (hostile/unowned ride a final pass under the first delver;
+          // (P2/S3) updateProjectiles' own hostile hit-test loops the world-scoped party, so it sees EVERY
+          // delver — S.map is 'dungeon' while this instance is swapped in, so topside heroes are excluded)
           this._projectilesByShooter(stillIn);
-          if (stillIn.length > 1 && G.projHitsRect && G.playerTakeDamage && S.projectiles.length) {
-            for (let i = S.projectiles.length - 1; i >= 0; i--) {
-              const pr = S.projectiles[i];
-              if (pr.friendly) continue;
-              for (let j = 1; j < stillIn.length; j++) {
-                const pl = stillIn[j];
-                if (pl.downed) continue;
-                if (G.projHitsRect(pr, pl)) {
-                  S.player = pl; S.inventory = pl.inventory;
-                  let _pd = 0; try { _pd = G.playerTakeDamage(pr.dmg) || 0; } catch (e) { this._err('playerTakeDamage', e); }
-                if (_pd > 0 && pr.ownerRef && pr.ownerRef.afxVamp && G.afxVampHeal) { try { G.afxVampHeal(pr.ownerRef, _pd); } catch (_e) {} }   // vampiric elites heal off EVERY player they hit, not just the tick's first
-                  if (pr.element === 'frost') pl.chillT = Math.max(pl.chillT || 0, 90);
-                  S.projectiles.splice(i, 1);
-                  break;
-                }
-              }
-            }
-          }
           if (S.time % 30 === 0) unstickEnemies('dungeon');
           this._downedPass(stillIn);                       // downed & revive work INSIDE the dungeon too
         }

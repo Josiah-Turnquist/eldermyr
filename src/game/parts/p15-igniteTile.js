@@ -209,8 +209,22 @@ function updateFires() {
           if (e.hp <= 0) killEnemy(e);
         }
       }
-      if (Math.floor((p.x + p.w / 2) / TILE) === f.tx && Math.floor((p.y + p.h / 2) / TILE) === f.ty)
-        playerTakeDamage(3);
+      for (const pl of partyIn()) {
+        /* P2/S3: burn EVERY hero standing in this fire, not just the pinned state.player — retires
+           world.js's players[1..N] fire patch. playerTakeDamage reads state.player/state.inventory
+           (armor degrade), so pin both around the call; SP: partyIn() === [state.player] and the
+           pins are self-assignments — identical. downed heroes are spared (MP-only field). */
+        if (pl.downed) continue;
+        if (Math.floor((pl.x + pl.w / 2) / TILE) === f.tx && Math.floor((pl.y + pl.h / 2) / TILE) === f.ty) {
+          const _sp = state.player,
+            _si = state.inventory;
+          state.player = pl;
+          if (pl.inventory) state.inventory = pl.inventory;
+          playerTakeDamage(3);
+          state.player = _sp;
+          state.inventory = _si;
+        }
+      }
     }
     if (f.spread <= 0 && f.life > 50) {
       f.spread = 70 + Math.floor(Math.random() * 50);

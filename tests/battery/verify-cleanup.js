@@ -62,20 +62,23 @@ B.x = A.x + 220; B.y = A.y + 220;
 }
 
 // ---------- ITEM 3: per-player winter snow-tile chill (every hero, not just players[0]) ----------
+// (P2/S3) The world.js per-rotation chill REPLICA is gone: updateWeather itself now loops the
+// world-scoped party (partyIn), so the REAL updateWeather must chill BOTH heroes in one shared-phase
+// pass. (The old form stubbed updateWeather out to isolate the replica; that stub would now silence
+// the only chill source and assert nothing.)
 {
-  const realUW = G.updateWeather, realUT = G.updateTime;
-  G.updateWeather = () => {};                    // isolate: the ONLY chill source is the per-player replica
+  const realUT = G.updateTime;
   G.updateTime = () => {};                       // freeze S.time on a 150-multiple so the chill gate fires this tick
-  const savedWeather = S.weather, savedTime = S.time, savedEnemies = S.enemies;
+  const savedWeather = S.weather, savedTimer = S.weatherTimer, savedTime = S.time, savedEnemies = S.enemies, savedProj = S.projectiles;
   const aPos = { x: A.x, y: A.y }, bPos = { x: B.x, y: B.y };
-  S.weather = 'snow'; S.time = 300; S.enemies = [];
+  S.weather = 'snow'; S.weatherTimer = 99999; S.time = 300; S.enemies = []; S.projectiles = [];   // weatherTimer high: a mid-test reroll could flip snow off before the chill line
   A.x = 40 * TILE; A.y = 5 * TILE; A.chillT = 0; A.held = {}; A.downed = false; A.camping = false; A.hp = A.maxHp;
   B.x = 120 * TILE; B.y = 5 * TILE; B.chillT = 0; B.held = {}; B.downed = false; B.camping = false; B.hp = B.maxHp;
   ok('ITEM3 both heroes on the frozen band', 5 <= (208 * 0.17), 'ty=5');
   w.tick();
-  ok('ITEM3 player A (players[0]) chilled', A.chillT === 75, 'A.chillT=' + A.chillT);
-  ok('ITEM3 player B (players[1]) chilled too', B.chillT === 75, 'B.chillT=' + B.chillT);
-  G.updateWeather = realUW; G.updateTime = realUT; S.weather = savedWeather; S.time = savedTime; S.enemies = savedEnemies;
+  ok('ITEM3 player A (players[0]) chilled by updateWeather itself', A.chillT === 75, 'A.chillT=' + A.chillT);
+  ok('ITEM3 player B (players[1]) chilled too (partyIn fold)', B.chillT === 75, 'B.chillT=' + B.chillT);
+  G.updateTime = realUT; S.weather = savedWeather; S.weatherTimer = savedTimer; S.time = savedTime; S.enemies = savedEnemies; S.projectiles = savedProj;
   A.x = aPos.x; A.y = aPos.y; B.x = bPos.x; B.y = bPos.y; A.chillT = 0; B.chillT = 0;
 }
 

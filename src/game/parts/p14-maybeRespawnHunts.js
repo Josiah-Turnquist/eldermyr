@@ -151,10 +151,17 @@ function updateWeather() {
     if (w.y > __g.VIEW_H + 6) weatherParts.splice(i, 1);
   }
   if (state.weather === 'snow') {
-    const ftx = Math.floor((state.player.x + 11) / TILE),
-      fty = Math.floor((state.player.y + 11) / TILE);
-    if (isFrozenTile(ftx, fty) && state.time % 150 === 0)
-      state.player.chillT = Math.max(state.player.chillT || 0, 75);
+    for (const pl of partyIn()) {
+      /* P2/S3: EVERY hero in this world takes the frozen-band chill, not just whoever is pinned into
+         state.player (the shared phase pins players[0]) — this fold retires world.js's per-rotation
+         chill replica. downed heroes are spared (bleed-out owns them; MP-only field, undefined in SP).
+         SP: partyIn() === [state.player] → same reads, same condition order, same write. */
+      if (pl.downed) continue;
+      const ftx = Math.floor((pl.x + 11) / TILE),
+        fty = Math.floor((pl.y + 11) / TILE);
+      if (isFrozenTile(ftx, fty) && state.time % 150 === 0)
+        pl.chillT = Math.max(pl.chillT || 0, 75);
+    }
   }
 }
 function drawWeather() {

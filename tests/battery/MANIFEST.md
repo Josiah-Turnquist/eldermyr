@@ -80,6 +80,9 @@ These are pre-existing, documented flakes in the source suites — not tree regr
 - `map-enlarge-verify` — the 248×208 → 347×291 overworld resize is valid (sites reachable & correct tier, kraken ring sealed, nothing in the ocean).
 - `map-mp-verify` — the MP room boots on the enlarged map; `mapPayload` dims 347×291; 300 spawn/kill ticks clean.
 
+### The hazards fold (rebuild P2/S3)
+- `hazards-mp-verify` — snow chill / fire tiles / hostile projectiles loop the game's world-scoped `partyIn()` in-sim (world.js players[1..N] patches deleted): the non-first player takes hazard damage, players[0] unchanged, vamp heal preserved, a delver-tagged hero is NOT hit by overworld shots, a dungeon shot hits a fellow delver, the downed are spared. (The pinnacle menace half of the fold is guarded by `mp-pinnacle-verify` §4.)
+
 ### Liberation / restore regression tiers
 - `t1-knockdown` — co-op knockdown must NOT run the SP `gameOver` path.
 - `t2-liberation` — no premature liberation from partitioned combat.

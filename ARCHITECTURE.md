@@ -127,14 +127,21 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   on every party-level rise.
 - **Shared-phase systems** (weather, faction war, nemesis) run once per tick under
   `players[0]`. Their log lines must broadcast (feed attribution), and any *per-player
-  effect* (e.g. snow chill) belongs in the per-player loop, not the shared phase.
+  effect* must loop the game's **world-scoped party** (`partyIn()`, beside `party()`) *inside the
+  sim fn* — the P2/S3 shape. Snow chill, fire burns and hostile-shot hit-tests do this already;
+  world.js carries **no** players[1..N] replica patches anymore, so a new per-player effect that
+  only touches `state.player` will silently hit one hero. `partyIn()` (not `party()`) is the rule
+  for anything positional: it filters to `p.map === state.map`, so a fn running against the
+  swapped-in dungeon never hits topside heroes in wrong coordinates (and vice versa).
 - **Projectiles are partitioned by SHOOTER** (`_projectilesByShooter`, both worlds), not run once
   under `players[0]`. `updateProjectiles` re-pins `state.player` to each friendly shot's `ownerRef`
   *itself* (so hits credit the shooter) — a swap at the call site cannot follow a swap that happens
   per projectile inside the loop, so the PP slice has to be right per bucket or every ranged/magic
   kill in the room credits `players[0]`'s quests/bounty. Hostile + unowned shots ride one final pass
-  under `pool[0]`. With nobody in that world the shots are left parked — running them under a stale
-  `state.player` let an overworld arrow hit-test a hero in dungeon coordinates.
+  under `pool[0]`, and their player-hit test loops `partyIn()` itself (P2/S3) — every hero of the
+  swapped-in world is a target, downed heroes are spared. With nobody in that world the shots are
+  left parked — running them under a stale `state.player` let an overworld arrow hit-test a hero in
+  dungeon coordinates.
 
 ## Snapshots & the wire
 
@@ -370,10 +377,11 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   respawn) runs in the once-per-tick shared block, **self-throttled** by `state._pinCheckT` (real work ~1/40 frames).
   Its dawn-melt "is anyone engaged nearby?" test must scan `state.players` (the MP roster; `[state.player]` in SP) —
   a `players[0]`-only check would vanish the boss mid-fight for another player (the shared-phase per-player-effect
-  rule). The **party-wide arena hazard** (world.js, MP-only, 42-throttled) menaces heroes OUTSIDE the shrinking ring
-  that the bucketed duelist's per-frame `pinnacleHazard` can't reach; it only READS the live `arenaR` (never shrinks
-  it) and DEFERS its player-filter allocation until a pinnacle boss is found (no allocation / early-out on the common
-  no-boss tick).
+  rule). The **party-wide arena hazard** lives INSIDE `pinnacleHazard` (P2/S3 fold; the old world.js
+  MP-only pass is deleted): on the same 42-tick clock throttle it menaces every OTHER `partyIn()` hero outside the
+  ring but within leash — the acting duelist is skipped (the per-frame `_hazT` block owns them), downed heroes are
+  spared, and it only READS the `arenaR` the same call just shrank. A boss walking home (duelist beyond leash)
+  menaces nobody. SP: the skip empties the loop — zero writes, zero RNG.
 - **The pinnacle bosses + their adds + the Emberwyrm are FLAT-LEVELLED** (`PIN_LEVEL`=75, `DRAGON_LEVEL`=30) —
   they no longer read `partyLvl()` at all, because scaling *down* to the party is what let a level-19 hero solo
   both apex terrors. Three things that look like tidy-ups will silently undo this: (1) putting them into world.js's

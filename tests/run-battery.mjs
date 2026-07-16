@@ -39,6 +39,8 @@ const SUITES = [
   'flat-levels-verify', 'facing-verify', 'facing-noregress', 'facing-mp-verify', 'map-enlarge-verify', 'map-mp-verify',
   // liberation/restore regression tiers
   't1-knockdown', 't2-liberation', 't3-restore', 't4-regression',
+  // the hazards fold (rebuild P2/S3): hazard fns loop the world-scoped party themselves
+  'hazards-mp-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.
