@@ -142,7 +142,7 @@ function updateCombatHud() {
   }
   if (p.foodT > 0 && FOOD_LABEL[p.foodBuff])
     buffs.push({ ic: '🍲', label: FOOD_LABEL[p.foodBuff], t: p.foodT, color: '#ffcf80' });
-  if (state.dragon && state.dragon.mounted) buffs.push({ ic: '🐉', label: 'Flying', t: 0, color: '#ff9050' });
+  if (p.dragon && p.dragon.mounted) buffs.push({ ic: '🐉', label: 'Flying', t: 0, color: '#ff9050' });
   const debuffs = [];
   if (p.chillT > 0) debuffs.push({ ic: '❄', label: 'Chilled', t: p.chillT, color: '#9fd8ff' });
   if (isExhausted()) debuffs.push({ ic: '😴', label: 'Exhausted', t: 0, color: '#ff7565' });

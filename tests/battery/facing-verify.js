@@ -82,7 +82,7 @@ const headX = (ops) => Math.max(...ops.map((o) => o.x));
 const tailX = (ops) => Math.min(...ops.map((o) => o.x));
 
 console.log('\n=== 1. THE STEED (drawPlayer) — does it flip, and does the RIDER stay put? ===');
-S.dragon = { tamed: true, mounted: true };
+S.player.dragon = { tamed: true, mounted: true };   // P2/S10: the steed lives ON the player (drawPlayer reads p.dragon)
 S.player.invuln = 0; S.player.cloaked = false; S.player.moving = true; S.player.skin = 0;
 const perDir = {};
 for (const dir of ['right', 'left', 'up', 'down']) {
@@ -115,9 +115,9 @@ ok(perDir.left.ops.slice(mIdx[mIdx.length - 1] + 1).every((o) => !o.mirrored), '
 ok(!perDir.up.ops.some((o) => o.mirrored) && !perDir.down.ops.some((o) => o.mirrored), 'up/down → side view facing right (documented decision, matches the cape)');
 
 console.log('\n=== 2. UNMOUNTED hero is untouched (no stray transform) ===');
-S.dragon = { tamed: false, mounted: false };
+S.player.dragon = { tamed: false, mounted: false };
 for (const dir of ['right', 'left']) { S.player.dir = dir; const r = capture(() => G.drawPlayer()); ok(r.balanced && !r.ops.some((o) => o.mirrored), `on foot, dir=${dir}: no mirror, balanced`, `(${r.saves}/${r.restores})`); }
-S.dragon = { tamed: true, mounted: true };
+S.player.dragon = { tamed: true, mounted: true };
 
 console.log('\n=== 3. THE WILD EMBERWYRM + SERPENT + CHARGER (drawEnemy) ===');
 const mk = (type) => {

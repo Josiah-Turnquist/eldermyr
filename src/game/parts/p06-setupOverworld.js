@@ -351,7 +351,7 @@ function setupOverworld() {
   weatherParts.length = 0;
   state.eventTimer = 2400;
   __g.minimapBase = null;
-  if (!state.dragon.tamed && state.dragonLair)
+  if (!state.player.dragon.tamed && state.dragonLair)
     state.enemies.push(makeWildDragon(state.dragonLair.tx, state.dragonLair.ty));
   if (!state.flags.krakenDead && state.krakenArena)
     state.enemies.push(makeKraken(state.krakenArena.tx, state.krakenArena.ty));
@@ -587,6 +587,11 @@ function snapshot() {
          for pre-move saves). The shop SESSION (activeShopTown/activeStock/activeShopName) is
          deliberately NOT saved: it never was (applySnapshot always reset the town to -1). */
       visitedTowns: [...(p.visitedTowns || [])],
+      /* P2/S10: the steed rides the player slice (same doctrine — root fallback for pre-move
+         saves). Spread as-is, exactly like the old root `{ ...state.dragon }` emission —
+         applySnapshot is what always re-grounds mounted. sailing is deliberately NOT saved:
+         it never was (the root block never carried it; applySnapshot always reset it false). */
+      dragon: { ...(p.dragon || { tamed: false, mounted: false }) },
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -633,7 +638,7 @@ function snapshot() {
     nemesis: { ...state.nemesis },
     ascension: state.ascension || 0,
     won: !!state.won,
-    dragon: { ...state.dragon },
+    /* (dragon moved into the player block above — P2/S10; dragonRespawnDay stays WORLD state) */
     dragonRespawnDay: state.dragonRespawnDay || null,
   };
 }

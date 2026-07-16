@@ -50,6 +50,13 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * dist build) — all 7 layer-1 default asserts, the REMAP pin (10 ≠ 14 entries), the characterOf
  * S9 emission, the real-path v1 default, and travel-list-survives-reboot (E.visitedTowns came
  * back undefined: the exact reboot wipe the move fixes). (2026-07-16.)
+ * S10 vacuity: SEEN FAILING (6 asserts here) against a pre-S10 git worktree (HEAD 2cc18b7 + its
+ * own dist build) — the 2 layer-1 fold asserts with a top-level dragon (v2-depths/v3-full: the
+ * old blob kept it), the REMAP pin (14 ≠ 16 entries), the characterOf S10 emission (the row
+ * still carried top-level dragon, no player.dragon), the real-path v2 fold, and
+ * steed-survives-reboot (characterOf('E') still emitted a top-level dragon). Same run:
+ * sp-flags-check §2g 2 asserts + crash, verify_fixes FIX2 2 asserts (root ghosts existed;
+ * characterOf shape), facing-mp-verify 1 (drawOthers temp-hero probe) — 11 total. (2026-07-16.)
  */
 const path = require('path');
 const fs = require('fs');
@@ -241,6 +248,19 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     deepEq(m.blob.player.visitedTowns, []) && m.blob.player.activeShopTown === undefined
     && m.blob.player.activeStock === undefined && m.blob.player.activeShopName === undefined,
     JSON.stringify({ vt: m.blob.player.visitedTowns, town: m.blob.player.activeShopTown }));
+  { // S10 fold: top-level dragon.tamed → player.dragon {tamed, mounted:false} (MOVE — the
+    // top-level copy deleted, mounted normalized false: transient, a row never dictates flight;
+    // fresh object, never the row's ref). A row with NO dragon anywhere (v1) synthesizes
+    // NOTHING — the apply-side template default stands, like lastRestDay. sailing is never
+    // persisted → never synthesized either.
+    const hadDragon = !!fx.dragon;
+    ok(`${name}: S10 fold — dragon ${hadDragon ? 'lands on player GROUNDED' : 'stays absent (v1: apply-side default stands)'}, top-level copy gone, sailing NOT synthesized`,
+      m.blob.dragon === undefined && m.blob.player.sailing === undefined
+      && (hadDragon
+        ? (deepEq(m.blob.player.dragon, { tamed: !!fx.dragon.tamed, mounted: false }) && m.blob.player.dragon !== fx.dragon)
+        : m.blob.player.dragon === undefined),
+      JSON.stringify({ pd: m.blob.player.dragon, top: m.blob.dragon, sail: m.blob.player.sailing }));
+  }
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
     && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
@@ -332,8 +352,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.activeShopTown', 'state.activeShopTown'],   // S9
     ['state.player.activeStock', 'state.activeStock'],         // S9 (exists only while a shop session is open)
     ['state.player.activeShopName', 'state.activeShopName'],   // S9 (likewise)
+    ['state.player.sailing', 'state.sailing'],                 // S10
+    ['state.player.dragon', 'state.dragon'],                   // S10
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
@@ -383,6 +405,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   F.ingredients = { herb: 4, berry: 1, mushroom: 0, fish: 2 };   // S8: the forage pantry must ride the emission too
   F.visitedTowns = [0, 3];                                       // S9: the travel list must ride the emission too
   F.activeShopTown = 2; F.activeShopName = 'Test'; F.activeStock = { weapons: [], armor: [] };   // S9: an OPEN shop session must NOT be persisted
+  F.dragon = { tamed: true, mounted: true }; F.sailing = true;   // S10: the steed must ride the emission (mounted as-saved; every load re-grounds); an active sail must NOT be persisted
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
   ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold; the slice itself is gone since S8)',
     modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
@@ -402,14 +425,20 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     && modern.player.activeShopTown === undefined && modern.player.activeStock === undefined && modern.player.activeShopName === undefined
     && modern.activeShopTown === undefined,
     JSON.stringify({ vt: modern.player.visitedTowns, town: modern.player.activeShopTown }));
+  ok('characterOf (v4): the steed rides the PLAYER slice, NO top-level dragon; sailing saved NOWHERE (S10)',
+    modern.player.dragon && modern.player.dragon.tamed === true && modern.dragon === undefined
+    && modern.player.sailing === undefined && modern.sailing === undefined,
+    JSON.stringify({ pd: modern.player.dragon, top: modern.dragon, sail: modern.player.sailing }));
   // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
   // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely);
   // pre-S7 eras carried shopPurchased/cargo in the SHOP slice and lastRestDay NOWHERE (a root key
   // that characterOf never saved — every reconnect joined rested);
   // pre-S8 eras carried ingredients in the SHOP slice (its last surviving key);
-  // pre-S9 eras carried visitedTowns NOWHERE (a shared root key outside characterOf entirely):
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; };
-  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; delete r.dragon; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); return r; };
+  // pre-S9 eras carried visitedTowns NOWHERE (a shared root key outside characterOf entirely);
+  // pre-S10 eras carried the steed as TOP-LEVEL dragon:{tamed} (v2+; a v1 row had none) and
+  // sailing NOWHERE (a shared root key, never saved):
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; };
+  const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; return r; };
   const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
 
@@ -437,6 +466,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('v1 load: S9 default lands through the real path — an old row\'s travel list starts [] (re-earned per visit), the join session stays closed',
     deepEq(A.visitedTowns, []) && A.activeShopTown === -1 && A.activeStock === undefined,
     JSON.stringify({ vt: A.visitedTowns, town: A.activeShopTown }));
+  ok('v1 load: S10 through the real path — no steed to restore (untamed, grounded), on foot',
+    A.dragon && A.dragon.tamed === false && A.dragon.mounted === false && A.sailing === false,
+    JSON.stringify({ dragon: A.dragon, sail: A.sailing }));
   ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
@@ -447,6 +479,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   const C = w.addPlayer('C', 'DelverC', v2row);
   ok('v2 load: row quest values kept + missing key template-filled', C.quests.slay.count === 5 && deepEq(structuredClone(C.quests.dragon), QUEST_TEMPLATE.dragon), JSON.stringify(structuredClone(C.quests.dragon)));
   ok('v2 load: milestones synthesized from maxDepth 7', C.enteredDungeon === true && C.maxDepth === 7);
+  ok('v2 load: the old TOP-LEVEL dragon:{tamed} FOLDS onto the hero GROUNDED (S10 mapping through the real path)',
+    C.dragon && C.dragon.tamed === true && C.dragon.mounted === false && C.sailing === false,
+    JSON.stringify({ dragon: C.dragon, sail: C.sailing }));
 
   // v3: milestones pass through UNTOUCHED (values synthesis would never produce)
   const v3row = asV3(modern); v3row.player.enteredDungeon = false; v3row.player.gotKey = false; v3row.player.enteredFrozen = true;
@@ -460,6 +495,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   A.shopPurchased = ['s7_rt']; A.cargo.ore = 4; A.lastRestDay = 9;   // S7: purchases/hold/rest-day must round-trip too (pre-S7, lastRestDay reset to join-rested on every reconnect)
   A.ingredients.fish = 7;   // S8: the pantry must round-trip via the player slice now that the shop slice is gone
   A.visitedTowns = [0, 2, 5];   // S9: the travel list must round-trip (pre-S9 it was shared+unpersisted — every reboot wiped the room's discoveries)
+  A.dragon.tamed = true; A.dragon.mounted = true; A.sailing = true;   // S10: a tamed steed must round-trip (GROUNDED — mounted/sailing are sessions)
   const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
@@ -478,6 +514,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     JSON.stringify({ ing: E.ingredients }));
   ok('round-trip: the travel list SURVIVES the reboot (S9 — pre-S9 a scale-to-zero wiped every fast-travel destination)',
     deepEq(E.visitedTowns, [0, 2, 5]), JSON.stringify({ vt: E.visitedTowns }));
+  ok('round-trip: the tamed steed SURVIVES the reboot GROUNDED, on foot (S10 — via the player slice, no top-level dragon left)',
+    E.dragon && E.dragon.tamed === true && E.dragon.mounted === false && E.sailing === false
+    && JSON.parse(JSON.stringify(w.characterOf('E'))).dragon === undefined,
+    JSON.stringify({ dragon: E.dragon, sail: E.sailing }));
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

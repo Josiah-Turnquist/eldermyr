@@ -14,7 +14,7 @@ const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL '
 
 // ---- boot a clean SP overworld ----
 G.startGame();
-S.scene = 'play'; S.map = 'overworld'; S.sailing = false; if (S.dragon) S.dragon.mounted = false;
+S.scene = 'play'; S.map = 'overworld'; S.player.sailing = false; if (S.player.dragon) S.player.dragon.mounted = false;   // P2/S10: boat-state + steed live ON the player
 const clearPin = () => { for (let i = S.enemies.length - 1; i >= 0; i--) { const e = S.enemies[i]; if (e.isPinnacle || e._pinRef) S.enemies.splice(i, 1); } };
 const king = () => S.enemies.find(e => e.isPinnacle && e.pinKey === 'drownedking');
 const shep = () => S.enemies.find(e => e.isPinnacle && e.pinKey === 'paleshepherd');

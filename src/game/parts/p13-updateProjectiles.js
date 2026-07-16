@@ -334,8 +334,8 @@ function updatePlayer() {
     dy = 0;
     p.moving = false;
   }
-  const mounted = state.dragon.mounted;
-  const move = mounted ? flyCanMove : state.sailing ? canSailTo : canMoveTo;
+  const mounted = p.dragon.mounted;
+  const move = mounted ? flyCanMove : p.sailing ? canSailTo : canMoveTo;
   if (p.dodge > 0) {
     p.dodge--;
     const dnx = p.x + p.dvx,
@@ -369,7 +369,7 @@ function updatePlayer() {
   } else {
     let spd = p.speed;
     if (mounted) spd *= 1.7;
-    else if (state.sailing) spd *= 1.5;
+    else if (p.sailing) spd *= 1.5;
     else if (p.chillT > 0) spd *= 0.55;
     if (!mounted && isExhausted()) spd *= 0.5;
     if (p.blessT > 0 && p.blessType === 'haste') spd *= 1.3;
@@ -568,11 +568,11 @@ function updateTime() {
 function maybeRespawnDragon() {
   if (state.map !== 'overworld') return;
   // P2/S4 (#116): the wild Emberwyrm returns while ANY hero still has it untamed — one tamed
-  // hero no longer parks it for the whole room. MP heroes each carry p.dragon (a PP slice);
-  // the SP hero has none, so (p.dragon || state.dragon) reads the singleton there — the exact
-  // old gate, same truth value, zero extra draws.
+  // hero no longer parks it for the whole room. Since P2/S10 the steed lives ON the player
+  // (every hero — SP literal, MP template, loaded row — carries p.dragon), so the old
+  // (p.dragon || state.dragon) singleton fallback is gone with the root key itself.
   if (
-    party().every((p) => (p.dragon || state.dragon).tamed) ||
+    party().every((p) => p.dragon.tamed) ||
     !state.dragonRespawnDay ||
     curDay() < state.dragonRespawnDay
   )

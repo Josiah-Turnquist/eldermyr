@@ -47,21 +47,25 @@ const B = w.addPlayer('B', 'Bo');
 
 // ---------------------------------------------------------------------------
 // FIX 2 — sailing / dragon are PER-PLAYER (no leak across slices) + reach the client
+// (P2/S10: they live ON state.player now — the rotation's S.player pin IS the swap, so the
+//  game must see each hero's OWN boat/flight through the pin, and root ghosts must not exist.)
 // ---------------------------------------------------------------------------
 {
   A.sailing = true; A.dragon.mounted = true;
   B.sailing = false; B.dragon.mounted = false;
   const seenSail = {}, seenMount = {};
   const origUP = G.updatePlayer;
-  G.updatePlayer = function () { if (S.player) { seenSail[S.player.id] = S.sailing; seenMount[S.player.id] = !!(S.dragon && S.dragon.mounted); } return origUP.apply(this, arguments); };
+  G.updatePlayer = function () { if (S.player) { seenSail[S.player.id] = S.player.sailing; seenMount[S.player.id] = !!(S.player.dragon && S.player.dragon.mounted); } return origUP.apply(this, arguments); };
   w.tick();
   G.updatePlayer = origUP;
-  ok("FIX2 A's slice sees S.sailing=true", seenSail.A === true, 'seenSail.A=' + seenSail.A);
+  ok("FIX2 A's slice sees his own sailing=true through the pin", seenSail.A === true, 'seenSail.A=' + seenSail.A);
   ok("FIX2 B's slice does NOT inherit sailing (no water-walk leak)", seenSail.B === false, 'seenSail.B=' + seenSail.B);
-  ok("FIX2 A's slice sees S.dragon.mounted=true", seenMount.A === true, 'seenMount.A=' + seenMount.A);
+  ok("FIX2 A's slice sees his own dragon.mounted=true through the pin", seenMount.A === true, 'seenMount.A=' + seenMount.A);
   ok("FIX2 B's slice does NOT inherit flight (no fly-collision leak)", seenMount.B === false, 'seenMount.B=' + seenMount.B);
   ok('FIX2 sailing persisted on A after tick', A.sailing === true, 'A.sailing=' + A.sailing);
   ok('FIX2 mounted persisted on A after tick', A.dragon.mounted === true, 'A.dragon.mounted=' + A.dragon.mounted);
+  ok('FIX2 no root ghosts: state.sailing/state.dragon retired with the PP swap (P2/S10)',
+    !('sailing' in S) && !('dragon' in S), 'sailing in S=' + ('sailing' in S) + ' dragon in S=' + ('dragon' in S));
 
   const snapA = JSON.parse(JSON.stringify(w.snapshotFor('A')));
   const snapB = JSON.parse(JSON.stringify(w.snapshotFor('B')));
@@ -73,13 +77,16 @@ const B = w.addPlayer('B', 'Bo');
   ok("FIX2 B's snapshot of A carries sailing flag (remote sprite)", aInB && aInB.sailing === true, aInB ? 'sailing=' + aInB.sailing : 'A missing');
   ok("FIX2 B's snapshot of A carries mounted flag (remote sprite)", aInB && aInB.mounted === true, aInB ? 'mounted=' + aInB.mounted : 'A missing');
 
-  // save/load: tamed Emberwyrm persists; mounted restored grounded.
+  // save/load: tamed Emberwyrm persists (P2/S10: via the PLAYER slice — no top-level dragon
+  // left on a v4 row); mounted restored grounded, sailing never persisted.
   A.dragon.tamed = true; A.dragon.mounted = true;
   const ch = w.characterOf('A');
-  ok('FIX2 characterOf saves dragon.tamed', ch && ch.dragon && ch.dragon.tamed === true, 'ch.dragon=' + JSON.stringify(ch && ch.dragon));
-  const C = w.addPlayer('C', 'Cid', ch);
+  ok('FIX2 characterOf saves dragon.tamed in the PLAYER slice (top-level dragon gone, sailing saved nowhere — P2/S10)',
+    ch && ch.player && ch.player.dragon && ch.player.dragon.tamed === true && ch.dragon === undefined && ch.player.sailing === undefined,
+    'ch.player.dragon=' + JSON.stringify(ch && ch.player && ch.player.dragon) + ' ch.dragon=' + JSON.stringify(ch && ch.dragon));
+  const C = w.addPlayer('C', 'Cid', JSON.parse(JSON.stringify(ch)));
   ok('FIX2 loaded hero restores dragon.tamed', C.dragon.tamed === true, 'C.dragon=' + JSON.stringify(C.dragon));
-  ok('FIX2 loaded hero grounded (mounted=false)', C.dragon.mounted === false, 'C.dragon.mounted=' + C.dragon.mounted);
+  ok('FIX2 loaded hero grounded (mounted=false), on foot (sailing=false)', C.dragon.mounted === false && C.sailing === false, 'C.dragon.mounted=' + C.dragon.mounted + ' C.sailing=' + C.sailing);
   w.removePlayer('C');
   A.sailing = false; A.dragon.mounted = false;
 }

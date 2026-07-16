@@ -23,7 +23,7 @@ const ok = (tag, n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'F
 const near = (a, b, tol) => Math.abs(a - b) <= tol;
 
 G.startGame();
-S.scene = 'play'; S.map = 'overworld'; S.sailing = false; if (S.dragon) S.dragon.mounted = false;
+S.scene = 'play'; S.map = 'overworld'; S.player.sailing = false; if (S.player.dragon) S.player.dragon.mounted = false;   // P2/S10: boat-state + steed live ON the player
 
 // Drive every generator from a clean, explicit world baseline (solo, no cycle, no ascension).
 const baseline = () => { S._partyN = 1; S.ascension = 0; S.pinnacleCycle = 0; S.huntCycle = 0; };

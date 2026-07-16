@@ -72,7 +72,8 @@ m._compile(lg, LG);
 const G = m.exports;
 G.startGame();
 const S = G.state;
-S.dragon = { tamed: true, mounted: true };
+S.dragon = { tamed: true, mounted: true };            // pre-S10 engines (the HEAD side) read the root key
+S.player.dragon = { tamed: true, mounted: true };     // post-S10 engines read the player (P2/S10) — set BOTH so either side of the HEAD/WT diff mounts up
 S.player.invuln = 0; S.player.moving = true; S.player.skin = 0; S.player.dir = 'right'; S.player.animFrame = 1;
 S.player.heat = 0; S.player.cloaked = false;
 

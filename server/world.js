@@ -277,18 +277,18 @@ const RPC_OK = new Set([
 ]);
 // The per-player town-economy globals the game reads/writes: swap the acting player's in
 // before running its logic, write the primitives back after (arrays/objects are by-ref).
-const PP_KEYS = ['sailing', 'dragon', 'quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
+const PP_KEYS = ['quests', 'maxDepth', 'bounty'];   // P2/S5 retired tonics/sharpenLevel; P2/S7 shopPurchased/cargo/fishCd/lastRestDay; P2/S8 ingredients; P2/S10 sailing/dragon: they live ON state.player now (the game reads p.* directly), so the S.player pin IS the swap
 function swapInPP(p) { for (const k of PP_KEYS) S[k] = p[k]; }   // (the `_shopTown → S.activeShopTown` special case died in P2/S9: the shop session lives ON state.player now — p.activeShopTown/activeStock/activeShopName — so the S.player pin IS the swap)
 // Mirror PP_KEYS on the way out. (History: lastRestDay was MISSING from this mirror → resting never
 // persisted — players popped back to Exhausted next slice; it has since moved onto the player itself,
-// P2/S7.) sailing/dragon are per-player too: a shared flag let one hero's boat/flight leak
-// water-walk+fly collision (and the mounted atk bonus) into every other player's rotation slice.
+// P2/S7. sailing/dragon likewise since P2/S10 — the boat/flight leak their shared root keys once
+// caused is dead with the keys themselves.)
 // quests/maxDepth/bounty need EXPLICIT lines — swapping in is not enough:
 // `maxDepth` is a NUMBER (enterDungeon/descend/_enterRift do `state.maxDepth = Math.max(...)`) and openBounty
 // REPLACES `state.bounty` wholesale (`state.bounty = rollBounty()`), so neither reaches p by reference.
 // (`quests` is only ever mutated in place, so its line is belt-and-braces — keep it: the PP_KEYS rule is
 // "every key in BOTH", and the one time this file trusted by-reference it cost a release.)
-function writeBackPP(p) { p.sailing = !!S.sailing; p.dragon = S.dragon; p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
+function writeBackPP(p) { p.quests = S.quests; p.maxDepth = S.maxDepth | 0; p.bounty = S.bounty; }
 
 // ---- Per-player dungeon instancing -------------------------------------------
 // A hero is either on the SHARED overworld or inside their OWN private dungeon. These are the
@@ -506,9 +506,9 @@ class World {
     //  cooldown/pantry are his own and the template seeds them. visitedTowns + activeShopTown likewise
     //  since P2/S9 — the template's visitedTowns is [0]: startGame() ran markTownVisited on the boot
     //  hero before the template was cloned, so a fresh joiner starts with the spawn town discovered,
-    //  exactly like a fresh SP hero.)
+    //  exactly like a fresh SP hero. sailing:false + dragon:{tamed:false,mounted:false} likewise since
+    //  P2/S10 — a fresh joiner is on foot with no steed, and clone() gives each hero his OWN dragon object.)
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
-    p.sailing = false; p.dragon = { tamed: false, mounted: false };   // per-player boat + mount (shared S.sailing/S.dragon leaked water-walk/flight across every hero's slice)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
     // per-player questline: your OWN intro (talk/key/slay/dragon) off a deep template clone, with the
@@ -563,7 +563,10 @@ class World {
       // calls swapInPP, so snap.quests/snap.maxDepth would be whichever hero the sim last swapped in.
       // (Same grain as the `shop:` slice — live refs; the save chain JSON-serializes them.)
       quests: p.quests, maxDepth: p.maxDepth | 0, bounty: p.bounty || null,
-      dragon: p.dragon ? { tamed: !!p.dragon.tamed } : null,   // the tamed Emberwyrm is a persistent capability; mounted is transient → restored grounded
+      // P2/S10: the steed FOLDED INTO `player` (plan §6 v4 mapping) — dragon lives on p, so
+      // snapshot()'s player whitelist emits it under the S.player swap above (mounted rides
+      // as-saved; every load path re-grounds it). migrateCharacter maps old rows' top-level
+      // dragon.tamed into player.dragon on load. sailing is never persisted (a session).
 
       // YOUR recruits travel with YOUR character (connection ids change every reconnect — never key on them)
       companions: (S.companions || []).filter((c) => c.ownerId === id).map((c) => ({
@@ -620,9 +623,13 @@ class World {
         }
       }
       // (The old `shop` slice is fully folded into the player slice by migrateCharacter — S5
-      //  tonics/sharpenLevel, S7 shopPurchased/cargo, S8 ingredients — so there is nothing left
-      //  to read off c.shop: the Object.assign(p, c.player) above landed every town-economy key.)
-      if (c && c.dragon) p.dragon = { tamed: !!c.dragon.tamed, mounted: false };   // your tamed steed rejoins you (grounded)
+      //  tonics/sharpenLevel, S7 shopPurchased/cargo, S8 ingredients — and the top-level `dragon`
+      //  slice likewise since P2/S10: the Object.assign(p, c.player) above landed the steed with
+      //  the rest of the slice. Ground the transient halves explicitly: your tamed steed rejoins
+      //  you GROUNDED and you rejoin ON FOOT — mounted/sailing are sessions, never trusted from a
+      //  row (a v1 row has no dragon anywhere → the addPlayer template default stands).)
+      if (!p.dragon) p.dragon = { tamed: false, mounted: false }; else p.dragon.mounted = false;
+      p.sailing = false;
 
       // ---- questline + personal milestones — APPLY ONLY (rebuild S1) ----------------------
       // The v1→v2 quest synthesis and the v2→v3 milestone synthesis now live in the PURE

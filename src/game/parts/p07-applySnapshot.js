@@ -84,7 +84,7 @@ function applySnapshot(s) {
      s.player, a pre-move save at the root — read back LOSSLESSLY, explicit so a stale session
      value can never survive loading an old save. */
   p.hasBoat = s.player.hasBoat !== undefined ? !!s.player.hasBoat : !!s.hasBoat;
-  state.sailing = false;
+  p.sailing = false; /* P2/S10 player-carried but never persisted — a load always makes landfall, exactly as before (explicit so a stale session value can never survive loading an old save) */
   state.huntsSlain = s.huntsSlain || [];
   state.huntCycle = s.huntCycle || 0;
   state.huntRespawnDay = s.huntRespawnDay || null;
@@ -149,8 +149,11 @@ function applySnapshot(s) {
   state.nemesis = s.nemesis || { alive: false, level: 0, name: '', title: '', kills: 0 };
   state.ascension = s.ascension || 0;
   state.won = !!s.won;
-  state.dragon = s.dragon || { tamed: false, mounted: false };
-  state.dragon.mounted = false;
+  /* P2/S10 player-carried steed (same doctrine): a new save holds it in s.player, a pre-move
+     save at the root — read back LOSSLESSLY, explicit so a stale session value can never
+     survive a load; then re-ground it, exactly like the old root read always did. */
+  p.dragon = s.player.dragon !== undefined ? s.player.dragon : s.dragon || { tamed: false, mounted: false };
+  p.dragon.mounted = false;
   state.dragonRespawnDay = s.dragonRespawnDay || null;
   if (!state.quests.dragon)
     state.quests.dragon = { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true };
@@ -315,7 +318,7 @@ function startGame() {
   state.legionRespawnDay = null;
   state.loreFound = [];
   state.player.hasBoat = false; // P2/S6: player-carried (fresh start = no boat, guide pref keeps its literal default)
-  state.sailing = false;
+  state.player.sailing = false; // P2/S10: player-carried (fresh start = on foot; the tamed steed deliberately carries over, as the old root dragon always did here)
   state.allies = [];
   state.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 }; // P2/S8: player-carried (fresh start = empty pantry)
   state.player.cargo = { furs: 0, grain: 0, spice: 0, ore: 0 }; // P2/S7: player-carried (fresh start = empty hold, no cooldown)
@@ -564,7 +567,7 @@ function recalcStats() {
   addAffix(w);
   addAffix(a);
   if (typeof isExhausted === 'function' && isExhausted()) atk = Math.max(1, Math.round(atk * 0.78));
-  if (state.dragon && state.dragon.mounted) atk = Math.round(atk * 1.6);
+  if (p.dragon && p.dragon.mounted) atk = Math.round(atk * 1.6);
   p.atk = atk;
   p.def = def;
   p.crit = Math.min(0.6, crit * 0.05);

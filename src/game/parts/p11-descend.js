@@ -420,7 +420,7 @@ function castSpell() {
 __g.hitStop = 0;
 function doDodge() {
   const p = state.player;
-  if (state.dragon.mounted || p.dodge > 0 || p.dodgeCd > 0 || p.camping) return;
+  if (p.dragon.mounted || p.dodge > 0 || p.dodgeCd > 0 || p.camping) return;
   const cost = Math.max(18, 34 - (p.bonusEvasion || 0) * 2);
   if (p.stamina < cost) {
     Sound.error();

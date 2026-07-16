@@ -66,7 +66,7 @@ function markTownVisited() {
 }
 function openTravel() {
   if (state.scene !== 'play' || state.map !== 'overworld') return;
-  if (state.dragon.mounted) {
+  if (state.player.dragon.mounted) {
     log('Dismount before invoking fast-travel.', 'combat');
     Sound.error();
     return;

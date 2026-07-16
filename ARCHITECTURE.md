@@ -71,9 +71,11 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   (activeShopTown/activeStock/activeShopName — retiring swapInPP's `_shopTown` special case and
   the `p._shopStock` stash; `shopPayloadFor` now stamps the game's own player fields) plus
   visitedTowns (a shared root key, never a PP entry — one hero's wandering unlocked everyone's
-  travel list, and it was outside characterOf so reboots wiped it); 5 keys remain
-  (sailing/dragon/quests/maxDepth/bounty). A retired key follows the player-scalar rule
-  below instead. `activeStock` is the one retired key deliberately SKIPPED by `safeClone` — the
+  travel list, and it was outside characterOf so reboots wiped it), S10 took sailing + dragon
+  (the steed now rides the save via the player slice — characterOf's top-level `dragon` slice
+  is gone, migrateCharacter folds old rows' dragon.tamed into player.dragon; mounted/sailing
+  stay transient, every load re-grounds them); 3 keys remain (quests/maxDepth/bounty). A
+  retired key follows the player-scalar rule below instead. `activeStock` is the one retired key deliberately SKIPPED by `safeClone` — the
   whole rolled stock rides the single `shopData` payload, never `me` at 66 Hz.)
 - **`S.player` and the PP slice must be swapped TOGETHER.** Every site that pins `S.player = p`
   must also `swapInPP(p)` — the enemy partition, the allies/warband partitions (both worlds), and
@@ -230,11 +232,12 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
 (collision/speed switch on `sailing`/`mounted`).
 
 - **LESSON (bit us twice):** per-player `state.X` fields riding `me` are *not* auto-applied —
-  each needs an explicit `G.state.X = me.X` adoption (sailing, dragon, allies,
+  each needs an explicit `G.state.X = me.X` adoption (maxDepth, allies,
   floorMod…). Fields that live ON the player need **no adopt line** (`S.player = snap.me` is
   the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
   seenHeatTip; S6: hasBoat/wayfind; S7: shopPurchased/cargo/fishCd/lastRestDay; S8:
-  ingredients), its old adopt
+  ingredients; S10: sailing/dragon — drawOthers now stamps the TEMP hero object with the
+  remote op's flight instead of overriding root keys), its old adopt
   line must be DELETED, or panels read a stale ghost `state.X` (S7 also repointed mp.html's
   shop-open pre-seed and its optimistic buy grey-out to `state.player.shopPurchased`). ONE inversion of the rule: a player key that is a **client-side
   preference** (S6: `wayfind`, the [O] guide toggle — the game's own keydown never attaches
@@ -293,7 +296,7 @@ existing combat functions**, so the loader/room inherit it for free — no new s
   plus `_lastStyle`). These are **transient** — deliberately *not* in `snapshot()`'s whitelist,
   and `applySnapshot` zeroes them, so old saves default to 0/off. They reach MP clients with
   **zero extra wiring**: the client adopts `me` wholesale (`S.player = snap.me`), and `safeClone`
-  copies top-level scalars — so unlike `state.X` fields (sailing/cargo/…), these need **no
+  copies top-level scalars — so unlike `state.X` fields (maxDepth/floorMod/…), these need **no
   explicit adoption line**. That is the whole reason they live on the player object.
   (P2/S5 moved the DURABLE heat flag `seenHeatTip` — and tonics/sharpenLevel — onto the player
   too: per-hero teach, persisted via the snapshot player whitelist, same zero-wiring ride.)

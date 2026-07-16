@@ -71,6 +71,11 @@ export const REMAP = [
   { from: 'state.player.activeShopTown', to: 'state.activeShopTown' },
   { from: 'state.player.activeStock', to: 'state.activeStock' },
   { from: 'state.player.activeShopName', to: 'state.activeShopName' },
+  // P2/S10 — the boat-state flag + the steed moved onto the player (plan §7 group 6; the
+  // first two PP_KEYS proper to retire — identity-preserving: the dragon OBJECT is emitted
+  // once at the root spot and $ref'd anywhere else, exactly the pre-move stream):
+  { from: 'state.player.sailing', to: 'state.sailing' },
+  { from: 'state.player.dragon', to: 'state.dragon' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

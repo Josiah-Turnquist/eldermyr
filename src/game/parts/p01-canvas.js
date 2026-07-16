@@ -262,6 +262,15 @@ let state = {
     // npc-owned (npc.stock — one town, one store; that sharing is correct).
     visitedTowns: [],
     activeShopTown: -1,
+    // PER-HERO BOAT-STATE + STEED (P2/S10) — same Pillar-1 carrier again, retiring two more
+    // PP_KEYS (they were already per-player in MP via the swap; now the game itself reads the
+    // player). sailing = currently at sea (a session, not progress — never saved; a load always
+    // makes landfall, exactly as before). dragon = the Emberwyrm steed: tamed persists via
+    // snapshot()'s whitelist/characterOf, mounted is transient (every load re-grounds it,
+    // exactly like the old root read). The WILD wyrm stays world state (dragonLair/
+    // dragonRespawnDay/the enemy itself) — only the personal steed rides the player.
+    sailing: false,
+    dragon: { tamed: false, mounted: false },
   },
   inventory: {
     weapons: [
@@ -301,8 +310,7 @@ let state = {
   bounty: null,
   factions: { vigil: 0, wilds: 0, dread: 0 },
   allies: [],
-  // (hasBoat/wayfind moved onto state.player — P2/S6, see the player literal above)
-  sailing: false,
+  // (hasBoat/wayfind moved onto state.player — P2/S6; sailing — P2/S10: see the player literal above)
   // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8; the shop session
   //  activeShopTown/activeStock/activeShopName — P2/S9: see the player literal above)
   quests: {
@@ -327,7 +335,8 @@ let state = {
   nemesis: { alive: false, level: 0, name: '', title: '', kills: 0 },
   ascension: 0,
   won: false,
-  dragon: { tamed: false, mounted: false },
+  // (dragon — the personal steed — moved onto state.player, P2/S10: see the player literal
+  //  above. dragonLair/dragonRespawnDay stay WORLD state: one wild wyrm per realm.)
 };
 let keys = {};
 __g.currentDialogue = null;

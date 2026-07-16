@@ -35,8 +35,8 @@ ok(!!line, "mp.html drawOthers still builds its temp player with an Object.assig
 const meRef = { w: 16, h: 20 };
 const temp = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, them);
 ok(temp.dir === 'left', "op.dir OVERRIDES drawOthers' dir:'down' default → B's steed faces LEFT on A's screen", `temp.dir=${temp.dir}`);
-const dragonLine = src.split('\n').find((l) => l.includes('S.dragon = op.mounted'));
-ok(!!dragonLine, "drawOthers DOES render a teammate's dragon (S.dragon = op.mounted ? ... : ...)");
+const dragonLine = src.split('\n').find((l) => l.includes('S.player.dragon = op.mounted'));
+ok(!!dragonLine, "drawOthers DOES render a teammate's dragon (S.player.dragon = op.mounted ? ... : ... — P2/S10: drawPlayer reads the temp hero, not a root key)");
 
 // and the fallback is safe: a dir-less teammate must not throw or mirror
 const noDir = Object.assign({}, them); delete noDir.dir;

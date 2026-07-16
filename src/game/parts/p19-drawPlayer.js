@@ -4,7 +4,7 @@ function drawPlayer() {
     sy = p.y - state.camera.y;
   if (p.invuln > 0 && Math.floor(p.invuln / 4) % 2 === 0) return;
   const bob =
-    p.moving || state.sailing ? Math.sin(state.sailing ? Date.now() / 220 : p.animFrame * 1.57) * 2 : 0;
+    p.moving || p.sailing ? Math.sin(p.sailing ? Date.now() / 220 : p.animFrame * 1.57) * 2 : 0;
   const style = styleOf(equippedWeapon());
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
@@ -44,7 +44,7 @@ function drawPlayer() {
     ctx.save();
     ctx.globalAlpha = 0.32;
   } /* GRAVEWOOL CLOAK: the hero renders faint while cloaked; restored + a shimmer ring at the end of drawPlayer */
-  if (state.sailing) {
+  if (p.sailing) {
     ctx.fillStyle = '#7a5230';
     ctx.beginPath();
     ctx.moveTo(sx - 5, sy + p.h - 3 + bob);
@@ -65,7 +65,7 @@ function drawPlayer() {
     ctx.closePath();
     ctx.fill();
   }
-  if (state.dragon && state.dragon.mounted) {
+  if (p.dragon && p.dragon.mounted) {
     /* YOUR STEED *IS* THE EMBERWYRM — the same creature as drawEnemy's e.type==='dragon' branch, built to the same
        recipe (dark RIM so it reads on any ground, TWO tones of shading for form, ONE highlight, a furnace maw, motion
        that sells weight) from the same PALETTE: every tone here derives from DRAGON_COLOR via shade(), the one const

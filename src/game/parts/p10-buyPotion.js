@@ -612,8 +612,8 @@ function tryEnterDungeon() {
 }
 function enterDungeon() {
   resetFishing();
-  if (state.dragon.mounted) {
-    state.dragon.mounted = false;
+  if (state.player.dragon.mounted) {
+    state.player.dragon.mounted = false;
     recalcStats();
   }
   saveOverworld();

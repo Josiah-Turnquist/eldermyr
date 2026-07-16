@@ -183,7 +183,8 @@ function flyCanMove(nx, ny, w, h) {
   return x0 >= 0 && y0 >= 0 && x1 < m[0].length && y1 < m.length;
 }
 function toggleMount() {
-  if (!state.dragon.tamed) {
+  const p = state.player; // P2/S10: the steed + boat-state live ON the player
+  if (!p.dragon.tamed) {
     log('You have no steed — tame the Emberwyrm first.');
     Sound.error();
     return;
@@ -193,15 +194,15 @@ function toggleMount() {
     Sound.error();
     return;
   }
-  if (state.sailing) {
+  if (p.sailing) {
     log('You cannot mount while at sea.');
     Sound.error();
     return;
   }
-  state.dragon.mounted = !state.dragon.mounted;
+  p.dragon.mounted = !p.dragon.mounted;
   resetFishing();
   recalcStats();
-  if (state.dragon.mounted) {
+  if (p.dragon.mounted) {
     log('You mount the Emberwyrm and soar! (+speed, +power; fly over peaks & lava)', 'good');
     Sound.tone(180, 0.45, 'sawtooth', 0.18, { slideTo: 520 });
   } else {
@@ -221,7 +222,7 @@ function toggleBoat() {
     Sound.error();
     return;
   }
-  if (state.dragon.mounted) {
+  if (p.dragon.mounted) {
     log('Dismount before you set sail.', 'combat');
     Sound.error();
     return;
@@ -229,7 +230,7 @@ function toggleBoat() {
   resetFishing();
   const ptx = Math.floor((p.x + p.w / 2) / TILE),
     pty = Math.floor((p.y + p.h / 2) / TILE);
-  if (!state.sailing) {
+  if (!p.sailing) {
     let dest = null;
     for (let r = 1; r <= 3 && !dest; r++)
       for (let dy = -r; dy <= r && !dest; dy++)
@@ -245,7 +246,7 @@ function toggleBoat() {
     }
     p.x = dest.tx * TILE + (TILE - p.w) / 2;
     p.y = dest.ty * TILE + (TILE - p.h) / 2;
-    state.sailing = true;
+    p.sailing = true;
     log('⛵ You set sail upon the Sundered Sea. [B] to make landfall.', 'lore');
     Sound.tone(300, 0.4, 'sine', 0.12, { slideTo: 460 });
   } else {
@@ -265,7 +266,7 @@ function toggleBoat() {
     }
     p.x = dest.tx * TILE + (TILE - p.w) / 2;
     p.y = dest.ty * TILE + (TILE - p.h) / 2;
-    state.sailing = false;
+    p.sailing = false;
     log('You make landfall.', 'lore');
     Sound.tone(420, 0.3, 'sine', 0.12, { slideTo: 200 });
   }
@@ -301,7 +302,7 @@ function tameDragon(e) {
     Sound.error();
     return;
   }
-  state.dragon.tamed = true;
+  state.player.dragon.tamed = true; // P2/S10: YOUR steed (per-hero — the acting hero tames HIS Emberwyrm)
   addRep('wilds', 45);
   addRep('vigil', 5);
   const i = state.enemies.indexOf(e);

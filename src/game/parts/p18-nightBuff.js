@@ -177,7 +177,7 @@ function maybeSpawnWild() {
   const p = state.player,
     px = Math.floor((p.x + p.w / 2) / TILE),
     py = Math.floor((p.y + p.h / 2) / TILE);
-  if (state.sailing) {
+  if (p.sailing) {
     if (state.enemies.filter((e) => e.aquatic).length >= 4) return;
     for (let tries = 0; tries < 24; tries++) {
       const ang = Math.random() * 6.28,

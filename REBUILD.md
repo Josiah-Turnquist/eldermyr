@@ -308,6 +308,37 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   MP deltas: a hero's discovered-towns list is HIS and now SURVIVES reboots (was shared + never saved);
   a session-less buyGood/sellGood RPC now prices like SP (-1 guard) instead of slipping to town-0
   prices; fresh joiners start with the spawn town discovered (SP parity via the template).
+- 2026-07-16: P2/S10 DONE — per-key retirement #6: sailing + dragon (the steed) moved onto state.player
+  (game literal → PLAYER_TEMPLATE seeds MP heroes; toggleMount/toggleBoat/tameDragon/updatePlayer-movement/
+  maybeSpawnWild-serpents/doDodge/enterDungeon-dismount/openTravel/recalcStats-×1.6/HUD-Flying/drawPlayer/
+  canInteract-fish read p.*; maybeRespawnDragon's S4 `(p.dragon || state.dragon)` fallback retired — p.dragon
+  now always exists; setupOverworld wild-wyrm gate reads the boot hero; dragonLair/dragonRespawnDay stay
+  WORLD state). Save: snapshot player-block gains `dragon` (spread as-saved, root emission dies) +
+  applySnapshot player-first/root-fallback, always re-grounded; sailing stays UNSAVED/landfall-on-load
+  exactly as always; PP_KEYS 5→3 (quests/maxDepth/bounty), writeBackPP lines dropped, addPlayer seeds →
+  template; characterOf's top-level `dragon` slice DIES (rides snap.player) with migrate.js S10 fold
+  dragon.tamed → player.dragon={tamed,mounted:false} (top-level deleted; v1 rows synthesize NOTHING —
+  template default stands, the lastRestDay precedent); _loadCharacter grounds mounted+sailing explicitly.
+  mp.html: drawOthers' root S.sailing/S.dragon override+restore pair DELETED — the TEMP hero object carries
+  op.sailing (rides the op spread) + a stamped dragon, and the reconcile's two ghost adopts DELETED per risk
+  #7. REMAP +2 (now 16) — golden 1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt
+  exactly @700). mp-golden: delta proven EXACTLY intended before re-record — old-shape masking view (root
+  sailing/dragon re-presented from state.player, valid because every S.player pin was paired with swapInPP;
+  boot-literal player keys hidden; hashed under the 14 pre-S10 REMAP entries) reproduces the pre-S10 oracle
+  BYTE-FOR-BYTE at all 124 samples, native run diverges @sample 1 (shape only; sample 0 = the boot-literal-
+  pin-is-the-remap-view precedent), and old-vs-new engine per-hero end-state summaries are IDENTICAL on all
+  4 trajectories — then conscious re-record, mp-check 4/4 + mp-prove all green. Battery 41/41; new asserts
+  SEEN FAILING vs a pre-S10 HEAD-2cc18b7 worktree (own dist): 11 total — 6 migrate-roundtrip (fold ×2 +
+  REMAP pin 14≠16 + characterOf S10 emission + real-path v2 fold + steed-survives-reboot-via-player-slice),
+  2+crash sp-flags-check §2g (root-fallback/default; TypeError at the S10 snapshot-shape probe), 2
+  verify_fixes FIX2 (root ghosts existed pre-S10; characterOf shape), 1 facing-mp-verify (drawOthers
+  temp-hero probe). World self-test + typecheck green; live browser smoke (MP + SP off the same dist): join
+  clean, 0 console errors, ZERO ghost root keys surviving reconciles, [G]/[B] full RPC path refusals read
+  p.*, SP tame→mount (+atk 6→10, Flying pill, steed art renders off p.dragon) and set-sail→landfall clean.
+  Conscious MP deltas: NONE behavioral (both keys were already per-player via PP) — but the tamed steed now
+  persists via the player slice like everything else (v4 rows carry player.dragon, no top-level slice), and
+  a teammate's boat/flight renders without root-key override gymnastics. ARCHITECTURE.md PP_KEYS + LESSON
+  bullets updated.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

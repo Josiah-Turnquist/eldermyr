@@ -223,6 +223,41 @@ ok('S9 round-trip: the travel list survives save→load (session back to closed)
   S.player.visitedTowns.length === 2 && S.player.visitedTowns[0] === 1 && S.player.activeShopTown === -1,
   JSON.stringify({ vt: S.player.visitedTowns, town: S.player.activeShopTown }));
 
+// ---------------------------------------------------------------- 2g. THE pre-S10 → S10 RELOCATION
+// P2/S10 moved the steed (dragon) from state.X into the player slice, and sailing onto the player
+// WITHOUT ever being saved — a load always makes landfall, exactly as before. Same doctrine as
+// 2b-2f: a pre-move save holds dragon at the ROOT (mounted saved live); the load reads it back
+// LOSSLESSLY and re-GROUNDS it, exactly like the old root read — or a migrated rider's tamed
+// Emberwyrm goes feral.
+const preS10 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS10.player.dragon;
+preS10.dragon = { tamed: true, mounted: true };                 // the old root spot
+S.player.dragon = { tamed: false, mounted: false }; S.player.sailing = true;   // stale session values a load must clear
+G.applySnapshot(preS10);
+ok('pre-S10 save: root dragon lands LOSSLESSLY on the player, GROUNDED (sailing resets false)',
+  S.player.dragon.tamed === true && S.player.dragon.mounted === false && S.player.sailing === false,
+  JSON.stringify({ dragon: S.player.dragon, sail: S.player.sailing }));
+// …and a save missing it EVERYWHERE (truly old) takes the safe default: untamed, grounded
+const preDragon = JSON.parse(JSON.stringify(preS10));
+delete preDragon.dragon;
+S.player.dragon = { tamed: true, mounted: true };
+G.applySnapshot(preDragon);
+ok('a save with NO dragon anywhere defaults to untamed + grounded',
+  S.player.dragon.tamed === false && S.player.dragon.mounted === false,
+  JSON.stringify(S.player.dragon));
+// …and the S10 shape round-trips: dragon rides the player slice, never the root; sailing in NEITHER
+S.player.dragon = { tamed: true, mounted: true }; S.player.sailing = true;
+const s10 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S10 snapshot: dragon rides the PLAYER slice (mounted as-saved), root is clean, sailing saved NOWHERE',
+  s10.player.dragon.tamed === true && s10.player.dragon.mounted === true && s10.dragon === undefined
+  && s10.sailing === undefined && s10.player.sailing === undefined,
+  JSON.stringify({ p: s10.player.dragon, root: s10.dragon, sail: s10.player.sailing }));
+S.player.dragon = { tamed: false, mounted: false };
+G.applySnapshot(s10);
+ok('S10 round-trip: the tamed steed survives save→load GROUNDED, on foot',
+  S.player.dragon.tamed === true && S.player.dragon.mounted === false && S.player.sailing === false,
+  JSON.stringify({ dragon: S.player.dragon, sail: S.player.sailing }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

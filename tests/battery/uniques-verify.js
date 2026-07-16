@@ -15,7 +15,7 @@ const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL '
 
 // ---- boot a clean, high-level SP overworld so every legendary unique is equippable ----
 G.startGame();
-S.scene = 'play'; S.map = 'overworld'; S.sailing = false; if (S.dragon) S.dragon.mounted = false;
+S.scene = 'play'; S.map = 'overworld'; S.player.sailing = false; if (S.player.dragon) S.player.dragon.mounted = false;   // P2/S10: boat-state + steed live ON the player
 S.player.level = 25; S._partyLevel = 25; S._partyN = 1;
 S.player.prof.melee.lvl = 25; S.player.prof.ranged.lvl = 25; S.player.prof.magic.lvl = 25;
 G.recalcStats();

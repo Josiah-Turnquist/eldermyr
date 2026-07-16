@@ -106,8 +106,7 @@ function crossDay() {
 // singletons — the old `state.dragon.tamed` gate would park the wild dragon forever.
 {
   for (let i = S.enemies.length - 1; i >= 0; i--) if (S.enemies[i] && S.enemies[i].isWildDragon) S.enemies.splice(i, 1);
-  A.dragon.tamed = true;
-  S.dragon = A.dragon;                           // simulate the stale pin being the TAMED hero (what swapInPP leaves behind)
+  A.dragon.tamed = true;                         // (P2/S10: the steed lives ON the player — there is no root S.dragon left to stale-pin; the gate reads every hero's own p.dragon)
   B.dragon.tamed = false;
   S.dragonRespawnDay = dayK + 2;                 // due exactly at the next crossing (crossDay lands on day dayK+2)
   crossDay();

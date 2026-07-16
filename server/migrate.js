@@ -53,6 +53,11 @@
  *       root key outside characterOf entirely, wiped on every reboot; the list
  *       self-heals as the hero re-enters towns). The shop session (activeShopTown/
  *       activeStock/activeShopName) is never persisted at all — no default here.
+ *     · S10: top-level dragon.tamed → player.dragon = {tamed, mounted:false}
+ *       (mounted is transient — a row never dictates flight; the apply path
+ *       re-grounds it anyway). A v1 row never carried a dragon anywhere and gets
+ *       NO synthesized default (the apply-side template {tamed:false,mounted:false}
+ *       stands, exactly like lastRestDay). sailing is never persisted at all.
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -180,6 +185,14 @@ function migrateCharacter(oldBlob) {
     // the pure module can't know the world's towns, and an empty list self-heals on the next
     // town visit. The shop session is never persisted, so it is never synthesized either.
     if (out.player.visitedTowns === undefined) out.player.visitedTowns = [];
+    // ---- S10 fold: the steed moves onto the player (same MOVE semantics as the shop folds —
+    // player-first, one owner per value, top-level copy deleted; idempotent because pass 2
+    // finds it on player and no top-level copy). mounted is normalized to false: it is
+    // transient (the apply path re-grounds it regardless), so the fold never trusts a row's
+    // flight. A row with no dragon anywhere (v1) synthesizes NOTHING — the apply-side
+    // template default stands. sailing is never persisted, so it is never synthesized either.
+    if (out.player.dragon === undefined && c && c.dragon) out.player.dragon = { tamed: !!c.dragon.tamed, mounted: false };
+    delete out.dragon;
   }
 
   out.quests = q;

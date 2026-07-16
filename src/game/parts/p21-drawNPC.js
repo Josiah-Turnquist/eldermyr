@@ -182,7 +182,7 @@ function nearInteractable() {
       const t = getTile(state.map, tx + dx, ty + dy);
       if (t === T.DUNGEON_ENTRANCE || t === T.D_DESCEND || t === T.D_EXIT || t === T.D_DOOR) return true;
     }
-  if (state.map === 'overworld' && !state.sailing && state.player.fishCd <= 0 && nearWater()) return true;
+  if (state.map === 'overworld' && !state.player.sailing && state.player.fishCd <= 0 && nearWater()) return true;
   return false;
 }
 function drawProjectile(pr, camX, camY) {
