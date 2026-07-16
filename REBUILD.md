@@ -118,3 +118,13 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
 ## Status log
 
 - 2026-07-15: decisions locked; monolith map landed (rebuild/monolith-map.md).
+- 2026-07-15: P0 DONE — 38-suite battery rescued (tests/run-battery.mjs), golden master
+  with 4 scenarios/8 trajectories incl. day-rollover (onNewDay divergence at exactly
+  tick 700), TS+esbuild toolchain, CI green on GitHub.
+- 2026-07-15: P1a DONE — monolith sliced into 24 positional parts, byte-identical.
+  P1b DONE — parts prettier-formatted (2,227 → 15,013 lines), proven 4 ways (AST-equal,
+  battery 38/38 ×2, golden 8/8 ×2); CI enforces dist gates. Lesson re-learned: my own
+  loader edit broke flat-loader's textual anchor — anchors are part of the contract.
+- next: P1c stage A (globals holder for rebindable lets) + stage B (explicit Eldermyr
+  namespace generated from CAPTURE/NAMES at build time — missing symbol = BUILD error,
+  killing the silent-capture class) — agent running.
