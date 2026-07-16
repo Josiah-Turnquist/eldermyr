@@ -64,7 +64,8 @@ function clientReceive(s, opts) {
   opts = opts || {};
   const st = CG.state;
   st.quests = JSON.parse(JSON.stringify(DEFAULT_QUESTS));   // a brand-new page's quest state
-  st.bounty = null; st.loreFound = []; st.maxDepth = 0;
+  st.bounty = null; st.maxDepth = 0;
+  if (st.player) st.player.loreFound = [];   // P2/S11: loreFound lives ON the player (reset it there so a prior scenario's adopt can't linger)
   st.inventory = opts.bag ? JSON.parse(JSON.stringify(opts.bag)) : JSON.parse(JSON.stringify(DEFAULT_INV));
   errors.length = 0;
   painted = [];

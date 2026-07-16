@@ -556,8 +556,8 @@ function clearPOI(poi) {
   if (poi.kind === 'camp') {
     const g = 120 + Math.floor(Math.random() * 90);
     p.gold += g;
-    addRep('dread', -6);
-    addRep('vigil', 5);
+    addRepParty('dread', -6); // P2/S11: a POI liberated is PARTY news — every hero's standing moves (MP: the _seen sweep owns these calls; gold/loot stay with the pinned hero as before)
+    addRepParty('vigil', 5);
     log(`⚔ War-camp broken! The Dread Legion reels. +${g} gold.`, 'good');
   } else if (poi.kind === 'keep') {
     const rIdx = Math.min(4, 3 + Math.floor(Math.random() * 2));
@@ -566,15 +566,15 @@ function clearPOI(poi) {
     state.pickups.push(makePickup(poi.tx, poi.ty, 'chest', item));
     const g = 90 + Math.floor(Math.random() * 70);
     p.gold += g;
-    addRep('vigil', 3);
+    addRepParty('vigil', 3);
     log(`✦ The keep's vault breaks open — +${g} gold and treasure within. Grab it!`, 'good');
   } else if (poi.kind === 'village') {
     const g = 70 + Math.floor(Math.random() * 50);
     p.gold += g;
     const pot = state.inventory.items.find((i) => i.name === 'Potion');
     if (pot) pot.qty += 2;
-    addRep('vigil', 6);
-    addRep('dread', -4);
+    addRepParty('vigil', 6);
+    addRepParty('dread', -4);
     log(`✦ Village liberated! Grateful survivors give +${g} gold & 2 potions.`, 'good');
   }
   for (let i = 0; i < 3; i++) spawnBurst(cx, cy, 12, { color: k.mark, speed: 1.6 + i, decay: 0.04 });
@@ -635,8 +635,8 @@ function completeLegionQuest() {
   const p = state.player;
   p.gold += 1500;
   p.skillPoints += 3;
-  addRep('vigil', 25);
-  addRep('dread', -45);
+  addRepParty('vigil', 25); // P2/S11: the WAR's end is party news (the quest object itself is room-shared) — every hero's standing moves; the gold/points/Dawnbreaker stay with the hero who struck the blow, as before
+  addRepParty('dread', -45);
   state.flags.legionBroken = true;
   const rw = {
     name: 'Dawnbreaker, Bane of the Legion',

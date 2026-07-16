@@ -18,9 +18,10 @@
  * SCOPE (co-op): per-player = position + all combat stats + inventory + the QUESTLINE
  * (quests/maxDepth/bounty — v2.57.0; they read per-player state, so one shared box could
  * never be right for two heroes at once, and being shared+unpersisted it also reset to the
- * intro on every scale-to-zero). SHARED across the party = factions, territory, the world
- * itself — plus the three quests that track WORLD OBJECTS (main/frozen/legion), aliased by
- * reference into every player's quests (see SHARED_QUESTS).
+ * intro on every scale-to-zero) + reputation/lore (factions/loreFound — P2/S11, same
+ * argument). SHARED across the party = territory, the world itself — plus the three quests
+ * that track WORLD OBJECTS (main/frozen/legion), aliased by reference into every player's
+ * quests (see SHARED_QUESTS).
  */
 'use strict';
 const G = require('../server-spike/load-game');
@@ -507,7 +508,9 @@ class World {
     //  since P2/S9 — the template's visitedTowns is [0]: startGame() ran markTownVisited on the boot
     //  hero before the template was cloned, so a fresh joiner starts with the spawn town discovered,
     //  exactly like a fresh SP hero. sailing:false + dragon:{tamed:false,mounted:false} likewise since
-    //  P2/S10 — a fresh joiner is on foot with no steed, and clone() gives each hero his OWN dragon object.)
+    //  P2/S10 — a fresh joiner is on foot with no steed, and clone() gives each hero his OWN dragon object.
+    //  factions:{vigil:0,wilds:0,dread:0} + loreFound:[] likewise since P2/S11 — a fresh joiner is
+    //  unknown to every power and has read no stones, each with his OWN objects via clone().)
     p.lastRestDay = (G.curDay ? G.curDay() : 1); p._exWas = false;   // per-player fatigue — JOIN RESTED overrides the template's day-1 (a saved row's own lastRestDay re-lands via _loadCharacter, P2/S7)
     p.downed = false; p.bleedT = 0; p.reviveProg = 0; p.safeT = 0;   // co-op downed/revive state (join standing)
     p.map = 'overworld'; p.dg = null; p._mapSwitchN = 0; p._sentDgN = 0;   // per-player dungeon instancing (start on the shared overworld)
@@ -526,8 +529,10 @@ class World {
   }
 
   // Produce the SAVEABLE per-player character: the game's own snapshot(), but ONLY the
-  // player-stat + inventory slices (the shared world — map, legion, holdings, factions —
-  // is never per-player). Swap this player into the singleton slots so snapshot() reads it.
+  // player-stat + inventory slices (the shared world — map, legion, holdings — is never
+  // per-player; factions/loreFound RIDE the player slice since P2/S11, so a hero's
+  // reputations and Realm-stone discoveries finally survive a reboot). Swap this player
+  // into the singleton slots so snapshot() reads it.
   characterOf(id) {
     const p = this.players.get(id);
     if (!p) return null;
@@ -899,11 +904,11 @@ class World {
     // Per-player, not room-wide: quests/bounty/maxDepth are a PP slice now, and this block runs OUTSIDE the
     // rotation (S.player is pinned to whoever the last phase left), so stringifying `S.quests` here would
     // version-stamp one arbitrary hero's quests on behalf of the whole room. Read each p directly instead.
-    // loreFound is still SHARED, and sits inside every hero's signature — so one Realm-stone read correctly
-    // re-syncs the whole room's box. Cost: one stringify per player per 40 ticks (~2/s/player, ~0.001 ms).
+    // loreFound is per-HERO since P2/S11 (p.loreFound — your own Realm-stone discoveries), so a stone read
+    // re-syncs only the READER's box. Cost: one stringify per player per 40 ticks (~2/s/player, ~0.001 ms).
     if (S.time % 40 === 0) {
       for (const p of S.players) {
-        let j = ''; try { j = JSON.stringify([p.quests, p.bounty, S.loreFound, p.maxDepth]); } catch (_e) {}
+        let j = ''; try { j = JSON.stringify([p.quests, p.bounty, p.loreFound, p.maxDepth]); } catch (_e) {}
         if (j && j !== p._qJson) { p._qJson = j; p._qN = (p._qN | 0) + 1; }
       }
       // Legion sync (SAME idiom, deliberately sharing this throttle block): the Dread Legion roster is SHARED
@@ -1277,7 +1282,7 @@ class World {
       me._qSeen = me._qN | 0;
       snap.quests = safeClone(me.quests);
       snap.bounty = me.bounty ? safeClone(me.bounty) : null;
-      snap.loreFound = (S.loreFound || []).slice();   // Realm-stones are still shared world progress
+      snap.loreFound = (me.loreFound || []).slice();   // P2/S11: YOUR Realm-stone discoveries (per-hero). Kept in this gated payload (not dropped for the `me` copy) so the quest-box REPAINT edge stays airtight: adoptQuests consumes it in ws.onmessage and calls updateQuests() immediately — before the frame loop has reconciled snap.me into state.player.
       snap.maxDepth = me.maxDepth | 0;
     }
     // Dread Legion roster — shared world state, edge-triggered exactly like the quest block above (a fresh player
@@ -1331,7 +1336,7 @@ class World {
   questPayload(id) {
     const p = this.players.get(id);
     if (!p || !p.quests) return null;
-    return { quests: safeClone(p.quests), bounty: p.bounty ? safeClone(p.bounty) : null, loreFound: (S.loreFound || []).slice(), maxDepth: p.maxDepth | 0 };
+    return { quests: safeClone(p.quests), bounty: p.bounty ? safeClone(p.bounty) : null, loreFound: (p.loreFound || []).slice(), maxDepth: p.maxDepth | 0 };   // P2/S11: loreFound is per-hero (this hero's own discoveries)
   }
 
   // Force a dungeon-grid re-send to a stuck client (it asked via {type:'needmap'}): rewind _sentDgN one

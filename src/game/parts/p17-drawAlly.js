@@ -125,7 +125,7 @@ function resolveRaid(w) {
     }
     log(msg + '!', 'quest');
   }
-  addRep('dread', 2);
+  addRepParty('dread', 2); // P2/S11: a thrall raiding under the party's banner is party news (updateWarband is a shared-phase system — nobody is "acting")
   Sound.jingle();
   updateHUD();
 }

@@ -74,7 +74,11 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   travel list, and it was outside characterOf so reboots wiped it), S10 took sailing + dragon
   (the steed now rides the save via the player slice — characterOf's top-level `dragon` slice
   is gone, migrateCharacter folds old rows' dragon.tamed into player.dragon; mounted/sailing
-  stay transient, every load re-grounds them); 3 keys remain (quests/maxDepth/bounty). A
+  stay transient, every load re-grounds them), S11 took factions + loreFound (both shared root
+  keys, never PP entries — one hero's kills swung the whole room's prices/aggro, one scholar's
+  stone read ate everyone else's +40 XP, and neither was ever saved; per-hero now, persisted
+  via the player slice, and loreFound rides the per-hero `_qJson` quest gate + questPayload);
+  3 keys remain (quests/maxDepth/bounty). A
   retired key follows the player-scalar rule below instead. `activeStock` is the one retired key deliberately SKIPPED by `safeClone` — the
   whole rolled stock rides the single `shopData` payload, never `me` at 66 Hz.)
 - **`S.player` and the PP slice must be swapped TOGETHER.** Every site that pins `S.player = p`
@@ -146,6 +150,15 @@ S.inventory = p.inventory; swapInPP(p)` → run game functions as that player �
   only touches `state.player` will silently hit one hero. `partyIn()` (not `party()`) is the rule
   for anything positional: it filters to `p.map === state.map`, so a fn running against the
   swapped-in dungeon never hits topside heroes in wrong coordinates (and vice versa).
+- **Reputation is per-HERO (P2/S11), with two party seams beside `addRep` in the game.**
+  `addRep` writes the ACTING hero's `p.factions` (kills, POI clears, purchases credit the pin —
+  same rule as killEnemy). A rep event that is PARTY NEWS (liberations, a broken siege, the
+  war's end, a thrall's raid — anything fired from a shared-phase system or the world.js `_seen`
+  sweeps) must call **`addRepParty`** (loops `party()` via `actAs`, join order — rep is not
+  positional, delvers included), or it silently pays only the stale-pinned hero. A shared-phase
+  READ of standing must use **`partyRep(fac)`** — the party's EXTREME member (vigil/dread max,
+  wilds min) — never `facTierIdx`, which reads whoever is pinned. SP: both degenerate to the
+  one hero, byte-identical.
 - **The day tick is split World/Hero** (P2/S4, #116). `onNewDay` = `maybeRaiseNemesis()` →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` — the old single-hero call
   order, preserved exactly. A new DAILY effect goes in `onNewDayHero` if it touches one hero's
@@ -237,8 +250,11 @@ undefined captures). Server-authoritative: reconcile adopts snapshots into `G.st
   the adoption) — and when a P2 slice moves a key onto the player (S5: tonics/sharpenLevel/
   seenHeatTip; S6: hasBoat/wayfind; S7: shopPurchased/cargo/fishCd/lastRestDay; S8:
   ingredients; S10: sailing/dragon — drawOthers now stamps the TEMP hero object with the
-  remote op's flight instead of overriding root keys), its old adopt
-  line must be DELETED, or panels read a stale ghost `state.X` (S7 also repointed mp.html's
+  remote op's flight instead of overriding root keys; S11: factions/loreFound), its old adopt
+  line must be DELETED, or panels read a stale ghost `state.X`. (S11's loreFound is the one
+  REPOINTED adopt, not a deletion: adoptQuests stamps `G.state.player.loreFound` from the gated
+  quest payload so the box repaint in ws.onmessage never races the frame-loop me-adopt, and the
+  `welcome` seed — which carries no `me` — still lands on a takeover.) (S7 also repointed mp.html's
   shop-open pre-seed and its optimistic buy grey-out to `state.player.shopPurchased`). ONE inversion of the rule: a player key that is a **client-side
   preference** (S6: `wayfind`, the [O] guide toggle — the game's own keydown never attaches
   in MP) gets the opposite treatment — the client re-stamps its tab-local value *after* the

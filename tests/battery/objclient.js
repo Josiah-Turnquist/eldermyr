@@ -96,7 +96,8 @@ function clientObjective(snap) {
   st.quests = JSON.parse(JSON.stringify(DEFAULT_STATE.quests));
   st.player = JSON.parse(JSON.stringify(DEFAULT_STATE.player));
   st.inventory = JSON.parse(JSON.stringify(DEFAULT_STATE.inventory));
-  st.map = 'overworld'; st.maxDepth = 0; st.holdings = []; st.npcs = []; st.pickups = []; st.loreFound = []; st.bounty = null;
+  st.map = 'overworld'; st.maxDepth = 0; st.holdings = []; st.npcs = []; st.pickups = []; st.bounty = null;
+  if (st.player) st.player.loreFound = [];   // P2/S11: loreFound lives on the player (st.player is re-cloned from the boot default above, which already carries [])
   st.flags = { krakenDead: false, legionBroken: false, enteredDungeon: false, gotKey: false, enteredFrozen: false };   // a fresh page's flags (pre-fix: the client GENERATES these; they are never on the wire)
   errors.length = 0;
   // --- ws.onmessage: the edge-triggered quest payload ---

@@ -405,15 +405,17 @@ function placeLoreStones() {
   }
 }
 function readLoreStone(s) {
-  const first = !(state.loreFound || []).includes(s.region);
+  const p = state.player; // P2/S11: Realm-stones are YOUR discoveries — the first-read +40 XP is per-hero now (one scholar no longer strips every other hero's discovery)
+  if (!p.loreFound) p.loreFound = [];
+  const first = !p.loreFound.includes(s.region);
   log('❝ ' + LORE_TEXTS[s.region] + ' ❞', 'lore');
   if (first) {
-    state.loreFound.push(s.region);
+    p.loreFound.push(s.region);
     gainXP(40);
     Sound.jingle && Sound.jingle();
     spawnBurst(s.x + s.w / 2, s.y + 8, 14, { color: '#ffe28a', speed: 1.6, up: 0.5, decay: 0.04 });
     log(
-      `✦ Realm-stone discovered (${state.loreFound.length}/9). The old words settle into you: +40 XP.`,
+      `✦ Realm-stone discovered (${p.loreFound.length}/9). The old words settle into you: +40 XP.`,
       'good',
     );
     updateQuests();
@@ -426,7 +428,7 @@ function drawLoreStone(s) {
   const sx = s.x - state.camera.x,
     sy = s.y - state.camera.y;
   if (sx < -60 || sx > __g.VIEW_W + 60 || sy < -60 || sy > __g.VIEW_H + 60) return;
-  const read = (state.loreFound || []).includes(s.region);
+  const read = (state.player.loreFound || []).includes(s.region); // P2/S11: dim only stones YOU have read
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath();
   ctx.ellipse(sx + s.w / 2, sy + s.h, s.w / 2, 4, 0, 0, 6.28);

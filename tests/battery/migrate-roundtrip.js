@@ -261,6 +261,12 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
         : m.blob.player.dragon === undefined),
       JSON.stringify({ pd: m.blob.player.dragon, top: m.blob.dragon, sail: m.blob.player.sailing }));
   }
+  // S11 defaults: pre-move rows carried factions/loreFound NOWHERE (shared root keys outside
+  // characterOf, never persisted — every reboot wiped the room's standings and discoveries), so
+  // there is nothing to fold: the importer must supply the zero ledger + the empty stone list.
+  ok(`${name}: S11 defaults — player.factions zero ledger, player.loreFound []`,
+    deepEq(m.blob.player.factions, { vigil: 0, wilds: 0, dread: 0 }) && deepEq(m.blob.player.loreFound, []),
+    JSON.stringify({ fac: m.blob.player.factions, lore: m.blob.player.loreFound }));
   ok(`${name}: PURE — input blob untouched`, JSON.stringify(fx) === before);
   ok(`${name}: output shares NO refs with input`, m.blob !== fx && m.blob.player !== fx.player && m.blob.inventory !== fx.inventory
     && (!fx.quests || m.blob.quests !== fx.quests) && (typeof fx.bounty !== 'object' || !fx.bounty || m.blob.bounty !== fx.bounty)
@@ -354,8 +360,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     ['state.player.activeShopName', 'state.activeShopName'],   // S9 (likewise)
     ['state.player.sailing', 'state.sailing'],                 // S10
     ['state.player.dragon', 'state.dragon'],                   // S10
+    ['state.player.factions', 'state.factions'],               // S11
+    ['state.player.loreFound', 'state.loreFound'],             // S11
   ];
-  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
+  ok('REMAP table = exactly the shipped ladder relocations (S5+S6+S7+S8+S9+S10+S11)', Array.isArray(REMAP) && REMAP.length === LADDER_REMAP.length
     && LADDER_REMAP.every(([f, t], i) => REMAP[i] && REMAP[i].from === f && REMAP[i].to === t), JSON.stringify(REMAP));
   const entry = [{ from: 'state.player.quests', to: 'state.quests' }];
   const movedShape = { state: { player: { level: 5, quests: { slay: { count: 3 } } }, enemies: [] }, maps: { ow: [1, 2] } };
@@ -406,6 +414,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   F.visitedTowns = [0, 3];                                       // S9: the travel list must ride the emission too
   F.activeShopTown = 2; F.activeShopName = 'Test'; F.activeStock = { weapons: [], armor: [] };   // S9: an OPEN shop session must NOT be persisted
   F.dragon = { tamed: true, mounted: true }; F.sailing = true;   // S10: the steed must ride the emission (mounted as-saved; every load re-grounds); an active sail must NOT be persisted
+  F.factions = { vigil: 33, wilds: -8, dread: 21 }; F.loreFound = [1, 4];   // S11: earned standings + read stones must ride the emission too
   const modern = JSON.parse(JSON.stringify(w.characterOf('F')));
   ok('characterOf (v4): tonics/sharpenLevel/seenHeatTip ride the PLAYER slice, shop no longer carries them (S5 fold; the slice itself is gone since S8)',
     modern.player.tonics === 2 && modern.player.sharpenLevel === 1 && modern.player.seenHeatTip === true
@@ -429,6 +438,10 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     modern.player.dragon && modern.player.dragon.tamed === true && modern.dragon === undefined
     && modern.player.sailing === undefined && modern.sailing === undefined,
     JSON.stringify({ pd: modern.player.dragon, top: modern.dragon, sail: modern.player.sailing }));
+  ok('characterOf (v4): factions/loreFound ride the PLAYER slice, nothing at the root (S11 — pre-S11 neither was saved ANYWHERE: reboots wiped every standing and discovery)',
+    deepEq(modern.player.factions, { vigil: 33, wilds: -8, dread: 21 }) && deepEq(modern.player.loreFound, [1, 4])
+    && modern.factions === undefined && modern.loreFound === undefined,
+    JSON.stringify({ fac: modern.player.factions, lore: modern.player.loreFound }));
   // pre-S5 eras carried tonics/sharpenLevel in the SHOP slice and had no seenHeatTip anywhere;
   // pre-S6 eras carried hasBoat/wayfind NOWHERE (shared root keys, outside characterOf entirely);
   // pre-S7 eras carried shopPurchased/cargo in the SHOP slice and lastRestDay NOWHERE (a root key
@@ -436,8 +449,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // pre-S8 eras carried ingredients in the SHOP slice (its last surviving key);
   // pre-S9 eras carried visitedTowns NOWHERE (a shared root key outside characterOf entirely);
   // pre-S10 eras carried the steed as TOP-LEVEL dragon:{tamed} (v2+; a v1 row had none) and
-  // sailing NOWHERE (a shared root key, never saved):
-  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; };
+  // sailing NOWHERE (a shared root key, never saved);
+  // pre-S11 eras carried factions/loreFound NOWHERE (shared root keys, outside characterOf):
+  const shopify = (r) => { r.shop = Object.assign({}, r.shop, { tonics: r.player.tonics | 0, sharpenLevel: r.player.sharpenLevel | 0, shopPurchased: (r.player.shopPurchased || []).slice(), cargo: Object.assign({}, r.player.cargo || {}), ingredients: Object.assign({}, r.player.ingredients || {}) }); delete r.player.tonics; delete r.player.sharpenLevel; delete r.player.seenHeatTip; delete r.player.hasBoat; delete r.player.wayfind; delete r.player.shopPurchased; delete r.player.cargo; delete r.player.lastRestDay; delete r.player.ingredients; delete r.player.visitedTowns; r.dragon = { tamed: !!(r.player.dragon && r.player.dragon.tamed) }; delete r.player.dragon; delete r.player.sailing; delete r.player.factions; delete r.player.loreFound; };
   const asV1 = (m) => { const r = clone(m); delete r.schemaVersion; delete r.quests; delete r.maxDepth; delete r.bounty; r.v = 1; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; shopify(r); delete r.dragon; return r; };
   const asV2 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 2; delete r.player.enteredDungeon; delete r.player.gotKey; delete r.player.enteredFrozen; r.maxDepth = 7; shopify(r); return r; };
   const asV3 = (m) => { const r = clone(m); delete r.schemaVersion; r.v = 3; shopify(r); return r; };
@@ -469,6 +483,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   ok('v1 load: S10 through the real path — no steed to restore (untamed, grounded), on foot',
     A.dragon && A.dragon.tamed === false && A.dragon.mounted === false && A.sailing === false,
     JSON.stringify({ dragon: A.dragon, sail: A.sailing }));
+  ok('v1 load: S11 defaults through the real path — zero ledger, no stones read (old rows carried neither anywhere; the reset is the documented floor)',
+    deepEq(A.factions, { vigil: 0, wilds: 0, dread: 0 }) && deepEq(A.loreFound, []),
+    JSON.stringify({ fac: A.factions, lore: A.loreFound }));
   ok('v1 veteran flipped the SHARED main (line-642 semantics)', S.quests.main.started === true && A.quests.main.started === true);
   const B = w.addPlayer('B', 'FreshB');
   ok('shared-quest ALIASING intact: one main/frozen/legion object per room',
@@ -496,6 +513,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   A.ingredients.fish = 7;   // S8: the pantry must round-trip via the player slice now that the shop slice is gone
   A.visitedTowns = [0, 2, 5];   // S9: the travel list must round-trip (pre-S9 it was shared+unpersisted — every reboot wiped the room's discoveries)
   A.dragon.tamed = true; A.dragon.mounted = true; A.sailing = true;   // S10: a tamed steed must round-trip (GROUNDED — mounted/sailing are sessions)
+  A.factions = { vigil: 44, wilds: -12, dread: 9 }; A.loreFound = [2, 5];   // S11: standings + read stones must round-trip (pre-S11 both were shared+unpersisted — every reboot reset the room)
   const rowA = JSON.parse(JSON.stringify(w.characterOf('A')));
   const mA = migrateCharacter(rowA);
   ok('round-trip: migrating a fresh v4 save is a NO-OP (fromVersion 4)', mA.fromVersion === 4 && deepEq(mA.blob, rowA), diff(mA.blob, rowA) || 'no-op');
@@ -518,6 +536,9 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
     E.dragon && E.dragon.tamed === true && E.dragon.mounted === false && E.sailing === false
     && JSON.parse(JSON.stringify(w.characterOf('E'))).dragon === undefined,
     JSON.stringify({ dragon: E.dragon, sail: E.sailing }));
+  ok('round-trip: standings + read stones SURVIVE the reboot (S11 — via the player slice; pre-S11 a scale-to-zero reset every reputation and discovery)',
+    deepEq(E.factions, { vigil: 44, wilds: -12, dread: 9 }) && deepEq(E.loreFound, [2, 5]) && E.factions !== A.factions && E.loreFound !== A.loreFound,
+    JSON.stringify({ fac: E.factions, lore: E.loreFound }));
 
   // -------------------------------------------------------------------------
   // OPTIONAL — MIGRATE_DUMP=<path>: every real blob through the importer

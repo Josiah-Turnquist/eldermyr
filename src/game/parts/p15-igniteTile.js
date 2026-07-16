@@ -418,7 +418,7 @@ function startDreadRaid() {
   const tz = __g.townZones[i];
   tz.besieged = true;
   const c = townCenter(tz);
-  const n = 3 + Math.floor((state.factions.dread || 0) / 28);
+  const n = 3 + Math.floor(partyRep('dread') / 28); // P2/S11: the raid scales to the party's most-infamous hero (shared-phase read)
   const f = 1 + (state.player.level - 1) * 0.16;
   for (let k = 0; k < n; k++) {
     const _a = Math.random() * 6.28,
@@ -452,8 +452,8 @@ function liberateTown(i) {
   const tz = __g.townZones[i];
   if (!tz || !tz.besieged) return;
   tz.besieged = false;
-  addRep('vigil', 8);
-  addRep('dread', 4);
+  addRepParty('vigil', 8); // P2/S11: a town freed is PARTY news — every hero's standing moves (in MP this runs from the full-roster _seen sweep; the last blow's gold stays personal)
+  addRepParty('dread', 4);
   const reward = 120 + state.player.level * 20;
   state.player.gold += reward;
   log(`★ ${tz.name} is liberated! The grateful townsfolk reward you (+${reward} gold).`, 'quest');
@@ -528,17 +528,22 @@ function updateFactionWar() {
   state.warTimer = (state.warTimer || 1800) - 1;
   if (state.warTimer > 0) return;
   state.warTimer = 3000 + Math.floor(Math.random() * 3000);
-  const F = state.factions || {};
+  // P2/S11: the WORLD reacts to the party's EXTREME member (shared-phase reads — rep is
+  // per-hero now): raids chase the most-infamous (dread max), stampedes avenge the
+  // most-hated (wilds min), the patrol rallies to the most-honored (vigil max). SP: the
+  // hero's own values, exactly as before.
+  const dreadX = partyRep('dread'),
+    wildsX = partyRep('wilds');
   const roll = Math.random();
-  if ((F.dread || 0) >= 20 && !anyTownBesieged() && roll < 0.3 + (F.dread || 0) * 0.005) {
+  if (dreadX >= 20 && !anyTownBesieged() && roll < 0.3 + dreadX * 0.005) {
     startDreadRaid();
     return;
   }
-  if ((F.wilds || 0) <= -20 && roll < 0.5) {
+  if (wildsX <= -20 && roll < 0.5) {
     startStampede();
     return;
   }
-  if (facTierIdx('vigil') >= 2 && state.enemies.length > 0 && !(state.allies || []).some((a) => a.vigil)) {
+  if (repTierIdx(partyRep('vigil')) >= 2 && state.enemies.length > 0 && !(state.allies || []).some((a) => a.vigil)) {
     spawnVigilPatrol();
     return;
   }

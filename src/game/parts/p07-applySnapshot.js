@@ -77,7 +77,10 @@ function applySnapshot(s) {
      survive loading an old save. */
   p.visitedTowns = s.player.visitedTowns !== undefined ? s.player.visitedTowns : s.visitedTowns || [];
   state.bounty = s.bounty || null;
-  state.factions = s.factions || { vigil: 0, wilds: 0, dread: 0 };
+  /* P2/S11 player-carried reputation (same doctrine as the moves above): a new save holds it
+     in s.player, a pre-move save at the root — read back LOSSLESSLY, explicit so a stale
+     session value can never survive loading an old save. */
+  p.factions = s.player.factions !== undefined ? s.player.factions : s.factions || { vigil: 0, wilds: 0, dread: 0 };
   state.legion = s.legion || null;
   if (!state.legion || !state.legion.warlords || !state.legion.warlords.length) genLegion();
   /* P2/S6 player-carried (same doctrine as tonics/sharpenLevel above): a new save holds it in
@@ -96,7 +99,8 @@ function applySnapshot(s) {
   /* old saves lack these → default []/0/null (Pinnacle bosses + chase-unique tracking for the Trophy Wall) */ state.legionCycle =
     s.legionCycle || 0;
   state.legionRespawnDay = s.legionRespawnDay || null;
-  state.loreFound = s.loreFound || [];
+  p.loreFound = s.player.loreFound !== undefined ? s.player.loreFound : s.loreFound || [];
+  /* P2/S11 player-carried Realm-stone discoveries (root fallback for pre-move saves) */
   state.holdings =
     s.holdings && s.holdings.length === HOLD_SITES.length
       ? s.holdings.map((h) => ({
@@ -304,7 +308,7 @@ function startGame() {
   Sound.startMusic('overworld');
   state.ascension = legacy.ascension || 0;
   state.player.visitedTowns = []; // P2/S9: player-carried (fresh start = no towns discovered; markTownVisited below re-earns the spawn town)
-  state.factions = { vigil: 0, wilds: 0, dread: 0 };
+  state.player.factions = { vigil: 0, wilds: 0, dread: 0 }; // P2/S11: player-carried (fresh start = unknown to every power)
   state.bounty = null;
   state.huntsSlain = [];
   state.huntCycle = 0;
@@ -316,7 +320,7 @@ function startGame() {
   state.uniquesFound = [];
   state.legionCycle = 0;
   state.legionRespawnDay = null;
-  state.loreFound = [];
+  state.player.loreFound = []; // P2/S11: player-carried (fresh start = no stones read)
   state.player.hasBoat = false; // P2/S6: player-carried (fresh start = no boat, guide pref keeps its literal default)
   state.player.sailing = false; // P2/S10: player-carried (fresh start = on foot; the tamed steed deliberately carries over, as the old root dragon always did here)
   state.allies = [];

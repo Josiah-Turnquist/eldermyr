@@ -73,7 +73,7 @@ function legionDaily() {
   // thrall loyalty drifts with your Infamy; the resentful defect
   for (const w of legionRoster()) {
     if (w && w.dominated && w.alive) {
-      w.loyalty = Math.max(0, Math.min(100, (w.loyalty || 50) + (facTierIdx('dread') >= 2 ? 3 : -5)));
+      w.loyalty = Math.max(0, Math.min(100, (w.loyalty || 50) + (dreadTierIdx(partyRep('dread')) >= 2 ? 3 : -5))); // P2/S11: thralls respect the party's most-infamous hero (shared day tick — no acting pin)
       if (w.loyalty <= 15 && Math.random() < 0.45) {
         w.dominated = false;
         w.posted = false;
@@ -226,7 +226,7 @@ function updateNemesisPresence() {
   const finale = state.quests.legion && state.quests.legion.stage === 'overlord';
   if (
     !target &&
-    (facTierIdx('dread') >= 3 || finale) &&
+    (dreadTierIdx(partyRep('dread')) >= 3 || finale) && // P2/S11: the Overlord stirs for the party's most-infamous hero (shared-phase read)
     L.overlord &&
     L.overlord.alive &&
     reg === L.overlord.region
@@ -236,7 +236,7 @@ function updateNemesisPresence() {
   let chance =
     (isNight() ? 0.5 : 0.12) +
     (pdf - WL_MIN_DF) * 0.5 +
-    (state.factions.dread || 0) * 0.004 +
+    partyRep('dread') * 0.004 + // P2/S11: same shared-phase read
     target.grudge * 0.07;
   if (finale && target === L.overlord) chance = 0.95;
   if (state.flags.legionBroken) chance *= 0.4;

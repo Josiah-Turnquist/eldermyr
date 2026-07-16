@@ -317,7 +317,7 @@ function renderFactions() {
   };
   for (const key of ['vigil', 'wilds', 'dread']) {
     const F = FACTIONS[key];
-    const v = (state.factions || {})[key] || 0;
+    const v = (state.player.factions || {})[key] || 0; // P2/S11: the panel shows YOUR standing (per-hero; in MP snap.me carries it)
     const frac = key === 'dread' ? v / 100 : (v + 100) / 200;
     const row = document.createElement('div');
     row.className = 'skill-row';

@@ -339,6 +339,44 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   persists via the player slice like everything else (v4 rows carry player.dragon, no top-level slice), and
   a teammate's boat/flight renders without root-key override gymnastics. ARCHITECTURE.md PP_KEYS + LESSON
   bullets updated.
+- 2026-07-16: P2/S11 DONE — per-key retirement #7: factions (shared-bug #2) + loreFound (#3) moved onto
+  state.player (game literal → PLAYER_TEMPLATE seeds MP heroes; addRep/facTierIdx/dreadLootBonus/
+  renderFactions/readLoreStone/drawLoreStone/quest-log read the ACTING hero; NOT PP keys — both were
+  SHARED root bugs: one hero's kills swung everyone's prices/aggro, one scholar ate everyone's +40 XP,
+  and neither was in characterOf — reboots reset the room). TWO party seams canonized beside addRep (p13):
+  `addRepParty` (party news — liberations/siege-breaks/war's-end/thrall-raid/repel loop party() via actAs,
+  delvers included) and `partyRep` (shared-phase reads = the party's EXTREME: vigil/dread max, wilds min —
+  faction-war raid/stampede/patrol gates, raid sizing, nemesis presence ×2, thrall loyalty, maybeRaidHolding's
+  dread≥15 per plan §3.2 with the RNG-guarding short-circuit preserved). Save: snapshot player-block +
+  applySnapshot player-first/root-fallback, field-keyed, NO v bump; migrate.js defaults {0,0,0}/[] (no
+  historical source — the reset is the documented floor); world.js `_qJson` stringify + snap/questPayload
+  loreFound → per-hero (a stone read re-syncs only the READER's box). mp.html: adoptQuests loreFound adopt
+  REPOINTED to state.player (not deleted — the ws.onmessage box repaint must not race the frame-loop
+  me-adopt, and the me-less `welcome` seed covers takeovers); no factions adopt ever existed (rides me).
+  REMAP +2 (now 18) — golden 1p 8/8 on the UNTOUCHED oracle + full prove (speed/damage cascade@0, hunt
+  exactly @700). mp-golden: delta proven EXACTLY intended before re-record — (a) masked-equality: old-vs-new
+  engine with the S11 keys hidden are IDENTICAL at all 124 samples (nothing but the moved ledgers changed:
+  positions/RNG/gold/XP/kill-timing byte-equal; no world-reaction boundary crossed in-window), (b)
+  mp-day-rollover old-shape masking view reproduces the pre-S11 oracle BYTE-FOR-BYTE at all samples (zero
+  rep events → pure shape), (c) mp-overworld-combat = the attribution split itself: Σ(per-hero ledgers) =
+  old shared root within 1 ulp (Δ≤6.2e-15, float regrouping of the same increment stream), asymmetric
+  per-hero splits shown (seed 98765: A 9 kills' rep, B 14) — then conscious re-record, mp-check 4/4 +
+  mp-prove all green. Battery 41/41; new asserts SEEN FAILING vs the pre-S11 HEAD-8a45b98 worktree (own
+  dist): 11 migrate-roundtrip (defaults ×7 fixtures + REMAP pin 16≠18 + characterOf S11 emission +
+  real-path v1 defaults + standings-survive-reboot), 2+crash sp-flags-check §2h (root-fallback/defaults;
+  TypeError at the S11 snapshot-shape probe), 2+crash verify_fixes FIX8 (kill-rep attribution + the root-
+  ghost demo showing the live communal pool {vigil:60.15,wilds:-0.4}; TypeError at the partyRep raid probe
+  — the per-hero surface doesn't exist pre-S11; FIX8's 11 asserts also demo ONE infamous hero drawing the
+  raid, liberation rep reaching the delver, and the same stone paying BOTH heroes' first-read XP through
+  the real 'interact' path). qrender/qclient/objclient/quest-verify mirrors repointed to the player key.
+  World self-test + typecheck green; live browser smoke (MP + SP off the same dist): join clean, 0 console
+  errors, ZERO ghost root keys surviving reconciles, Standing panel renders tiers/perks off
+  state.player.factions in the real DOM, reconcile re-stamps server truth in <400 ms, SP stone read pays
+  once + quest-log "Realm-stones discovered: 1/9" off p.loreFound + snapshot/applySnapshot round-trip clean.
+  Conscious MP deltas: rep is YOURS (kills credit the killer; prices/loot/aggro/regen follow YOUR standing),
+  party-news events pay every hero, the world reacts to the party's extreme member, both keys now SURVIVE
+  reboots (never persisted before), and every hero re-earns standings/stones once at migration (no source).
+  ARCHITECTURE.md: PP_KEYS bullet + NEW reputation-seams bullet + adopt-list S11 note.
 - 2026-07-16: P2/S4 DONE — onNewDay split World/Hero (#116): `onNewDay` = maybeRaiseNemesis →
   `for (p of party()) actAs(p, onNewDayHero)` → `onNewDayWorld()` (old call order preserved exactly;
   `actAs` canonized in p22 beside party(), pinning ONLY player+inventory — p23's inline-pin precedent).

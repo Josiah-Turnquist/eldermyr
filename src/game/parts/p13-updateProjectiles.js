@@ -491,18 +491,19 @@ function dreadTierIdx(v) {
   return 0;
 }
 function facTierIdx(fac) {
-  const v = (state.factions || {})[fac] || 0;
+  const v = ((state.player || {}).factions || {})[fac] || 0; // P2/S11: YOUR standing (per-hero) — acting-hero readers (prices, loot, aggro, regen) follow the pin
   return fac === 'dread' ? dreadTierIdx(v) : repTierIdx(v);
 }
 function facTierName(fac) {
   return (fac === 'dread' ? DREAD_TIERS : REP_TIERS)[facTierIdx(fac)];
 }
 function addRep(fac, amt) {
-  if (!state.factions) state.factions = { vigil: 0, wilds: 0, dread: 0 };
-  const before = state.factions[fac] || 0;
+  const p = state.player; // P2/S11: rep is per-HERO now — the acting hero's own ledger (kills, POI clears, purchases credit whoever is pinned)
+  if (!p.factions) p.factions = { vigil: 0, wilds: 0, dread: 0 };
+  const before = p.factions[fac] || 0;
   let v = before + amt;
   v = fac === 'dread' ? Math.max(0, Math.min(100, v)) : Math.max(-100, Math.min(100, v));
-  state.factions[fac] = v;
+  p.factions[fac] = v;
   const ti = fac === 'dread' ? dreadTierIdx : repTierIdx;
   if (ti(v) !== ti(before)) {
     const up = ti(v) > ti(before);
@@ -511,6 +512,28 @@ function addRep(fac, amt) {
     log(`${F.name}: you are now ${names[ti(v)]}.`, up ? 'good' : 'combat');
     updateWorldLine && updateWorldLine();
   }
+}
+function addRepParty(fac, amt) {
+  // P2/S11: rep events that are PARTY NEWS — liberations (holdings/POIs/town sieges), the
+  // war's end, a thrall's raid, the shared-phase systems' awards — shift the realm's opinion
+  // of the whole band, so EVERY hero's ledger moves. actAs pins each hero in JOIN ORDER, so
+  // addRep writes THEIR factions and a tier-crossing line reaches THEIR feed. Single-player:
+  // party() = [state.player] → one iteration, exactly the old addRep (byte-identical).
+  for (const pl of party()) actAs(pl, () => addRep(fac, amt));
+}
+function partyRep(fac) {
+  // P2/S11: the party's EFFECTIVE standing wherever the WORLD reacts to the band as a whole
+  // (shared-phase reads — faction war, nemesis presence, thrall loyalty, holding raids): the
+  // EXTREME member decides. wilds → the most-HATED hero (min: stampedes avenge your worst
+  // offender); vigil/dread → the highest hero (the Vigil rallies to its champion, the Legion
+  // marks its greatest threat — the plan's maybeRaidHolding "max over party" rule). No RNG,
+  // no writes. Single-player: party() = [state.player] → exactly the hero's own value.
+  let v = null;
+  for (const pl of party()) {
+    const x = (pl.factions || {})[fac] || 0;
+    v = v === null ? x : fac === 'wilds' ? Math.min(v, x) : Math.max(v, x);
+  }
+  return v || 0;
 }
 // Perks derived from standing
 function vigilDiscount() {
@@ -523,7 +546,7 @@ function beastAggroMul() {
   return [1.25, 1, 0.6, 0.35][facTierIdx('wilds')];
 }
 function dreadLootBonus() {
-  return 1 + (state.factions.dread || 0) * 0.005;
+  return 1 + ((state.player.factions || {}).dread || 0) * 0.005; // P2/S11: the KILLER's infamy prices the spoils (killEnemy runs under the crediting hero's pin)
 }
 function buyPrice(c) {
   return Math.max(1, Math.round(c * (1 - vigilDiscount())));

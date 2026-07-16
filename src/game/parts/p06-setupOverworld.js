@@ -592,6 +592,11 @@ function snapshot() {
          applySnapshot is what always re-grounds mounted. sailing is deliberately NOT saved:
          it never was (the root block never carried it; applySnapshot always reset it false). */
       dragon: { ...(p.dragon || { tamed: false, mounted: false }) },
+      /* P2/S11: reputation + read Realm-stones ride the player slice (same doctrine — root
+         fallback for pre-move saves). As root keys neither ever reached MP's characterOf, so
+         a room reboot wiped every hero's standings and discoveries; now they persist per-hero. */
+      factions: { ...(p.factions || { vigil: 0, wilds: 0, dread: 0 }) },
+      loreFound: [...(p.loreFound || [])],
     },
     inventory: JSON.parse(JSON.stringify(state.inventory)),
     quests: JSON.parse(JSON.stringify(state.quests)),
@@ -602,7 +607,7 @@ function snapshot() {
     /* (tonics/sharpenLevel moved into the player block above — P2/S5; shopPurchased — P2/S7;
        visitedTowns — P2/S9) */
     bounty: state.bounty ? { ...state.bounty } : null,
-    factions: { ...(state.factions || { vigil: 0, wilds: 0, dread: 0 }) },
+    /* (factions moved into the player block above — P2/S11) */
     legion: state.legion ? JSON.parse(JSON.stringify(state.legion)) : null,
     /* (hasBoat moved into the player block above — P2/S6) */
     huntsSlain: [...(state.huntsSlain || [])],
@@ -614,7 +619,7 @@ function snapshot() {
     uniquesFound: [...(state.uniquesFound || [])],
     legionCycle: state.legionCycle || 0,
     legionRespawnDay: state.legionRespawnDay || null,
-    loreFound: [...(state.loreFound || [])],
+    /* (loreFound moved into the player block above — P2/S11) */
     holdings: (state.holdings || []).map((h) => ({
       liberated: !!h.liberated,
       built: !!h.built,

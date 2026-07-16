@@ -258,6 +258,43 @@ ok('S10 round-trip: the tamed steed survives save→load GROUNDED, on foot',
   S.player.dragon.tamed === true && S.player.dragon.mounted === false && S.player.sailing === false,
   JSON.stringify({ dragon: S.player.dragon, sail: S.player.sailing }));
 
+// ---------------------------------------------------------------- 2h. THE pre-S11 → S11 RELOCATION
+// P2/S11 moved factions (reputation ledger) + loreFound (read Realm-stones) from state.X into the
+// player slice. Same doctrine as 2b-2g: a pre-move save holds both at the ROOT; the load reads
+// them back LOSSLESSLY — or every migrated hero's standings zero out and every stone re-pays XP.
+const preS11 = JSON.parse(JSON.stringify(G.snapshot()));
+delete preS11.player.factions; delete preS11.player.loreFound;
+preS11.factions = { vigil: 31, wilds: -22, dread: 46 };         // the old root spots
+preS11.loreFound = [0, 3, 8];
+S.player.factions = { vigil: 0, wilds: 0, dread: 0 }; S.player.loreFound = [];   // stale session values a load must replace
+G.applySnapshot(preS11);
+ok('pre-S11 save: root factions/loreFound land LOSSLESSLY on the player',
+  S.player.factions.vigil === 31 && S.player.factions.wilds === -22 && S.player.factions.dread === 46
+  && JSON.stringify(S.player.loreFound) === '[0,3,8]',
+  JSON.stringify({ fac: S.player.factions, lore: S.player.loreFound }));
+// …and a save missing them EVERYWHERE (truly old) takes the safe defaults: zero ledger, no stones
+const preRep = JSON.parse(JSON.stringify(preS11));
+delete preRep.factions; delete preRep.loreFound;
+S.player.factions = { vigil: 9, wilds: 9, dread: 9 }; S.player.loreFound = [7];
+G.applySnapshot(preRep);
+ok('a save with NO factions/loreFound anywhere defaults to the zero ledger + no stones',
+  S.player.factions.vigil === 0 && S.player.factions.wilds === 0 && S.player.factions.dread === 0
+  && Array.isArray(S.player.loreFound) && S.player.loreFound.length === 0,
+  JSON.stringify({ fac: S.player.factions, lore: S.player.loreFound }));
+// …and the S11 shape round-trips: both ride the player slice, never the root
+S.player.factions = { vigil: 12, wilds: -4, dread: 30 }; S.player.loreFound = [1, 6];
+const s11 = JSON.parse(JSON.stringify(G.snapshot()));
+ok('S11 snapshot: factions/loreFound ride the PLAYER slice, root is clean',
+  s11.player.factions.vigil === 12 && s11.player.factions.dread === 30 && JSON.stringify(s11.player.loreFound) === '[1,6]'
+  && s11.factions === undefined && s11.loreFound === undefined,
+  JSON.stringify({ p: { fac: s11.player.factions, lore: s11.player.loreFound }, rootF: s11.factions, rootL: s11.loreFound }));
+S.player.factions = { vigil: 0, wilds: 0, dread: 0 }; S.player.loreFound = [];
+G.applySnapshot(s11);
+ok('S11 round-trip: standings + read stones survive save→load',
+  S.player.factions.vigil === 12 && S.player.factions.wilds === -4 && S.player.factions.dread === 30
+  && JSON.stringify(S.player.loreFound) === '[1,6]',
+  JSON.stringify({ fac: S.player.factions, lore: S.player.loreFound }));
+
 // ---------------------------------------------------------------- 3. the SP no-op proof
 // The game artifact (P1 wrap: prettier-formatted dist assembly; EM_REPO may still point at a
 // pre-wrap checkout, so fall back to its monolith).

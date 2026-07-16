@@ -83,10 +83,10 @@ function updateQuests() {
       done,
     });
   }
-  if ((state.loreFound || []).length > 0)
+  if ((state.player.loreFound || []).length > 0)
     items.push({
-      t: `Realm-stones discovered: ${state.loreFound.length}/9`,
-      done: state.loreFound.length >= 9,
+      t: `Realm-stones discovered: ${state.player.loreFound.length}/9`, // P2/S11: YOUR count
+      done: state.player.loreFound.length >= 9,
     });
   if (state.maxDepth > 0) items.push({ t: `Deepest depth: ${state.maxDepth}`, done: false });
   items.forEach((it) => {

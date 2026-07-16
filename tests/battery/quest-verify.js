@@ -54,7 +54,7 @@ function freshQuests() {
     frozen:{name:'Plunder the Frozen Cache',done:false,hidden:true},
     dragon:{name:'Tame the Emberwyrm (Lv 20)',done:false,hidden:true},
     legion:{started:false,stage:'none',camps:0,sealstones:0,villages:0,seatRegion:-1} };
-  S.bounty = null; S.loreFound = []; S.maxDepth = 0; S.inventory.keys = 0;
+  S.bounty = null; S.player.loreFound = []; S.maxDepth = 0; S.inventory.keys = 0;   // P2/S11: loreFound lives on the player
 }
 // mirror startDialogue(elder) / world.js elder branch
 function talkToElder() { S.quests.talk.done = true; S.quests.main.started = true; S.quests.key.hidden = false;

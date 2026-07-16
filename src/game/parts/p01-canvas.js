@@ -271,6 +271,17 @@ let state = {
     // dragonRespawnDay/the enemy itself) — only the personal steed rides the player.
     sailing: false,
     dragon: { tamed: false, mounted: false },
+    // PER-HERO REPUTATION + LORE (P2/S11) — same Pillar-1 carrier again, fixing shared-bugs
+    // #2/#3. factions = YOUR standing with the three powers: as a shared root key one hero's
+    // kills swung everyone's prices/aggro/regen, and it was outside MP's characterOf — a
+    // reboot wiped the whole room's reputations; on the player it persists via snapshot()'s
+    // whitelist and rides `me` with no adopt line. Kill/action rep credits the acting hero;
+    // PARTY-NEWS events (liberations, the war's end, a thrall's raid) award every hero via
+    // addRepParty; shared-phase WORLD reactions read the party's extreme via partyRep.
+    // loreFound = Realm-stones YOU have read (first read pays +40 XP — per-hero now: one
+    // scholar no longer strips every other hero's discovery XP and quest-log count).
+    factions: { vigil: 0, wilds: 0, dread: 0 },
+    loreFound: [],
   },
   inventory: {
     weapons: [
@@ -306,9 +317,8 @@ let state = {
   pois: [],
   holdings: [],
   companions: [],
-  loreFound: [],
   bounty: null,
-  factions: { vigil: 0, wilds: 0, dread: 0 },
+  // (factions/loreFound moved onto state.player — P2/S11: see the player literal above)
   allies: [],
   // (hasBoat/wayfind moved onto state.player — P2/S6; sailing — P2/S10: see the player literal above)
   // (fishCd/cargo moved onto state.player — P2/S7; ingredients — P2/S8; the shop session

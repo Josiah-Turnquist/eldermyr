@@ -58,6 +58,11 @@
  *       re-grounds it anyway). A v1 row never carried a dragon anywhere and gets
  *       NO synthesized default (the apply-side template {tamed:false,mounted:false}
  *       stands, exactly like lastRestDay). sailing is never persisted at all.
+ *     · S11: player.factions default {vigil:0,wilds:0,dread:0} + player.loreFound
+ *       default [] (NO historical source for either — both were shared root keys
+ *       outside characterOf entirely, wiped on every reboot; the reset is the
+ *       honest floor and is called out in the cutover notes: standings re-earn
+ *       through play, stones re-read for their +40 XP once each per hero).
  *
  * Version detection stays FIELD-keyed exactly like the old chains (a row that
  * lies about its `v` migrates by what it actually carries): `quests` missing ⇒
@@ -193,6 +198,11 @@ function migrateCharacter(oldBlob) {
     // template default stands. sailing is never persisted, so it is never synthesized either.
     if (out.player.dragon === undefined && c && c.dragon) out.player.dragon = { tamed: !!c.dragon.tamed, mounted: false };
     delete out.dragon;
+    // ---- S11: per-hero reputation + Realm-stone discoveries (plan §3 #2/#3) — pre-move rows
+    // never carried either anywhere (shared root keys outside characterOf, never persisted),
+    // so there is nothing to fold: defaults only, pass-through when a v4 row already has them.
+    if (out.player.factions === undefined) out.player.factions = { vigil: 0, wilds: 0, dread: 0 };
+    if (out.player.loreFound === undefined) out.player.loreFound = [];
   }
 
   out.quests = q;

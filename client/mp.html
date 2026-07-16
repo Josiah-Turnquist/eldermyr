@@ -183,7 +183,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (s.me && s.me.inventory) G.state.inventory = s.me.inventory;
       G.state.quests = s.quests;
       G.state.bounty = s.bounty || null;
-      if (s.loreFound) G.state.loreFound = s.loreFound;
+      if (s.loreFound && G.state.player) G.state.player.loreFound = s.loreFound;   // P2/S11: loreFound lives ON the player now (updateQuests reads state.player.loreFound). Stamp the PLAYER, not a root ghost (risk #7); the payload copy is per-hero and beats the frame-loop me-adopt to the repaint below, same reason as the bag line above. On `welcome` there is no snap.me yet — this seed is what covers a takeover.
       if (s.maxDepth != null) G.state.maxDepth = s.maxDepth;
       window.updateQuests && window.updateQuests();
     } catch (e) { edgeErr('quests', e); }

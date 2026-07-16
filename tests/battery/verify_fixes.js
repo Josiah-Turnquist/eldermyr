@@ -301,6 +301,110 @@ const B = w.addPlayer('B', 'Bo');
 }
 
 // ---------------------------------------------------------------------------
+// FIX 8 — factions + loreFound are PER-HERO (P2/S11, shared-bugs #2/#3).
+// Pre-S11 both were SHARED root keys: one hero's kills swung everyone's prices/aggro,
+// one scholar's stone read stripped every other hero's +40 XP, and neither was ever
+// saved (characterOf never carried them — reboots reset the room). Post-S11: the
+// acting hero's ledger moves on kills, PARTY-NEWS events award every hero, the world
+// reacts to the party's EXTREME member, and both keys ride `me` + the player slice.
+// ---------------------------------------------------------------------------
+{
+  const P8 = w.players.get('P'), B8 = w.players.get('B'), A8 = w.players.get('A');
+  const led = (p) => ({ v: (p.factions || {}).vigil || 0, w: (p.factions || {}).wilds || 0, d: (p.factions || {}).dread || 0 });
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+  // (a) kill attribution: a foe slain under P's pin credits P's OWN ledger; B's is untouched
+  {
+    const b0 = led(B8), p0 = led(P8);
+    const foe = G.makeWildEnemy(Math.floor(P8.x / TILE) + 1, Math.floor(P8.y / TILE));
+    foe.hp = 0; S.enemies.push(foe);
+    const pp = S.player, pi = S.inventory;
+    S.player = P8; S.inventory = P8.inventory;         // the crediting pin killEnemy always runs under
+    try { G.killEnemy(foe); } finally { S.player = pp; S.inventory = pi; }
+    const p1 = led(P8), b1 = led(B8);
+    ok('FIX8 overworld kill rep lands on the KILLER\'s own ledger (wilds -0.4 / vigil +0.15 on P)',
+      S.map === 'overworld' && near(p1.w, p0.w - 0.4) && near(p1.v, p0.v + 0.15),
+      JSON.stringify({ before: p0, after: p1, map: S.map }));
+    ok('FIX8 a bystander\'s ledger is UNTOUCHED by the kill (pre-S11: one shared pool moved for everyone)',
+      near(b1.w, b0.w) && near(b1.v, b0.v), JSON.stringify({ before: b0, after: b1 }));
+    ok('FIX8 no root ghost: addRep no longer creates state.factions', S.factions === undefined, JSON.stringify(S.factions));
+  }
+
+  // (b) the world reacts to the party's EXTREME member: P alone turns infamous → the
+  // Dread Legion raids, even though B (and everyone else) is clean. partyRep('dread')
+  // is the max over the party — pre-S11 this read the shared root, which stays 0 here.
+  {
+    P8.factions.dread = 60;
+    for (const pl of S.players) pl.level = Math.max(pl.level, 5);   // updateFactionWar gates on the pinned hero's level
+    const besiegedBefore = G.getTownZones().filter((tz) => tz.besieged).length;
+    S.warTimer = 1;
+    const origRnd = Math.random;
+    Math.random = () => 0;                              // roll 0 < 0.3 + 60*0.005 → the raid branch, deterministically
+    try { G.updateFactionWar(); } finally { Math.random = origRnd; }
+    const sieged = G.getTownZones().findIndex((tz) => tz.besieged);
+    ok('FIX8 ONE infamous hero draws the raid (partyRep = the party\'s extreme; shared root would read 0 and never fire)',
+      besiegedBefore === 0 && sieged >= 0 && S.enemies.some((e) => e.dread && e.raidTown === sieged),
+      'siegedTown=' + sieged + ' raiders=' + S.enemies.filter((e) => e.raidTown === sieged).length);
+
+    // (c) party news: breaking the siege pays EVERY hero's ledger — including the delver (rep is not positional)
+    const a0 = led(A8), b0 = led(B8), p0 = led(P8);
+    for (let i = S.enemies.length - 1; i >= 0; i--) if (S.enemies[i].raidTown === sieged) S.enemies.splice(i, 1);
+    G.liberateTown(sieged);
+    const a1 = led(A8), b1 = led(B8), p1 = led(P8);
+    ok('FIX8 liberation rep is PARTY NEWS: every hero +8 vigil/+4 dread (addRepParty over party(), delving A included)',
+      near(a1.v, a0.v + 8) && near(a1.d, a0.d + 4) && near(b1.v, b0.v + 8) && near(b1.d, b0.d + 4)
+      && near(p1.v, p0.v + 8) && near(p1.d, p0.d + 4),
+      JSON.stringify({ A: [a0, a1], B: [b0, b1], P: [p0, p1] }));
+  }
+
+  // (d) Realm-stones: the first-read +40 XP is per-HERO now (THE #3 fix) — through the
+  // real MP path (p.actions 'interact' → tryInteract → readLoreStone under the full swap)
+  {
+    const stone = (S.loreStones || [])[0];
+    ok('FIX8 setup: worldgen placed a Realm-stone', !!stone, JSON.stringify(stone));
+    if (stone) {
+      const put = (p) => { p.x = stone.x; p.y = stone.y; p.map = 'overworld'; };
+      const bx0 = { xp: B8.xp, lvl: B8.level, n: (B8.loreFound || []).length };
+      put(B8); B8.actions.push('interact'); w.tick();
+      ok('FIX8 B\'s first read: stone recorded on B\'s OWN list, +XP paid',
+        (B8.loreFound || []).includes(stone.region) && (B8.xp > bx0.xp || B8.level > bx0.lvl),
+        JSON.stringify({ lore: B8.loreFound, xp: [bx0.xp, B8.xp] }));
+      const px0 = { xp: P8.xp, lvl: P8.level, n: (P8.loreFound || []).length };
+      put(P8); P8.actions.push('interact'); w.tick();
+      ok('FIX8 P reading the SAME stone is ALSO a first read (+XP) — pre-S11 the shared list silently ate it',
+        (P8.loreFound || []).includes(stone.region) && (P8.xp > px0.xp || P8.level > px0.lvl),
+        JSON.stringify({ lore: P8.loreFound, xp: [px0.xp, P8.xp] }));
+      const bx1 = { xp: B8.xp, lvl: B8.level, n: B8.loreFound.length };
+      put(B8); B8.actions.push('interact'); w.tick();
+      ok('FIX8 B re-reading pays NOTHING more (dedupe still works, per-hero)',
+        B8.loreFound.length === bx1.n && B8.loreFound.filter((r) => r === stone.region).length === 1,
+        JSON.stringify({ lore: B8.loreFound }));
+      ok('FIX8 no root ghost: state.loreFound retired', S.loreFound === undefined, JSON.stringify(S.loreFound));
+    }
+  }
+
+  // (e) wire + persistence: both ride `me` (no adopt line needed) and the gated quest box
+  {
+    const snapB8 = JSON.parse(JSON.stringify(w.snapshotFor('B')));
+    const qp = JSON.parse(JSON.stringify(w.questPayload('B')));
+    ok('FIX8 wire: factions + loreFound ride `me` (safeClone keeps the plain object/array)',
+      snapB8.me.factions && near(snapB8.me.factions.vigil, B8.factions.vigil) && Array.isArray(snapB8.me.loreFound)
+      && JSON.stringify(snapB8.me.loreFound) === JSON.stringify(B8.loreFound),
+      JSON.stringify({ fac: snapB8.me.factions, lore: snapB8.me.loreFound }));
+    ok('FIX8 questPayload carries THIS hero\'s own loreFound (per-hero box seed, takeover-safe)',
+      JSON.stringify(qp.loreFound) === JSON.stringify(B8.loreFound), JSON.stringify(qp.loreFound));
+  }
+
+  // (f) client audit (risk #7): no ghost root adopts left; the box seed stamps the PLAYER
+  {
+    const MP8 = require('fs').readFileSync(REPO + '/client/mp.html', 'utf8');
+    ok('FIX8 client: adoptQuests stamps state.player.loreFound (not a root ghost); no root factions/loreFound writes anywhere',
+      /G\.state\.player\.loreFound = s\.loreFound/.test(MP8)
+      && !/G\.state\.loreFound\s*=/.test(MP8) && !/G\.state\.factions\s*=/.test(MP8));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // REGRESSION — 3 players, 300 ticks incl. a live dungeon delve, zero exceptions
 // ---------------------------------------------------------------------------
 {

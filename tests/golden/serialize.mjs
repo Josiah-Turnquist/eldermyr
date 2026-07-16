@@ -76,6 +76,11 @@ export const REMAP = [
   // once at the root spot and $ref'd anywhere else, exactly the pre-move stream):
   { from: 'state.player.sailing', to: 'state.sailing' },
   { from: 'state.player.dragon', to: 'state.dragon' },
+  // P2/S11 — per-hero reputation + Realm-stone discoveries moved onto the player
+  // (shared-bugs #2/#3; identity-preserving like the dragon entry — the factions/
+  // loreFound OBJECTS are emitted once at the root spot, exactly the pre-move stream):
+  { from: 'state.player.factions', to: 'state.factions' },
+  { from: 'state.player.loreFound', to: 'state.loreFound' },
 ];
 
 // overlay: Map<holderObject, { hide:Set<key>, add:Map<key,value> }> — built per hash call.

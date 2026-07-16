@@ -192,8 +192,8 @@ function liberateHolding(i) {
     hd.besieged = false;
     const r = 120 + p.level * 15;
     p.gold += r;
-    addRep('vigil', 6);
-    addRep('dread', -4);
+    addRepParty('vigil', 6); // P2/S11: a holding freed/relieved is PARTY news — every hero's standing moves (MP: the _seen sweep owns these calls; the gold stays with the pinned hero as before)
+    addRepParty('dread', -4);
     log(`★ You break the siege of ${h.name}! (+${r} gold) Its tribute resumes.`, 'quest');
     Sound.jingle && Sound.jingle();
     addShake(4);
@@ -205,8 +205,8 @@ function liberateHolding(i) {
     hd.liberated = true;
     const r = 80 + p.level * 10;
     p.gold += r;
-    addRep('vigil', 6);
-    addRep('dread', -5);
+    addRepParty('vigil', 6);
+    addRepParty('dread', -5);
     log(
       `★ ${h.name} is freed from the Legion! (+${r} gold) Stand on the ruins and press [E] to rebuild it into your outpost.`,
       'quest',
@@ -338,14 +338,15 @@ function dailyHoldingIncome() {
 }
 function maybeRaidHolding() {
   const avail = ownedHoldings().filter((o) => !o.h.besieged);
-  if (!avail.length || (state.factions.dread || 0) < 15 || Math.random() > 0.4) return;
+  if (!avail.length || partyRep('dread') < 15 || Math.random() > 0.4) return; // P2/S11: the Legion answers the party's most-infamous hero (max over party — plan §3.2); the short-circuit still guards the RNG draw, so a gate miss burns no random
+
   const o = NEM_PICK(avail);
   // A garrisoned companion meets the assault: healthy → repelled (at a cost); too weak → overwhelmed, siege lands.
   const guard = (state.companions || []).find((c) => c.alive && c.postedAt === o.i);
   if (guard) {
     guard.hp -= Math.round(guard.maxHp * 0.35);
     if (guard.hp > 0) {
-      addRep('vigil', 2);
+      addRepParty('vigil', 2); // P2/S11: a repelled assault is party news (this runs in the shared day tick — nobody is "acting")
       log(
         `⚔ The Dread Legion assaults ${HOLD_SITES[o.i].name} — ${guard.name} holds the wall and repels them! (${Math.ceil(guard.hp)}/${guard.maxHp} HP)`,
         'good',
