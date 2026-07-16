@@ -47,11 +47,12 @@ code += '\n;globalThis.__og = {};' +
   ['state', 'currentObjective', 'updateQuests'].map((n) => `try{ globalThis.__og[${JSON.stringify(n)}] = ${n}; }catch(_e){}`).join('\n');
 // The second eval re-runs the artifact's `globalThis.__g = __g` / `globalThis.Eldermyr = {…}`
 // lines — save and restore them so the FIRST (load-game) instance's holder/namespace stay
-// authoritative for the rest of this process.
+// authoritative for the rest of this process. P3/S1: likewise the content chunk's
+// `globalThis.CONTENT = …` (the second instance's aliases bind ITS chunk at eval time).
 {
-  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr;
+  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr, __save_ct = globalThis.CONTENT;
   (function () { eval(code); })();   // eslint-disable-line no-eval
-  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns;
+  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns; globalThis.CONTENT = __save_ct;
 }
 const CG = globalThis.__og;
 if (typeof CG.currentObjective !== 'function') throw new Error('failed to capture the real currentObjective');

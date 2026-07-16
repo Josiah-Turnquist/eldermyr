@@ -33,10 +33,12 @@ code += '\n;globalThis.__cg = {};' +
 // `globalThis.Eldermyr = {…}` lines, which would clobber the FIRST (load-game) instance's
 // holder/namespace for anything reading them later in this process. The second instance
 // only needs its own lexical bindings, so save and restore the globals around the eval.
+// P3/S1: the artifact now opens with the content chunk (`globalThis.CONTENT = …`) — same
+// clobber class, same cure (the second instance's aliases bind ITS chunk at eval time).
 {
-  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr;
+  const __save_g = globalThis.__g, __save_ns = globalThis.Eldermyr, __save_ct = globalThis.CONTENT;
   (function () { eval(code); })();   // eslint-disable-line no-eval
-  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns;
+  globalThis.__g = __save_g; globalThis.Eldermyr = __save_ns; globalThis.CONTENT = __save_ct;
 }
 const CG = globalThis.__cg;
 if (typeof CG.updateQuests !== 'function') throw new Error('failed to capture the real updateQuests');

@@ -23,7 +23,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "acorn": "^8.17.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "0.28.1",
     "eslint-scope": "^9.1.2",
     "magic-string": "^0.30.21",
     "prettier": "^3.9.5",

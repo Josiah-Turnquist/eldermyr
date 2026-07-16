@@ -34,8 +34,42 @@ const TMP = path.join(os.tmpdir(), `nr-${MODE}-${process.pid}.html`);
 const read = MODE === 'HEAD'
   ? (f) => cp.execSync(`git -C ${__RR} show HEAD:${f}`, { maxBuffer: 1e9 }).toString()
   : (f) => fs.readFileSync(path.join(__RR, f), 'utf8');
+
+// P3/S1: prepend the side's OWN content chunk, compiled exactly the way scripts/build.mjs
+// does (src/content/index.ts → bundle → non-minified iife, "use strict" relocated into the
+// IIFE body so the assembled classic script stays sloppy-mode). Without this, the first
+// part that reads CONTENT crashes the assembled program (proven by omission in the S1
+// report). A side with NO src/content (pre-S1 checkouts) legitimately skips the chunk —
+// its parts hold the content inline and never read CONTENT.
+function contentChunkFor(mode) {
+  let names;
+  if (mode === 'HEAD') {
+    try {
+      names = cp.execSync(`git -C ${__RR} ls-tree --name-only HEAD:src/content`, { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().split('\n').filter(Boolean);
+    } catch (e) { return ''; }                       // no src/content at HEAD → no chunk
+  } else {
+    const d = path.join(__RR, 'src', 'content');
+    if (!fs.existsSync(d)) return '';
+    names = fs.readdirSync(d);
+  }
+  if (!names.includes('index.ts')) return '';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `nr-content-${mode}-`));
+  process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} });
+  for (const n of names) fs.writeFileSync(path.join(dir, n), read('src/content/' + n));
+  const r = require('esbuild').buildSync({
+    entryPoints: [path.join(dir, 'index.ts')], absWorkingDir: dir,   // deterministic file markers (cosmetically `// index.ts` here — this suite compares draw ops, not chunk text)
+    bundle: true, write: false,
+    format: 'iife', minify: false, sourcemap: false, target: 'es2022', platform: 'neutral',
+  });
+  let chunk = r.outputFiles[0].text;
+  const PROLOGUE = '"use strict";\n(() => {\n';      // same relocation scripts/build.mjs performs
+  if (chunk.startsWith(PROLOGUE)) chunk = '(() => {\n  "use strict";\n' + chunk.slice(PROLOGUE.length);
+  return chunk;
+}
+
 const manifest = JSON.parse(read('src/game/manifest.json'));
-let src = read('src/game/shell-head.html') + manifest.map((f) => read('src/game/parts/' + f)).join('') + read('src/game/shell-tail.html');
+let src = read('src/game/shell-head.html') + contentChunkFor(MODE) + manifest.map((f) => read('src/game/parts/' + f)).join('') + read('src/game/shell-tail.html');
 const ANCHOR = "const ctx = canvas.getContext('2d');";
 if (!src.includes(ANCHOR)) throw new Error('ctx anchor drifted');
 src = src.replace(ANCHOR, "const ctx = globalThis.__COUNT_CTX(canvas.getContext('2d'));");

@@ -169,12 +169,10 @@ function updateWarband() {
 }
 
 // ================= ELEMENTS & STATUS EFFECTS =================
-const ELEMENTS = {
-  fire: { name: 'Fire', color: '#ff7838', rgb: '255,120,56', tag: '🔥' },
-  frost: { name: 'Frost', color: '#66c6ff', rgb: '102,198,255', tag: '❄' },
-  poison: { name: 'Poison', color: '#9be24a', rgb: '155,226,74', tag: '☠' },
-  shock: { name: 'Shock', color: '#ffe24a', rgb: '255,226,74', tag: '⚡' },
-};
+// P3/S1: the rows live in src/content/elements.ts — the compiled content chunk (prepended
+// to this program by scripts/build.mjs) assigns globalThis.CONTENT before any part runs.
+// Positional lexical alias: same binding, same declaration position, zero call-site churn.
+const ELEMENTS = CONTENT.elements;
 let arcs = [];
 function elemColor(el) {
   return (ELEMENTS[el] || {}).color || '#c0c0d0';
