@@ -13,7 +13,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * removed with NO kill event (the leash-despawn shape) still liberates via the sweep. */
 'use strict';
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 const TILE = G.TILE || 32;
 let failed = false;
@@ -110,7 +110,7 @@ if (hj >= 0) {
 // --- gate machinery is GONE (P2/S15): no __libGate sets in world.js, no lexical wrappers ---
 const fs = require('fs');
 const worldSrc = fs.readFileSync(__RR + '/server/world.js', 'utf8');
-const loaderSrc = fs.readFileSync(__RR + '/server-spike/load-game.js', 'utf8');
+const loaderSrc = fs.readFileSync(__RR + '/server/load-game.js', 'utf8');
 A1('world.js never assigns __libGate', !/__libGate\s*=/.test(worldSrc));
 A1('load-game.js carries no liberation wrappers', !/__rawLibHold|__rawClearPOI|__rawLibTown/.test(loaderSrc));
 

@@ -147,12 +147,41 @@ receipts: battery 50/50, golden 8/8, mp 4/4, typecheck + build clean. `content-p
 asserts) is the sim-blind guard for extracted hooks; per-slice the oracles ARE the safety net.
 Durable guidance graduated to CONTENT.md (11 recipes) — the P4 consumer.*
 
-**P4 — docs + cutover** `[pending]`
-CLAUDE.md (rules + commands), ARCHITECTURE.md (v3 invariants, half the length),
-CONTENT.md (recipes: add an enemy / spell / gear / steed / dungeon mod). Delete dead
-docs, netlify.toml, root index.html, server-spike/. Backup DB → deploy v3.0.0 → verify
-live → releases entry → Josiah deletes the Netlify site → merge to `main` → delete
-`rebuild/`.
+**P4 — docs + cutover** `[docs + release-prep DONE; cutover EXECUTION pending]`
+
+The DOCS + RELEASE-PREP slice landed: CLAUDE.md rewritten (lean v3 reality), ARCHITECTURE.md
+rewritten (v3 invariants, ~half length — 547→255), CONTENT.md is the content cookbook;
+`server-spike/load-game.js` moved to `server/load-game.js` (world.js + build.mjs + golden
+harness + all ~45 battery requires and textual anchors repointed, rest of `server-spike/`
+deleted); dead docs removed (`netlify.toml`, root `index.html`, `DESIGN-endgame.md`,
+`DESIGN-pinnacle-dungeons.md`); `GAME_VERSION` bumped to **v3.0.0** with the two cosmetic fixes
+(`victory()` now credits the Mountain Kraken not Morthrax; the Citadel HUD shows its tier, not a
+"Depth N" line); the v3.0.0 `server/releases.js` entry written for players. Gates green at prep
+(battery 50/50, golden 8/8, mp 4/4, typecheck, build idempotent, world self-test; browser SP
+smoke confirmed v3.0.0 display + Kraken victory copy + Citadel HUD, 0 console errors).
+
+**Cutover checklist — integrator only** (ordered; the DB backup, deploy, Netlify deletion and
+branch merge are the integrator's job, NOT the prep slice's):
+
+1. **Gates green at HEAD** — `npm run build && npm run typecheck && npm run test:battery && npm
+   run test:golden && npm run test:golden:mp && node server/world.js`, all green. Confirm no agent
+   is still writing (`railway up` uploads the working dir).
+2. **Back up the DB, out of repo** — `railway run node scripts/db-dump.mjs` (needs `DATABASE_URL`,
+   which Railway injects; writes a redacted dump under gitignored `backups/`). The "saves must
+   survive" backup.
+3. **Sweep the real rows through the importer** — `MIGRATE_DUMP=<backup> node
+   tests/run-battery.mjs migrate` (runs `migrate-roundtrip` over every real blob: no-throw +
+   version monotonicity). Must pass before deploying.
+4. **Deploy** — `railway up -c --service Eldermyr < /dev/null` from repo root.
+5. **Verify live** — `curl -s https://<host>/eldermyr-rpg.html | grep v3.0.0` (the frozen game
+   route serves `dist/eldermyr.html`); `curl -s https://<host>/health.json` → ok; `https://<host>/release`
+   shows the v3.0.0 entry.
+6. **Owner deletes the Netlify site** (single-player is retired; the page goes away).
+7. **Merge `multiplayer` → `main`, push.** One branch from here on.
+8. **Delete `rebuild/` + `REBUILD.md`, final commit.** Durable content has graduated into
+   ARCHITECTURE.md / CLAUDE.md / CONTENT.md.
+9. **Update owner memory** — v3.0.0 shipped (online-only, single branch, docs consolidated,
+   the v3 rebuild arc closed).
 
 ## Verification tiers (recalibrated 2026-07-16 — owner feedback: P2-grade rigor on data
 ## moves was over-testing; ~200-500k tokens/slice went to proof rituals redundant with

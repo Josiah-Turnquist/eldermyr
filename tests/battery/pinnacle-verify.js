@@ -1,11 +1,11 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 // pinnacle-verify.js — STAGE A of the two Pinnacle Bosses (Drowned King + Pale Shepherd).
-// Drives the REAL game headlessly (server-spike/load-game) via captured symbols only
+// Drives the REAL game headlessly (server/load-game) via captured symbols only
 // (loop/updateEnemies/killEnemy/snapshot/applySnapshot/state) — no harness changes.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const S = G.state, TILE = G.TILE, OW_W = G.OW_W, OW_H = G.OW_H, DAY = 21600;
 let LOG = []; global.__onLog = (m) => { LOG.push(String(m)); }; global.__onGameOver = () => {};
 

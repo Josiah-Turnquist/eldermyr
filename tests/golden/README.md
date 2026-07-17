@@ -52,7 +52,7 @@ worse than none).
 Each (scenario, seed) runs in its **own child process** (the loaded game is a process
 singleton). Before the game is loaded the worker (1) replaces `Math.random` with a seeded
 mulberry32 and (2) freezes `Date`/`Date.now` to a fixed epoch. It then loads the game exactly
-like `server/world.js` (via `server-spike/load-game.js`) and drives the captured update
+like `server/world.js` (via `server/load-game.js`) and drives the captured update
 functions — the body of the game's own `loop()` — with scripted, tick-derived input. The hash
 covers `{state, maps}` (sim state + tile grids), keys recursively sorted, functions skipped,
 full float precision, cross-references deduped.

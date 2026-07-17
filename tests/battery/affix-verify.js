@@ -1,10 +1,10 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 // affix-verify.js — Pillar 3 elite affixes (Shielded / Vampiric / Splitting / Warded)
-// Drives the REAL game headlessly (server-spike/load-game) then an MP World (server/world.js).
+// Drives the REAL game headlessly (server/load-game) then an MP World (server/world.js).
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');   // requiring world.js runs G.startGame() (boots the overworld)
 const S = G.state;
 let pass = 0, fail = 0; const out = [];

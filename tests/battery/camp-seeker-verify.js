@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // LOS-gated soft in-flight bend, not an aimbot). Drives the REAL game headlessly (load-game) + an MP World.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');   // requiring world.js runs G.startGame()
 const S = G.state;
 const TILE = G.TILE;

@@ -3,7 +3,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Verification for the final MP cleanup wave (server/world.js items 1-4, 6-8, 11).
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game');
+const G = require(REPO + '/server/load-game');
 const { World } = require(REPO + '/server/world');
 const S = G.state;
 const TILE = G.TILE || 32;

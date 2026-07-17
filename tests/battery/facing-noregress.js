@@ -14,7 +14,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process'), Module = require('module');
 
 const MODE = process.argv[2];
-const LG = '' + __RR + '/server-spike/load-game.js';
+const LG = '' + __RR + '/server/load-game.js';
 
 if (!MODE) {
   const run = (m) => JSON.parse(cp.execSync(`node ${__filename} ${m}`, { maxBuffer: 1e9 }).toString());

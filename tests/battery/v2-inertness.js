@@ -7,7 +7,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 //       AND — the real proof — no leaked long-lived interval: the process drains to
 //       'beforeExit'. A leaked autosave/music setInterval would keep the loop alive forever).
 const assert = require('assert');
-const G = require('' + __RR + '/server-spike/load-game');
+const G = require('' + __RR + '/server/load-game');
 
 // Spy on the save path: the autosave interval, if it existed, calls saveGame()->SaveStore.set()
 // ->localStorage.setItem(SAVE_KEY,...). Count any SAVE_KEY writes.

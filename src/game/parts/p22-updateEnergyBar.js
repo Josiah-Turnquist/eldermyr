@@ -30,7 +30,9 @@ function updateHUD() {
   document.getElementById('skill-line').textContent =
     p.skillPoints > 0 ? `✦ ${p.skillPoints} skill points! (press K in town)` : '';
   document.getElementById('loc-line').textContent =
-    state.map === 'dungeon'
+    state.citadel /* #121: a live Sunken Citadel run reuses the shared dungeon instance (state.map==='dungeon'), so this must be tested FIRST — show the citadel tier, not the generic "Depth N" dungeon line */
+      ? `🏛 The Sunken Citadel — ${state.dungeonLevel >= 4 ? 'the Drowned Hall' : 'tier ' + state.dungeonLevel}`
+      : state.map === 'dungeon'
       ? `☠ ${(state.dungeonThemeData || {}).name || 'Sunken Dungeon'} — Depth ${state.dungeonLevel}${state.floorMod && FLOOR_MODS[state.floorMod] ? ` · ${FLOOR_MODS[state.floorMod].icon} ${FLOOR_MODS[state.floorMod].name}` : ''}`
       : '⛺ Kingdom of Eldermyr';
 }

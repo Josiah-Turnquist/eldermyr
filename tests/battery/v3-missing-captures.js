@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // (every listed symbol still exists). Also unit-test the filter's SHAPE with a bogus name,
 // WITHOUT touching the committed list, to prove the mechanism flags a missing symbol.
 const assert = require('assert');
-const G = require('' + __RR + '/server-spike/load-game');
+const G = require('' + __RR + '/server/load-game');
 
 assert.ok(Array.isArray(G.__missingCaptures), '__missingCaptures must be an array');
 console.log('Real-list __missingCaptures =', JSON.stringify(G.__missingCaptures));

@@ -25,7 +25,7 @@ const path = require('path');
 
 
 const REPO = process.env.EM_REPO || __RR;
-require(path.join(REPO, 'server-spike', 'load-game.js'));   // installs window/document/localStorage stubs
+require(path.join(REPO, 'server', 'load-game.js'));   // installs window/document/localStorage stubs
 const MP = fs.readFileSync(path.join(REPO, 'client', 'mp.html'), 'utf8');
 // The game artifact: env overrides first (same chain as load-game.js), then the REPO's built
 // dist/eldermyr.html (single source since the P1 wrap), then the REPO's monolith as a

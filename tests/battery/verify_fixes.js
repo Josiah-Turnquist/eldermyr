@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Mimics how server/index.js boots the World; no DB.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game');   // same module instance world.js uses (require cache)
+const G = require(REPO + '/server/load-game');   // same module instance world.js uses (require cache)
 const { World } = require(REPO + '/server/world');
 const S = G.state;
 const TILE = G.TILE || 32;

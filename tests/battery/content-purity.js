@@ -71,7 +71,7 @@ const TREE = path.resolve(path.dirname(artifact), '..');
 // second, independent game eval — the facing-noregress child pattern.
 if (process.argv[2] === 's2-child') {
   const Module = require('module');
-  const LG = path.join(__RR, 'server-spike', 'load-game.js');
+  const LG = path.join(__RR, 'server', 'load-game.js');
   const lgSrc = fs
     .readFileSync(LG, 'utf8')
     .replace('const CAPTURE = [', "const CAPTURE = [ 'makeEnemy', 'makeDungeonEnemy', 'drawEnemy',");
@@ -255,7 +255,7 @@ ok('4.  chunk assigns globalThis.CONTENT', chunk.includes('globalThis.CONTENT'))
 
 // ---- §5 pipe-through on the REAL loaded game ---------------------------------------------
 const { World } = require(path.join(__RR, 'server', 'world.js'));
-require(path.join(__RR, 'server-spike', 'load-game.js'));
+require(path.join(__RR, 'server', 'load-game.js'));
 const C = globalThis.CONTENT;
 const NS = globalThis.Eldermyr;
 ok('5a. globalThis.CONTENT is live after the artifact eval', !!(C && C.elements));

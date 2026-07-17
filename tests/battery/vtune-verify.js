@@ -5,7 +5,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 const REPO = '' + __RR + '';
 process.chdir(REPO);
 const fs = require('fs');
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');
 const S = G.state;
 let pass = 0, fail = 0; const out = [];

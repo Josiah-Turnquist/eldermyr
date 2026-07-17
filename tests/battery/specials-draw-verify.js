@@ -26,7 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const Module = require('module');
 
-const LG = path.join(__RR, 'server-spike', 'load-game.js');
+const LG = path.join(__RR, 'server', 'load-game.js');
 const lgSrc = fs
   .readFileSync(LG, 'utf8')
   .replace('const CAPTURE = [', "const CAPTURE = [ 'startBossSpecial', 'bossSpecials', 'makeBoss',");

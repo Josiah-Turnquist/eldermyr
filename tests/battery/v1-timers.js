@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 //   setTimeout(fn,50) fires (pre-fix it returned 0 and never fired), handle clearable;
 //   setInterval fires repeatedly and is clearable; rAF stays stubbed.
 const assert = require('assert');
-require('' + __RR + '/server-spike/load-game');
+require('' + __RR + '/server/load-game');
 
 const out = { handleType: typeof setTimeout(() => {}, 9999), setTimeoutFired: false, canceledFired: false,
   intervalFires: 0, intervalCleared: false, rafReturns: global.requestAnimationFrame() };

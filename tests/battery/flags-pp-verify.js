@@ -30,7 +30,7 @@ const SAVE = path.join(HERE, '_flags_save.json');
 const SELF = __filename;
 
 function boot() {
-  const G = require(path.join(REPO, 'server-spike', 'load-game.js'));
+  const G = require(path.join(REPO, 'server', 'load-game.js'));
   const { World } = require(path.join(REPO, 'server', 'world.js'));
   return { G, World, S: G.state, TILE: G.TILE || 32 };
 }

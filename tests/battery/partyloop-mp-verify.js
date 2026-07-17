@@ -32,7 +32,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  */
 const fs = require('fs');
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 const TILE = G.TILE || 32;
 let pass = 0, fail = 0; const out = [];

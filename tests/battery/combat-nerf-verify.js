@@ -1,7 +1,7 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 // combat-nerf-verify.js — the v2.56.3 combat nerfs. Drives the REAL game headlessly
-// (server-spike/load-game.js + server/world.js), the proven ranged-verify.js recipe.
+// (server/load-game.js + server/world.js), the proven ranged-verify.js recipe.
 //
 //   FIX 1  Ricochet collateral: search 12 tiles -> 7, bounce flight life 80 -> 50 (520px -> 325px)
 //   FIX 2  Heat aura: tick damage HALVED, max radius 130px -> 96px
@@ -13,7 +13,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // and the measurements must show the old numbers. Run AFTER and they must pass with new numbers.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js'); // requiring world.js runs G.startGame()
 const S = G.state, TILE = G.TILE;
 

@@ -539,7 +539,7 @@ function victory() {
   ov.className = '';
   ov.style.display = 'flex';
   const bestTag = r.newBest ? ' <span style="color:#90ff90">(NEW BEST!)</span>' : '';
-  ov.innerHTML = `<h1 style="color:#90ffa0">VICTORY</h1><div class="subtitle">~ Morthrax the Deathless is undone ~</div><div class="intro-text">You descended to Depth ${state.player.maxDepth} and felled Morthrax at level ${state.player.level}.<br><b style="color:#f0d050">Score: ${r.score}${bestTag}</b><br>The realm draws breath — yet darker depths await those who would ascend.</div><div><button class="start-btn continue-btn" onclick="resumeAfterVictory()">DESCEND ONWARD</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME+ (Ascension ${legacy.ascension})</button></div>`;
+  ov.innerHTML = `<h1 style="color:#90ffa0">VICTORY</h1><div class="subtitle">~ The Mountain Kraken is undone ~</div><div class="intro-text">You slew the Mountain Kraken at level ${state.player.level} — the realm's doom is broken.<br><b style="color:#f0d050">Score: ${r.score}${bestTag}</b><br>The realm draws breath — yet darker depths await those who would ascend.</div><div><button class="start-btn continue-btn" onclick="resumeAfterVictory()">DESCEND ONWARD</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME+ (Ascension ${legacy.ascension})</button></div>`;
 }
 function resumeAfterVictory() {
   document.getElementById('overlay').style.display = 'none';

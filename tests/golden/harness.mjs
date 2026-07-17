@@ -10,7 +10,7 @@
  * HOW (worker mode, `run`): BEFORE the game is loaded we (1) replace Math.random
  * with a seeded mulberry32 and (2) freeze the wall clock to a fixed epoch that
  * ticks 16.666 ms/frame. Then we load the game EXACTLY like server/world.js does
- * — through server-spike/load-game.js — and drive the captured update functions
+ * — through server/load-game.js — and drive the captured update functions
  * (the body of the game's own loop()) by hand, injecting scripted per-tick input.
  * Every 100 ticks we sha256 a stable serialization of the sim state.
  *
@@ -55,7 +55,7 @@ import { SCENARIOS, SCENARIO_IDS, MP_SCENARIOS, MP_SCENARIO_IDS } from './scenar
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HARNESS = fileURLToPath(import.meta.url);
-const LOAD_GAME = path.resolve(__dirname, '../../server-spike/load-game.js');
+const LOAD_GAME = path.resolve(__dirname, '../../server/load-game.js');
 const WORLD_JS = path.resolve(__dirname, '../../server/world.js');
 const ORACLE = path.resolve(__dirname, 'oracle.json');
 const ORACLE_MP = path.resolve(__dirname, 'oracle-mp.json');
@@ -513,7 +513,7 @@ function cmdMpProve() {
 }
 
 // The game file under test. ELDERMYR_GAME_FILE (absolute, or relative to the CWD —
-// the SAME semantics as server-spike/load-game.js's override) points the whole
+// the SAME semantics as server/load-game.js's override) points the whole
 // harness at another artifact. Default (P1 wrap): the built dist/eldermyr.html,
 // repo-root-resolved — the single source; the frozen monolith is deleted (v2-final tag).
 // The actual game LOAD honors the same chain inside load-game.js (in each child

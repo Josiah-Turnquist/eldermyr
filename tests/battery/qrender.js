@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 
 // requiring load-game installs the browser stubs (window/document/localStorage/timers) globally
-require(path.join(__RR, 'server-spike', 'load-game.js'));
+require(path.join(__RR, 'server', 'load-game.js'));
 
 const htmlPath = require(path.join(__dirname, 'game-file.js')).gameFilePath();   // dist/eldermyr.html since the P1 wrap
 const html = fs.readFileSync(htmlPath, 'utf8');

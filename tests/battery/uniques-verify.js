@@ -7,7 +7,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // updateAllies/updatePlayer/updateEnemies/recalcStats/equip*/snapshot/afxHit/canDominate).
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const S = G.state, TILE = G.TILE;
 let LOG = []; global.__onLog = (m) => { LOG.push(String(m)); }; global.__onGameOver = () => {};
 let pass = 0, fail = 0; const out = [];

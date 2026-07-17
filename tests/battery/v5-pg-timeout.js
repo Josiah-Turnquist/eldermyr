@@ -7,7 +7,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // global setTimeout, connect() rejects with "timeout expired" at ~the deadline. With the boot
 // stub (pre-fix), that setTimeout is a no-op → the connect would hang indefinitely.
 const assert = require('assert');
-require('' + __RR + '/server-spike/load-game'); // restores real timers
+require('' + __RR + '/server/load-game'); // restores real timers
 const { Pool } = require('' + __RR + '/node_modules/pg');
 
 const pool = new Pool({ host: '192.0.2.1', port: 5432, user: 'x', password: 'x', database: 'x',

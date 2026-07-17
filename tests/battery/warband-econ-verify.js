@@ -9,7 +9,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // fights and F1 flips to FAIL.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game');
+const G = require(REPO + '/server/load-game');
 const { World } = require(REPO + '/server/world');
 const C = globalThis.CONTENT.companions;
 const S = G.state;

@@ -1,7 +1,7 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 // Verifies the Overlord-domination softlock fix in eldermyr-rpg.html via the headless loader.
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 
 let fails = 0;
 function ok(name, cond){ console.log((cond?'PASS':'FAIL')+' — '+name); if(!cond) fails++; }

@@ -1,6 +1,6 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
-// flat-loader.js — TEST-ONLY loader. Reuses server-spike/load-game.js VERBATIM (identical browser
+// flat-loader.js — TEST-ONLY loader. Reuses server/load-game.js VERBATIM (identical browser
 // stubs / eval epilogue / timer hygiene) with exactly two surgical patches, so old-vs-new can be
 // diffed in separate processes without touching a shipped file:
 //   (1) the html path becomes overridable via $GAME_HTML  → lets us load a PRISTINE copy of the
@@ -11,7 +11,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Both patches are asserted below: a silent no-op replacement would make every test vacuous.
 const fs = require('fs'), path = require('path'), Module = require('module');
 
-const SRC = '' + __RR + '/server-spike/load-game.js';
+const SRC = '' + __RR + '/server/load-game.js';
 let src = fs.readFileSync(SRC, 'utf8');
 
 // load-game.js honors GAME_HTML natively (P1: it also honors ELDERMYR_GAME_FILE, at
@@ -28,7 +28,7 @@ if (!src.includes(B0)) throw new Error('flat-loader: CAPTURE anchor not found in
 src = src.replace(A0, A1).replace(B0, B1);
 if (!src.includes('GAME_HTML') || !src.includes('makeWildDragon')) throw new Error('flat-loader: patch did not apply');
 
-// Compile it AS server-spike/load-game.js so __dirname / require() resolve exactly as they do in prod.
+// Compile it AS server/load-game.js so __dirname / require() resolve exactly as they do in prod.
 const m = new Module(SRC, null);
 m.filename = SRC;
 m.paths = Module._nodeModulePaths(path.dirname(SRC));

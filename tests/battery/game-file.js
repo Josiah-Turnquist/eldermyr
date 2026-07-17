@@ -1,7 +1,7 @@
 'use strict';
 // game-file.js — TEST DEP (not a suite). The one resolver for "which game artifact does this
 // suite read?" used by the suites that open the game SOURCE directly (static text probes and
-// second evals). Mirrors server-spike/load-game.js's precedence exactly:
+// second evals). Mirrors server/load-game.js's precedence exactly:
 //   GAME_HTML (suite-internal, e.g. a patched throwaway copy)
 //   > ELDERMYR_GAME_FILE (ambient, e.g. CI aiming the battery at another artifact)
 //   > <repo>/dist/eldermyr.html — THE single source since the P1 wrap. The frozen monolith

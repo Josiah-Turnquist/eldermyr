@@ -9,7 +9,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  * (same objects, not lookalikes). */
 'use strict';
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 const TILE = G.TILE || 32;
 let failed = false;

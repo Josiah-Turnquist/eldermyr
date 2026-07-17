@@ -50,7 +50,7 @@ const reset = () => { R.depth = 0; R.maxDepth = 0; R.underflow = false; R.saves 
 // calls them — loop() reaches drawEnemy lexically), so a test can only get at them this way. The
 // shipped list is NOT modified; this patch lives and dies in this process.
 const Module = require('module');
-const LG = '' + __RR + '/server-spike/load-game.js';
+const LG = '' + __RR + '/server/load-game.js';
 let lg = fs.readFileSync(LG, 'utf8');
 // load-game.js honors GAME_HTML natively (highest precedence) since P1, defaulting to
 // dist/eldermyr.html since the P1 wrap — no htmlPath patch needed; the anchor assertion

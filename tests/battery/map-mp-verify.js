@@ -3,7 +3,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // map-mp-verify.js — MP room boots on the enlarged map; 300 ticks (spawn/kill) clean; mapPayload dims 347x291.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');   // requiring world.js runs G.startGame()
 const S = G.state, TILE = G.TILE;
 

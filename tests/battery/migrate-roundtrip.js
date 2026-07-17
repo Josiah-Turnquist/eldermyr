@@ -397,7 +397,7 @@ for (const [name, fx] of Object.entries(FIXTURES)) {
   // LAYER 3 — the real world: drift guard, characterOf stamp, apply, round-trip
   // -------------------------------------------------------------------------
   console.log('\n--- layer 3: real world apply + round-trip ---');
-  const G = require(path.join(REPO, 'server-spike', 'load-game.js'));
+  const G = require(path.join(REPO, 'server', 'load-game.js'));
   const { World } = require(path.join(REPO, 'server', 'world.js'));
   const S = G.state;
   // DRIFT GUARD — must run before any fixture load (a legacy-veteran load mutates the

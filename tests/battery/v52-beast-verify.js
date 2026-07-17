@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Asserts: fresh-spawn parity (no nerf), idempotency, huntCycle>0 respected, hp-ratio preserved, no side effects.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');
 const S = G.state;
 const TILE = G.TILE || 32;

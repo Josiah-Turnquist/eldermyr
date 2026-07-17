@@ -16,7 +16,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 const fs = require('fs');
 const path = require('path');
 const REPO = process.env.EM_REPO || __RR;
-const G = require(path.join(REPO, 'server-spike', 'load-game.js'));
+const G = require(path.join(REPO, 'server', 'load-game.js'));
 const S = G.state;
 
 let pass = 0, fail = 0;

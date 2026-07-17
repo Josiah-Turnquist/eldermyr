@@ -37,7 +37,7 @@
  * quests through the game's own aliasSharedQuests (see the QUESTS block below).
  */
 'use strict';
-const G = require('../server-spike/load-game');
+const G = require('./load-game');
 const { migrateCharacter, SCHEMA_VERSION } = require('./migrate');   // pure save importer (rebuild S1) — _loadCharacter applies, never migrates
 const TILE = G.TILE || 32;
 

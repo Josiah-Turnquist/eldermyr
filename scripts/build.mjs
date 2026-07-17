@@ -17,14 +17,14 @@ const GAME_DIR = path.join(ROOT, 'src', 'game');
 // ---- P1d: build-generated namespace (globalThis.Eldermyr) --------------------------------
 // The EXPLICIT capture contract, generated from the two lists that already define it so the
 // three can never drift silently:
-//   • CAPTURE — server-spike/load-game.js  (symbols the headless server grabs)
+//   • CAPTURE — server/load-game.js  (symbols the headless server grabs)
 //   • NAMES   — client/mp.html             (symbols the MP client grabs into window.__G)
 // plus { state, maps, g }. Every entry must exist in the concatenated program as a top-level
 // binding or as a slot of the __g globals holder — an unknown name FAILS THE BUILD. That is
 // the whole point: a missing capture becomes a loud build error instead of a silent runtime
 // no-op (the codebase's documented lexical-capture failure class).
 function readCaptureList() {
-  const src = fs.readFileSync(path.join(ROOT, 'server-spike', 'load-game.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'load-game.js'), 'utf8');
   const ast = acorn.parse(src, { ecmaVersion: 2023, sourceType: 'script' });
   for (const s of ast.body) {
     if (s.type !== 'VariableDeclaration') continue;
@@ -37,7 +37,7 @@ function readCaptureList() {
       }
     }
   }
-  throw new Error('build: CAPTURE array not found in server-spike/load-game.js');
+  throw new Error('build: CAPTURE array not found in server/load-game.js');
 }
 function readNamesList() {
   const src = fs.readFileSync(path.join(ROOT, 'client', 'mp.html'), 'utf8');
@@ -88,7 +88,7 @@ function namespaceEpilogue(program) {
   });
   return (
     '\n;/* ===== BUILD-GENERATED NAMESPACE — emitted by scripts/build.mjs, NOT a source part =====\n' +
-    'The explicit MP capture contract: every symbol the server CAPTUREs (server-spike/load-game.js)\n' +
+    'The explicit MP capture contract: every symbol the server CAPTUREs (server/load-game.js)\n' +
     'and the client NAMES (client/mp.html), plus { state, maps, g }. Getters read the LIVE lexical\n' +
     'binding (post-load rewraps like log/gameOver stay visible); __g-slot names read through the\n' +
     'globals holder. Loaders PREFER this namespace when present and fall back to lexical/window\n' +

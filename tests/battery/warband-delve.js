@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // rifts/dungeons; nobody else's warband moves). Boots World like server/index.js, no DB.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game');
+const G = require(REPO + '/server/load-game');
 const { World } = require(REPO + '/server/world');
 const S = G.state;
 const TILE = G.TILE || 32;

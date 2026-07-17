@@ -5,7 +5,7 @@
 //   node tests/run-battery.mjs style uniq …   run only suites whose name matches an arg
 //
 // Each suite under tests/battery/ is a standalone Node script that drives the REAL game
-// (server-spike/load-game.js + server/world.js) or the MP server headlessly, prints PASS/FAIL
+// (server/load-game.js + server/world.js) or the MP server headlessly, prints PASS/FAIL
 // per assertion, and exits nonzero on any failure. This runner spawns each as a child process
 // (per-suite 180s timeout), retries the known-flaky ones once, prints a summary table, and
 // exits nonzero if any suite still fails after its retry.

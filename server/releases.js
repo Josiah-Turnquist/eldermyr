@@ -22,6 +22,20 @@
 
 module.exports = [
   {
+    version: 'v3.0.0',
+    date: '2026-07-16',
+    title: 'The realm rebuilt — co-op that finally holds together, and a new doom to break',
+    notes: [
+      'Nine things that quietly broke when you played with friends now work. Your boat, your questline, your faction standing, the towns you have discovered and can fast-travel to, and the realm-stone lore you have read are all yours now — personal to each hero rather than poured into one shared pool, and every one of them survives the realm sleeping and waking.',
+      'The whole warband draws its tribute at dawn, not only the host. Resting in a town truly rests you, even with a party around. Two of you can trade at the same merchant without treading on each other. And felling the realm’s doom is a victory each hero earns for themselves — a newcomer joining your realm begins their own story, instead of inheriting your finished one.',
+      'A new finale wakes: the Mountain Kraken. The old ending waited at the bottom of the Sunken Dungeon; now a far greater terror stirs beyond the western peaks. Break it and the realm draws breath — then, days later, it rises again, stronger and richer, for as many cycles as you dare.',
+      'A new dungeon beyond the dungeons: the Sunken Citadel. Fell a pinnacle boss and a black-glass gate opens onto three drowned tiers and the hall of the Drowned Archivist — a level-200 duel of shifting stances and a resurrecting court, guarding five build-changing relics that only the deepest delvers will ever hold.',
+      'Your warband grows up. Companions now come in three tiers — hire one cheap and green, or pay for a hardened veteran — each drawing a daily wage. Keep them paid and they fight at your side; let the coin run dry and they will still follow, but they will not draw steel until you settle up.',
+      'Fighting far from home finally pays. Wild foes out in the deadly rings now grant experience and gold that keep pace with their strength, instead of the pittance a starting-zone kill once paid.',
+      'And the realm runs lighter and quicker — the game now sends about three and a half times less over the wire, so co-op stays smooth even with more happening on screen.',
+    ],
+  },
+  {
     version: 'v2.59.2',
     date: '2026-07-15',
     title: 'Beasts with a head now face where they are going',

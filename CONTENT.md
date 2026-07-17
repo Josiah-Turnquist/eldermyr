@@ -13,7 +13,7 @@ one trap that bites. For *why* the platform is shaped this way, see ARCHITECTURE
   namespace, and writes **`dist/eldermyr.html`** — the single artifact everything loads.
 - Game parts read content via `CONTENT.<registry>` or a **positional alias** at the old
   declaration line (`const ELEMENTS = CONTENT.elements;`). You almost never touch a part.
-- Server (`server-spike/load-game.js` `CAPTURE`) + client (`client/mp.html` `NAMES`) grab game
+- Server (`server/load-game.js` `CAPTURE`) + client (`client/mp.html` `NAMES`) grab game
   **functions** by name. A `CAPTURE`/`NAMES` name with no top-level binding **fails the build** —
   by design (a dead capture must be loud, never a silent runtime no-op).
 - Registries are deliberately **not frozen**. Hooks must stay pure (see the three hard rules).

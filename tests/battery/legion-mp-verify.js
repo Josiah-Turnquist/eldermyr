@@ -2,7 +2,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // Headless verification: the Dread Legion roster now reaches MP clients (snapshot + welcome payload),
 // gated by the _lgN revision counter so it costs 0 bytes/tick at rest.
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 const R = {};
 

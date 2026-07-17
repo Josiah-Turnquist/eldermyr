@@ -3,7 +3,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // v2.52.0 batch verification: (1) S._partyN + warlord atk, (2) rift depth, (4) ally _aid in snapshot
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');
 const S = G.state;
 let pass = 0, fail = 0; const out = [];

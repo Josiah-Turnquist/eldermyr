@@ -2,11 +2,11 @@
 const __RR = require('path').resolve(__dirname, '..', '..');
 // quest-verify.js — the quest-reset bug: completed / no-longer-relevant intro quests
 // must RETIRE (not linger forever) in the quest box AND the wayfinder, in SP + MP.
-// Drives the REAL game headlessly (server-spike/load-game) + a real MP World.
+// Drives the REAL game headlessly (server/load-game) + a real MP World.
 const fs = require('fs');
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');           // installs browser stubs, evals the game
+const G = require(REPO + '/server/load-game.js');           // installs browser stubs, evals the game
 const { World } = require(REPO + '/server/world.js');             // requiring world.js runs G.startGame()
 const S = G.state;
 

@@ -1,10 +1,10 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
 // ranged-verify.js — the RANGED rework (Ricochet fix / visible Marks / Deadeye feedback / late burst).
-// Drives the REAL game headlessly (server-spike/load-game) then an MP World, like style-verify.js.
+// Drives the REAL game headlessly (server/load-game) then an MP World, like style-verify.js.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game.js');
+const G = require(REPO + '/server/load-game.js');
 const { World } = require(REPO + '/server/world.js');   // requiring world.js runs G.startGame()
 const S = G.state;
 let pass = 0, fail = 0; const out = [];

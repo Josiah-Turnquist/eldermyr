@@ -4,7 +4,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
 // and the interact-join path must restore full slots. Fresh process → clean shared S.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
-const G = require(REPO + '/server-spike/load-game');
+const G = require(REPO + '/server/load-game');
 const { World } = require(REPO + '/server/world');
 const S = G.state;
 const TILE = G.TILE || 32;

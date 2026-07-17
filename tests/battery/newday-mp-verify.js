@@ -21,7 +21,7 @@ const __RR = require('path').resolve(__dirname, '..', '..');
  */
 'use strict';
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 let pass = 0, fail = 0; const out = [];
 const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL ') + n + (x != null ? '  [' + x + ']' : '')); };

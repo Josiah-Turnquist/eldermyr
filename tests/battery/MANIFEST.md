@@ -1,7 +1,7 @@
 # Eldermyr verification battery — manifest
 
 Standalone Node suites that drive the **real** game headlessly
-(`server-spike/load-game.js` + `server/world.js`) or boot the MP server, assert behavior,
+(`server/load-game.js` + `server/world.js`) or boot the MP server, assert behavior,
 and exit nonzero on any failure. Rescued from an accumulated scratchpad of ~198 files.
 
 Run them all as one command from the repo root:
@@ -16,7 +16,7 @@ known-flaky ones once, prints a `suite | result | seconds` table, and exits nonz
 suite still fails. Full battery is ~11 s wall on a warm tree.
 
 Each suite resolves the repo root from its own location (`path.resolve(__dirname, '..', '..')`),
-so the battery runs from any checkout. No suite needs a database; `server-spike/load-game.js`,
+so the battery runs from any checkout. No suite needs a database; `server/load-game.js`,
 `server/world.js`, `server/index.js`, `node_modules/pg`, and `server/node_modules/ws` must exist.
 
 ## Known-flaky suites (retried once by the runner)

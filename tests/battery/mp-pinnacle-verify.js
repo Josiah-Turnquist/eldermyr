@@ -1,7 +1,7 @@
 const __RR = require('path').resolve(__dirname, '..', '..');
 // Headless 2-player MP verification for Stage C pinnacle bosses.
 const { World } = require('' + __RR + '/server/world.js');
-const G = require('' + __RR + '/server-spike/load-game.js');
+const G = require('' + __RR + '/server/load-game.js');
 const S = G.state;
 const TILE = G.TILE;
 const R = {};
