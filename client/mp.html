@@ -742,13 +742,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       // ends up rejecting it (a rare stamina desync), the post-guard reconcile still converges.
       const me = snap && snap.me;
       if (me && predInit && !(me.dragon && me.dragon.mounted) && !me.camping && !me.downed
-          && (me.dodge | 0) <= 0 && (me.dodgeCd | 0) <= 0 && predDodge.t <= 0
-          && (me.stamina || 0) >= Math.max(18, 34 - (me.bonusEvasion || 0) * 2)) {
+          && (me.dodge | 0) <= 0 && (me.dodgeCd | 0) <= 0 && predDodgeCd <= 0 && predDodge.t <= 0
+          && (me.stamina || 0) >= Math.max(18, 34 - (me.bonusEvasion || 0) * 2)) {   // v3.1.3: also gate on the LOCAL cooldown mirror — the delayed me.dodgeCd lets a quick second tap slip past and mispredict
         let ddx = (held.d ? 1 : 0) - (held.a ? 1 : 0), ddy = (held.s ? 1 : 0) - (held.w ? 1 : 0);   // held move-keys = the same vector the server reads from `keys`
         if (ddx === 0 && ddy === 0) { const v = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[me.dir] || [0, 1]; ddx = v[0]; ddy = v[1]; }   // standing still → dodge along facing (doDodge's fallback)
         const mag = Math.hypot(ddx, ddy) || 1;
         predDodge.vx = (ddx / mag) * 5.6; predDodge.vy = (ddy / mag) * 5.6; predDodge.t = 13;   // doDodge: p.dvx = dir*5.6, p.dodge = 13
         predDodgeGuardUntil = performance.now() + (13 / serverHz) * 1000 + 180;                  // guard = the lunge (~162 ms @80 Hz) + ~180 ms settle so the server's dodge confirmation (a broadcast + round-trip behind) lands before normal reconcile resumes
+        predDodgeCd = 24;                                                                        // v3.1.3: mirror doDodge's dodgeCd = 24 (drift-free)
+        locInvuln = Math.max(locInvuln, 15 + (me.bonusEvasion || 0) * 2);                        // v3.1.3: mirror doDodge's i-frames so the invuln BLINK starts on frame 1 with the lunge
+        glideActive = false;                                                                     // v3.1.3: a fresh predicted dodge supersedes any in-progress glide
       }
     }
     // abilities / potion / mount → server RPCs (applied to this player)
@@ -807,6 +810,20 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // second, server-driven arc. LOCAL player only — remotes keep server-driven rendering. predAtkCd = the
   // local cooldown mirror; predAtkDir = the aimed direction captured at swing start.
   let predAttacking = 0, predAtkCd = 0, predAtkDir = null;
+  // v3.1.3 — smooth the local i-frame BLINK + glide out a mispredicted dodge.
+  //   locInvuln: the LOCAL hero's cosmetic invuln, decremented smoothly per frame — drawPlayer blinks the
+  //     sprite on floor(p.invuln/4)%2, and the raw snap.me.invuln (adopted at 20 Hz and held FLAT, never
+  //     decremented client-side) stepped that in coarse jumps, and only after a round-trip. Seeded by a
+  //     predicted dodge (doDodge's 15 + evasion·2 i-frames) and by a RISING EDGE in snap.me.invuln (a fresh
+  //     server i-frame, e.g. a HIT); _prevSnapInv detects that edge.
+  //   predDodgeCd: local mirror of doDodge's 24-tick cooldown (drift-free — doDodge is its ONLY source) so a
+  //     rapid dodge CHAIN mispredicts less. (Stamina is deliberately NOT mirrored — regen / Momentum-refund /
+  //     food change it without a client-trackable signal, so a mirror would drift; the glide covers those.)
+  //   glideActive: latched when the post-guard reconcile sees a MODERATE residual (a dodge the client
+  //     predicted but the server rejected). While set, pred eases toward the authoritative position per frame
+  //     (capped) instead of the old >64 px hard-snap POP, and the per-snapshot lerp is paused so nothing
+  //     stacks on top. A real teleport (>200 px) still snaps instantly.
+  let locInvuln = 0, _prevSnapInv = 0, predDodgeCd = 0, glideActive = false;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
   let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
   // client-side TIMELINE INTERPOLATION (v3.0.1): remote entities only get new positions at the
@@ -923,9 +940,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       else {
         const err = Math.hypot(snap.me.x - pred.x, snap.me.y - pred.y);
         if (predDodge.t > 0 || performance.now() < predDodgeGuardUntil) { /* v3.1.1 PREDICTED-DODGE GUARD: through the lunge + a short settle, TRUST the local mirror — no hard-snap AND no lerp toward the still-lagging snapshot (the server's dodge confirmation is a broadcast behind, so pred is legitimately a beat ahead in TIME; snapping or tugging now would fight the lunge, and that fight WAS the camera lurch). A big err here is that expected lag, not a desync. Once the guard lifts the server has caught up (both moved the same ~73 px) so err≈0; if the server actually rejected the dodge — a rare stamina desync — the first post-guard reconcile converges it. Do NOT double-apply. */ }
-        else if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
-        else { pred.x += (snap.me.x - pred.x) * 0.45; pred.y += (snap.me.y - pred.y) * 0.45; }  // smooth drift correction (snapshot v2: 0.25→0.45 — corrections arrive per SNAPSHOT, now 20 Hz instead of ~66, so the per-correction pull grows to keep the same wall-clock convergence)
+        else if (err > 200) { pred.x = snap.me.x; pred.y = snap.me.y; glideActive = false; }        // v3.1.3: genuinely HUGE only (teleport / fast-travel / knockback across the map) → instant, stays crisp
+        else if (err > 64) { glideActive = true; }        // v3.1.3: a MISPREDICTED dodge left a moderate residual (the old hard-snap POP) → latch the per-frame GLIDE below, which eases it out capped so no single frame jumps far
+        else if (!glideActive) { pred.x += (snap.me.x - pred.x) * 0.45; pred.y += (snap.me.y - pred.y) * 0.45; }  // smooth drift correction — PAUSED while a glide is finishing so nothing stacks on top (snapshot v2: 0.25→0.45 — corrections arrive per SNAPSHOT, now 20 Hz instead of ~66, so the per-correction pull grows to keep the same wall-clock convergence)
       }
+      // v3.1.3 — re-sync the local mirrors to the authoritative snapshot each broadcast:
+      predDodgeCd = Math.max(predDodgeCd, snap.me.dodgeCd || 0);   // pick up any server cooldown the client didn't predict (drift-free — dodgeCd only counts down otherwise)
+      if ((snap.me.invuln | 0) > _prevSnapInv + 1 && performance.now() >= predDodgeGuardUntil) locInvuln = Math.max(locInvuln, snap.me.invuln);   // a RISING EDGE in the server invuln OUTSIDE a predicted dodge = a fresh i-frame (a HIT) → (re)start the smooth local blink; the dodge's own rise is already predicted
+      _prevSnapInv = snap.me.invuln | 0;
       // ---- combat feedback (replay the game's own juice from deltas) ----
       const me2 = snap.me;
       if (feelHp !== null) {
@@ -1075,6 +1097,17 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // tracks weaponCd. (The trigger + the arc drive live in the adopt block below, where state.player is fresh.)
     if (predAttacking > 0) predAttacking = Math.max(0, predAttacking - _step);
     if (predAtkCd > 0) predAtkCd = Math.max(0, predAtkCd - _step);
+    // v3.1.3 — GLIDE out a mispredicted dodge (client predicted, server rejected → a moderate residual once
+    // the guard lifts). Ease pred toward the authoritative position per frame, capped so no single frame
+    // jumps far; latched by the reconcile (err>64) and run to convergence so it never hands a leftover back to
+    // the per-snapshot lerp. Skipped during the dodge guard (prediction is trusted there).
+    if (glideActive && predInit && snap.me && !(predDodge.t > 0 || now < predDodgeGuardUntil)) {
+      const ex = snap.me.x - pred.x, ey = snap.me.y - pred.y, e = Math.hypot(ex, ey);
+      if (e <= 6) glideActive = false;                                   // converged → resume normal per-snapshot reconcile
+      else { const gm = e * 0.45, sc = gm > 18 ? 18 / gm : 1; pred.x += ex * 0.45 * sc; pred.y += ey * 0.45 * sc; }   // 45%/frame toward the server pos, capped ~18 px/frame
+    }
+    if (locInvuln > 0) locInvuln = Math.max(0, locInvuln - _step);       // v3.1.3: smooth the i-frame BLINK (drawPlayer blinks on floor(invuln/4)%2 — the raw 20 Hz-held value stepped it in coarse jumps)
+    if (predDodgeCd > 0) predDodgeCd = Math.max(0, predDodgeCd - _step); // v3.1.3: decay the local dodge-cooldown mirror
     // adopt authoritative state, but render MY player at the predicted position
     let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
     try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
@@ -1082,6 +1115,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const _pq = S.player.quests;   // P2/S13: same carry for the QUESTLINE — it lives ON the player but never rides `me` (safeClone skips it; it arrives via the version-gated quest payload / welcome seed), so the wholesale adopt below would blank the quest box every frame
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
+    S.player.invuln = locInvuln;   // v3.1.3: drive the LOCAL i-frame blink from the smoothly-decremented mirror (cosmetic — the server owns the real i-frame hit detection). Remotes untouched (drawOthers Object.assigns invuln:0, which never rides the wire).
     // v3.1.2 — drive the LOCAL melee swing arc from the predicted mirror (cosmetic only — damage is
     // server-side in meleeSwing). Melee only (ranged/magic render a projectile, handled by v3.1.1 _tproj).
     if (snap.me._lastStyle === 'melee') {   // server-authoritative style, on the wire

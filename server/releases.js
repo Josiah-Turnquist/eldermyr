@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v3.1.3',
+    date: '2026-07-17',
+    title: 'Dodging is cleaner — a smooth invincibility shimmer, and no screen-jerk when you chain rolls low on stamina',
+    notes: [
+      'The invincibility shimmer during a dodge is smooth now. It used to flicker unevenly and start a beat after your roll; it now begins the instant you dodge and shimmers cleanly all the way through.',
+      'Chaining rolls no longer jerks the screen. When you mash dodge and run low on stamina, the game occasionally guessed a roll the server didn’t allow — and the correction used to snap. It now glides the hero smoothly back into place instead.',
+      'True teleports — fast travel, entering a dungeon — still snap instantly, exactly as before; only the small mispredicts are smoothed.',
+      'As always, this is purely how your screen draws your own dodge — the roll, its distance, and your invincibility frames are decided on the server exactly as before.',
+    ],
+  },
+  {
     version: 'v3.1.2',
     date: '2026-07-17',
     title: 'Blade swings now flash the instant you attack, tracking your body as you move',
