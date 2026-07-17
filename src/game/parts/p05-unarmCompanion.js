@@ -1,0 +1,651 @@
+function unarmCompanion(idx) {
+  const c = state.companions[idx];
+  if (!c || !c.weapon) return;
+  state.inventory.weapons.push(c.weapon);
+  log(`You take back the ${c.weapon.name} from ${c.name}.`, 'lore');
+  c.weapon = null;
+  Sound.blip && Sound.blip();
+  renderCompanions();
+  saveGame();
+}
+// Garrison: station a companion at the outpost you stand in — they hold it (and repel sieges) instead of following you.
+function garrisonCompanion(idx) {
+  const c = state.companions[idx];
+  if (!c || !c.alive) return;
+  const hi = currentHoldIndex();
+  if (hi < 0) {
+    Sound.error();
+    log('Stand within one of your outposts to garrison a companion there.', 'combat');
+    return;
+  }
+  c.postedAt = hi;
+  anchorCompanion(c);
+  Sound.jingle && Sound.jingle();
+  log(`⚑ ${c.name} takes post at ${HOLD_SITES[hi].name} — assaults there will be met at the wall.`, 'good');
+  renderCompanions();
+  saveGame();
+}
+function recallCompanion(idx) {
+  const c = state.companions[idx];
+  if (!c) return;
+  const was = c.postedAt;
+  c.postedAt = null;
+  if (c.alive) placeCompanionNearPlayer(c);
+  Sound.blip && Sound.blip();
+  log(
+    `${c.name} leaves ${was != null && HOLD_SITES[was] ? HOLD_SITES[was].name : 'the post'} and rejoins you.`,
+    'lore',
+  );
+  renderCompanions();
+  saveGame();
+}
+function compMeleeHit(c, e) {
+  const dmg = Math.max(1, c.atk + compWeaponBonus(c) - (e.def || 0) + Math.floor(Math.random() * 3));
+  e.hp -= afxHit(e, dmg);
+  e.hitFlash = 6;
+  floatDamage(e.x + e.w / 2, e.y, dmg, '#cfe0ff');
+  spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 3, { color: c.color, speed: 1.6, decay: 0.08 });
+  Sound.hit && Sound.hit();
+  if (e.hp <= 0) killEnemy(e);
+}
+function compRangedShot(c, e) {
+  const cx = c.x + c.w / 2,
+    cy = c.y + c.h / 2;
+  const mage = c.cls === 'mage';
+  const ang = Math.atan2(e.y + e.h / 2 - cy, e.x + e.w / 2 - cx);
+  const spd = mage ? 4.4 : 6.2;
+  addProjectile(
+    cx,
+    cy,
+    Math.cos(ang) * spd,
+    Math.sin(ang) * spd,
+    Math.max(1, Math.round((c.atk + compWeaponBonus(c)) * (mage ? 0.95 : 0.85))),
+    {
+      friendly: true,
+      kind: mage ? 'bolt' : 'arrow',
+      color: mage ? '#c79bff' : '#dfe6a8',
+      r: mage ? 6 : 4,
+      life: 72,
+      pierce: mage ? 1 : 0,
+      style: mage ? 'magic' : 'ranged',
+    },
+  );
+  if (mage) {
+    Sound.cast && Sound.cast();
+  } else {
+    Sound.shoot && Sound.shoot();
+  }
+}
+function updateCompanionsFor() {
+  const list = state.companions || [];
+  if (!list.length) return;
+  const p = state.player;
+  const COMP_OFFS = [
+    [-40, 28],
+    [40, 28],
+    [0, 54],
+  ];
+  let ci = -1;
+  for (const c of list) {
+    if (!c.alive) continue;
+    ci++;
+    if (c.postedAt != null && state.map !== 'overworld') continue;
+    if (Math.hypot(c.x + c.w / 2 - (p.x + p.w / 2), c.y + c.h / 2 - (p.y + p.h / 2)) > 420) {
+      c.x = p.x + (ci % 2 ? 18 : -18);
+      c.y = p.y + 16;
+      c.attackCd = 0;
+    }
+    c.wobble += 0.12;
+    if (c.attackCd > 0) c.attackCd--;
+    if (c.hurtCd > 0) c.hurtCd--;
+    const C = COMP_CLASSES[c.cls] || COMP_CLASSES.knight;
+    let best = null,
+      bd = 1e9;
+    for (const e of state.enemies) {
+      if (e.hp <= 0) continue;
+      const d = rectDist(c, e);
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    if (best && bd < 360 && !c.unpaid) {
+      // #115/F2: an UNPAID companion (upkeep unmet) will not engage — no chase, no swing. It falls
+      // through to the follow/garrison branch below, so it STAYS and FOLLOWS but refuses to fight.
+      const ecx = best.x + best.w / 2,
+        ecy = best.y + best.h / 2;
+      const ccx = c.x + c.w / 2,
+        ccy = c.y + c.h / 2;
+      if (C.melee) {
+        if (bd > 30) stepToward(c, ecx, ecy, C.speed);
+        if (bd < 34 && c.attackCd <= 0) {
+          compMeleeHit(c, best);
+          c.attackCd = 40;
+          if (!best.isBoss && !best.isNemesis) {
+            best.tauntRef = c;
+            best.tauntT = 110;
+          }
+        }
+      } else {
+        if (bd < 100) stepToward(c, ccx + (ccx - ecx), ccy + (ccy - ecy), C.speed * 0.8);
+        else if (bd > C.range * 0.78) stepToward(c, ecx, ecy, C.speed);
+        if (bd < C.range && c.attackCd <= 0) {
+          compRangedShot(c, best);
+          c.attackCd = c.cls === 'mage' ? 72 : 54;
+          if (!best.isBoss && !best.isNemesis && Math.random() < 0.55) {
+            best.tauntRef = c;
+            best.tauntT = 90;
+          }
+        }
+      }
+    } else if (c.postedAt != null) {
+      const h = HOLD_SITES[c.postedAt];
+      const hx = h.tx * TILE + 8,
+        hy = h.ty * TILE + 20;
+      if (Math.hypot(c.x - hx, c.y - hy) > 40) stepToward(c, hx, hy, C.speed);
+    } else {
+      const off = COMP_OFFS[ci % COMP_OFFS.length];
+      const fx = p.x + off[0],
+        fy = p.y + off[1];
+      if (Math.hypot(c.x - fx, c.y - fy) > 8) stepToward(c, fx, fy, C.speed + 0.15);
+    } // each companion holds its OWN formation slot (left flank / right flank / rear) instead of dogpiling one point
+    for (const o2 of list) {
+      if (o2 === c || !o2.alive) continue;
+      const ddx = c.x - o2.x,
+        ddy = c.y - o2.y;
+      const dd = Math.hypot(ddx, ddy);
+      if (dd > 0.1 && dd < 18) {
+        const nx2 = c.x + (ddx / dd) * 0.5,
+          ny2 = c.y + (ddy / dd) * 0.5;
+        if (canMoveTo(nx2, ny2, c.w, c.h)) {
+          c.x = nx2;
+          c.y = ny2;
+        }
+      }
+    } // and they never stand inside each other (nudge respects walls)
+    if (c.hurtCd <= 0) {
+      for (const e of state.enemies) {
+        if (e.hp <= 0) continue;
+        if (rectDist(c, e) < 30) {
+          const dmg = Math.max(1, Math.round((e.atk || 4) * 0.5) - c.def);
+          c.hp -= dmg;
+          c.hurtCd = 38;
+          if (e.afxVamp && dmg > 0) afxVampHeal(e, dmg);
+          floatDamage(c.x + c.w / 2, c.y, dmg, '#ff8a8a');
+          if (c.hp <= 0) {
+            c.alive = false;
+            c.hp = 0;
+            spawnBurst(c.x + c.w / 2, c.y + c.h / 2, 12, { color: c.color, speed: 1.8, decay: 0.05 });
+            log(`${c.name} is downed! They will recover when you rest [C] or by morning.`, 'combat');
+            Sound.error && Sound.error();
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+function updateCompanions() {
+  if (!(state.players && state.players.length)) {
+    updateCompanionsFor();
+    return;
+  } // SP: the one hero, the whole warband — same body, same draws, byte-identical
+  /* MP (P2 fold, plan §7 S13 sub-slice "companions"): BOTH world.js warband partitions — the
+     overworld byOwner pass AND the dungeon per-delver pass — moved in as ONE owner loop.
+     state.map picks the side: while the party dungeon is swapped into the state singletons only
+     map==='dungeon' recruits step (against the floor's own enemies/grid), topside only the
+     others — a recruit is never stepped in the wrong coordinate space (risk #9). The body steps
+     state.companions toward state.player, so the pin routes each warband to ITS owner — and a
+     companion kill (killEnemy inside compMeleeHit/compRangedShot's projectiles) credits that
+     owner's own quests.slay/bounty/gold (player-native since P2/S13/S12). Owners iterate in
+     JOIN ORDER (canonized — the old overworld pass followed first-recruit order; the roster is
+     the determinism contract the 2p baselines freeze). */
+  const all = state.companions;
+  if (!all || !all.length) return;
+  const dg = state.map === 'dungeon';
+  for (const p of partyIn()) {
+    if (p.downed) continue; // a downed hero's recruits idle (both old passes skipped them)
+    const mine = [];
+    for (const c of all) if (c.ownerId === p.id && (c.map === 'dungeon') === dg) mine.push(c);
+    if (!mine.length) continue;
+    state.player = p;
+    state.inventory = p.inventory; // the pin IS the swap (P2/S13); deliberately NO restore (the updateEnemies precedent)
+    state.companions = mine;
+    updateCompanionsFor();
+  }
+  state.companions = all;
+}
+function drawCompanion(c) {
+  if (!c.alive) return;
+  const sx = c.x - state.camera.x,
+    sy = c.y - state.camera.y;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(sx + c.w / 2, sy + c.h + 1, c.w / 2, 3, 0, 0, 6.28);
+  ctx.fill();
+  const fl = Math.sin(c.wobble) * 1.4;
+  ctx.fillStyle = c.color;
+  ctx.fillRect(sx + 4, sy + 8 + fl, c.w - 8, c.h - 8);
+  ctx.fillStyle = '#1a2030';
+  ctx.fillRect(sx + 5, sy + fl, c.w - 10, 9);
+  ctx.fillStyle = '#ffe0c0';
+  ctx.fillRect(sx + 6, sy + 2 + fl, c.w - 12, 5);
+  ctx.fillStyle = '#0e1828';
+  ctx.fillRect(sx + 8, sy + 3 + fl, 2, 2);
+  ctx.fillRect(sx + c.w - 10, sy + 3 + fl, 2, 2);
+  if (c.hp < c.maxHp) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(sx - 1, sy - 6, c.w + 2, 4);
+    ctx.fillStyle = '#74e08a';
+    ctx.fillRect(sx, sy - 5, Math.max(0, c.w * (c.hp / c.maxHp)), 2);
+  }
+  ctx.fillStyle = c.color;
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(
+    (c.postedAt != null ? '⚑' : (COMP_CLASSES[c.cls] || {}).icon) + ' ' + c.name,
+    sx + c.w / 2,
+    sy - 9,
+  );
+  ctx.textAlign = 'left';
+}
+function openCompanions() {
+  if (state.scene !== 'play') return;
+  if (!state.companions) state.companions = [];
+  state.scene = 'companions';
+  document.getElementById('companions').style.display = 'block';
+  renderCompanions();
+}
+function closeCompanions() {
+  const el = document.getElementById('companions');
+  if (el) el.style.display = 'none';
+  if (state.scene === 'companions') state.scene = 'play';
+}
+function renderCompanions() {
+  const ros = document.getElementById('comp-roster'),
+    rec = document.getElementById('comp-recruit');
+  if (!ros || !rec) return;
+  const list = state.companions || [];
+  ros.innerHTML = '';
+  if (!list.length) {
+    ros.innerHTML = '<div style="color:#8088a0;padding:6px">No companions yet — hire your first below.</div>';
+  } else {
+    list.forEach((c, idx) => {
+      const C = COMP_CLASSES[c.cls] || {};
+      const row = document.createElement('div');
+      row.className = 'skill-row';
+      // #115/F2: alive shows HP + (if upkeep unmet) an "unpaid — won't fight" marker; the class line
+      // carries the promotion tier (T1/T2/T3) + this head's daily upkeep.
+      const tierN = (c.tier | 0) + 1;
+      const upk = (C.tiers && C.tiers[c.tier | 0] ? C.tiers[c.tier | 0].upkeep : 0);
+      const status = c.alive
+        ? `<span style="color:#74e08a">${Math.ceil(c.hp)}/${c.maxHp} HP</span>${c.unpaid ? ` <span style="color:#ff7565">✊ unpaid — won't fight</span>` : ''}`
+        : `<span style="color:#ff7565">Downed — recovers on rest</span>`;
+      const badges =
+        (c.postedAt != null && HOLD_SITES[c.postedAt]
+          ? ` <span style="color:#f0d878">⚑ ${HOLD_SITES[c.postedAt].name}</span>`
+          : '') +
+        (c.weapon ? ` <span style="color:#a8c8ff">🗡 ${c.weapon.name} (+${compWeaponBonus(c)}⚔)</span>` : '');
+      row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${c.name}</b> <span class="sk-desc">${C.name} · T${tierN} · Lv ${c.level} · ⚔${c.atk + compWeaponBonus(c)} 🛡${c.def} · ${upk}g/day</span><br><span class="sk-val">${status}${badges}</span></div>`;
+      const bA = document.createElement('button');
+      bA.className = 'sk-btn';
+      if (c.weapon) {
+        bA.textContent = 'Take';
+        bA.title = 'Take their weapon back';
+        bA.onclick = () => unarmCompanion(idx);
+      } else {
+        bA.textContent = 'Arm';
+        bA.title = 'Hand them your best spare ' + styleLabel(compStyleFor(c.cls)) + ' weapon';
+        bA.onclick = () => armCompanion(idx);
+      }
+      row.appendChild(bA);
+      const bG = document.createElement('button');
+      bG.className = 'sk-btn';
+      if (c.postedAt != null) {
+        bG.textContent = 'Recall';
+        bG.onclick = () => recallCompanion(idx);
+      } else {
+        bG.textContent = 'Garrison';
+        bG.title = 'Station them at the outpost you stand in';
+        if (currentHoldIndex() < 0 || !c.alive) {
+          bG.disabled = true;
+        } else bG.onclick = () => garrisonCompanion(idx);
+      }
+      row.appendChild(bG);
+      const b = document.createElement('button');
+      b.className = 'sk-btn';
+      b.textContent = 'Dismiss';
+      b.onclick = () => dismissCompanion(idx);
+      row.appendChild(b);
+      ros.appendChild(row);
+    });
+  }
+  // #115/F2: each class offers THREE tiers — stronger costs ~10× to hire AND more daily upkeep.
+  rec.innerHTML = `<div style="color:#d0b070;font-size:12px;text-align:center;margin-bottom:6px">Recruit (${list.length}/${COMP_CAP}) — higher tiers are stronger but cost more daily upkeep</div>`;
+  ['knight', 'ranger', 'mage'].forEach((cls) => {
+    const C = COMP_CLASSES[cls];
+    const row = document.createElement('div');
+    row.className = 'skill-row';
+    const upk = C.tiers.map((t) => t.upkeep).join('/');
+    row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${C.name}</b> <span class="sk-desc">${C.desc}</span><br><span class="sk-val">upkeep ${upk} g/day (T1/T2/T3)</span></div>`;
+    C.tiers.forEach((tr, ti) => {
+      const b = document.createElement('button');
+      b.className = 'sk-btn';
+      b.title = `Tier ${ti + 1}: hire ${tr.hire}g · upkeep ${tr.upkeep}g/day · ×${tr.statMul} stats`;
+      if (list.length >= COMP_CAP) {
+        b.textContent = 'Full';
+        b.disabled = true;
+      } else if (state.player.gold < tr.hire) {
+        b.textContent = `T${ti + 1} ${tr.hire}g`;
+        b.disabled = true;
+      } else {
+        b.textContent = `T${ti + 1} ${tr.hire}g`;
+        b.onclick = () => recruitCompanion(cls, ti);
+      }
+      row.appendChild(b);
+    });
+    rec.appendChild(row);
+  });
+}
+
+// ================= REGION IDENTITY & MOOD — the rings feel like places =================
+// Crossing one of the 9 named regions fades in a banner; a subtle screen tint eases between the rings'
+// moods (warm Vale / windswept Marches / ash Frontier); and one Realm-stone per region holds a line of
+// lore — reading a new one pays +40 XP and counts toward "Realm-stones discovered" (persisted loreFound).
+// P3/S10: region subtitles + lore live in src/content/tables.ts (CONTENT.tables.regions); positional aliases.
+const REGION_SUBS = CONTENT.tables.regions.subs;
+const LORE_TEXTS = CONTENT.tables.regions.lore;
+__g._bannerTimer = null;
+__g._bannerUntil = 0;
+function showRegionBanner(title, sub) {
+  const el = document.getElementById('region-banner');
+  if (!el) return;
+  el.innerHTML = `<div class="rb-t">${title}</div><div class="rb-s">${sub || ''}</div>`;
+  el.style.opacity = '1';
+  __g._bannerUntil = Date.now() + 3600;
+  if (__g._bannerTimer) clearTimeout(__g._bannerTimer);
+  __g._bannerTimer = setTimeout(() => {
+    el.style.opacity = '0';
+  }, 2800);
+}
+__g.moodR = 255;
+__g.moodG = 214;
+__g.moodB = 120;
+__g.moodA = 0;
+function drawMoodTint() {
+  if (state.map !== 'overworld') return;
+  const p = state.player;
+  const df = distFactor(Math.floor((p.x + p.w / 2) / TILE), Math.floor((p.y + p.h / 2) / TILE));
+  let tr, tg, tb, ta;
+  if (df < RING_SAFE) {
+    tr = 255;
+    tg = 214;
+    tb = 120;
+    ta = 0.05;
+  } else if (df < RING_MID) {
+    tr = 150;
+    tg = 168;
+    tb = 205;
+    ta = 0.038;
+  } else {
+    tr = 255;
+    tg = 62;
+    tb = 32;
+    ta = 0.058;
+  }
+  __g.moodR += (tr - __g.moodR) * 0.02;
+  __g.moodG += (tg - __g.moodG) * 0.02;
+  __g.moodB += (tb - __g.moodB) * 0.02;
+  __g.moodA += (ta - __g.moodA) * 0.02;
+  ctx.fillStyle =
+    'rgba(' +
+    (__g.moodR | 0) +
+    ',' +
+    (__g.moodG | 0) +
+    ',' +
+    (__g.moodB | 0) +
+    ',' +
+    __g.moodA.toFixed(3) +
+    ')';
+  ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
+}
+function findWildTileInRegion(r) {
+  for (let i = 0; i < 140; i++) {
+    const tx = 2 + Math.floor(Math.random() * (OW_W - 4)),
+      ty = 2 + Math.floor(Math.random() * (OW_H - 4));
+    if (regionOf(tx, ty) !== r) continue;
+    if (SOLID.has(getTile('overworld', tx, ty)) || isInTown(tx, ty, 1) || !isReachableOW(tx, ty)) continue;
+    return { tx, ty };
+  }
+  return null;
+}
+function placeLoreStones() {
+  state.loreStones = [];
+  for (let r = 0; r < 9; r++) {
+    const t = findWildTileInRegion(r);
+    if (t) state.loreStones.push({ x: t.tx * TILE + 5, y: t.ty * TILE + 3, w: 22, h: 26, region: r });
+  }
+}
+function readLoreStone(s) {
+  const p = state.player; // P2/S11: Realm-stones are YOUR discoveries — the first-read +40 XP is per-hero now (one scholar no longer strips every other hero's discovery)
+  if (!p.loreFound) p.loreFound = [];
+  const first = !p.loreFound.includes(s.region);
+  log('❝ ' + LORE_TEXTS[s.region] + ' ❞', 'lore');
+  if (first) {
+    p.loreFound.push(s.region);
+    gainXP(40);
+    Sound.jingle && Sound.jingle();
+    spawnBurst(s.x + s.w / 2, s.y + 8, 14, { color: '#ffe28a', speed: 1.6, up: 0.5, decay: 0.04 });
+    log(
+      `✦ Realm-stone discovered (${p.loreFound.length}/9). The old words settle into you: +40 XP.`,
+      'good',
+    );
+    updateQuests();
+    saveGame();
+  } else {
+    Sound.blip && Sound.blip();
+  }
+}
+function drawLoreStone(s) {
+  const sx = s.x - state.camera.x,
+    sy = s.y - state.camera.y;
+  if (sx < -60 || sx > __g.VIEW_W + 60 || sy < -60 || sy > __g.VIEW_H + 60) return;
+  const read = (state.player.loreFound || []).includes(s.region); // P2/S11: dim only stones YOU have read
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(sx + s.w / 2, sy + s.h, s.w / 2, 4, 0, 0, 6.28);
+  ctx.fill();
+  ctx.fillStyle = '#5c5a68';
+  ctx.fillRect(sx + 4, sy + 2, s.w - 8, s.h - 2);
+  ctx.fillStyle = '#4a4854';
+  ctx.fillRect(sx + 2, sy + s.h - 5, s.w - 4, 6);
+  const pulse = read ? 0.25 : 0.55 + Math.sin(Date.now() / 300) * 0.35;
+  ctx.globalAlpha = Math.max(0.15, pulse);
+  ctx.fillStyle = read ? '#8a86a0' : '#ffd76a';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('ᛟ', sx + s.w / 2, sy + 16);
+  ctx.globalAlpha = 1;
+  if (rectDist(state.player, s) < 44) {
+    const bob = Math.sin(Date.now() / 200) * 2;
+    ctx.fillStyle = read ? '#8a8a9a' : '#f0d050';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText(read ? '·' : '!', sx + s.w / 2, sy - 6 + bob);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = '#cfcfe0';
+    ctx.fillText('Realm-stone', sx + s.w / 2, sy - 16);
+  }
+  ctx.textAlign = 'left';
+}
+
+// ================= WAYFINDING — an on-screen guide to your current objective =================
+// One objective at a time, priority-resolved: defend your besieged outpost > the Elder's intro > the Dungeon
+// Key > the Sunken Dungeon > the current Legion-War target. Off-screen → edge arrow with distance & heading;
+// near → a bobbing diamond over the site; always → a gold pulse on the map. [O] toggles for pure wanderers.
+function dist2ToPlayerTile(tx, ty) {
+  const p = state.player;
+  const dx = tx - (p.x + p.w / 2) / TILE,
+    dy = ty - (p.y + p.h / 2) / TILE;
+  return dx * dx + dy * dy;
+}
+function compass8(dx, dy) {
+  const dirs = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
+  return dirs[Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) & 7];
+}
+function currentObjective() {
+  if (state.map !== 'overworld') return null;
+  const q = state.player.quests;
+  let best = null,
+    bd = 1e18;
+  (state.holdings || []).forEach((hd, i) => {
+    if (hd.built && hd.besieged) {
+      const h = HOLD_SITES[i];
+      const d = dist2ToPlayerTile(h.tx, h.ty);
+      if (d < bd) {
+        bd = d;
+        best = { tx: h.tx, ty: h.ty, label: '⚔ Defend ' + h.name, color: '#ff7060' };
+      }
+    }
+  });
+  if (best) return best;
+  if (!q.talk.done) {
+    const e = state.npcs.find((n) => n.id === 'elder');
+    if (e)
+      return {
+        tx: Math.floor(e.x / TILE),
+        ty: Math.floor(e.y / TILE),
+        label: 'Speak to the Elder',
+        color: '#ffd24a',
+      };
+  }
+  if (!q.key.hidden && !q.key.done && !(((state.inventory && state.inventory.keys) | 0) > 0)) {
+    const k = state.pickups.find((p) => p.kind === 'key' && !p.collected);
+    if (k)
+      return {
+        tx: Math.floor(k.x / TILE),
+        ty: Math.floor(k.y / TILE),
+        label: '🗝 The Dungeon Key',
+        color: '#ffe28a',
+      };
+  }
+  if (q.key.done && !state.player.enteredDungeon && !(state.player.maxDepth > 0) && state.dungeonEntrance)
+    return {
+      tx: state.dungeonEntrance.tx,
+      ty: state.dungeonEntrance.ty,
+      label: '☠ The Sunken Dungeon',
+      color: '#c080ff',
+    }; /* the maxDepth clause is REDUNDANT in SP (enterDungeon is only reachable through tryEnterDungeon, which sets the milestone first, and both persist together) and load-bearing in MP: it self-heals any hero whose milestone the save-row migration had to synthesize. Recorded depth PROVES you have delved. */
+  const lq = q.legion;
+  if (lq && lq.started) {
+    if (lq.stage === 'camps' || lq.stage === 'keeps') {
+      const kind = lq.stage === 'camps' ? 'camp' : 'keep';
+      let bp = null,
+        bpd = 1e18;
+      for (const poi of state.pois || []) {
+        if (poi.kind !== kind || poi.cleared) continue;
+        const d = distFactor(poi.tx, poi.ty) * 1e6 + Math.sqrt(dist2ToPlayerTile(poi.tx, poi.ty));
+        if (d < bpd) {
+          bpd = d;
+          bp = poi;
+        }
+      }
+      if (bp)
+        return {
+          tx: bp.tx,
+          ty: bp.ty,
+          label: kind === 'camp' ? '⚔ War-camp' : '⚔ Ruined Keep',
+          color: POI_KINDS[kind].mark,
+        };
+    } // aim at the EASIEST uncleared target first (df dominates, distance breaks ties)
+    if (lq.stage === 'overlord' && lq.seatRegion >= 0) {
+      const rcx = Math.round((((lq.seatRegion % 3) + 0.5) * OW_W) / 3),
+        rcy = Math.round(((Math.floor(lq.seatRegion / 3) + 0.5) * OW_H) / 3);
+      return { tx: rcx, ty: rcy, label: "☠ The Overlord's seat", color: '#ff2838' };
+    }
+  }
+  return null;
+}
+function drawWayfinder() {
+  if (state.player.wayfind === false || state.scene !== 'play' || state.map !== 'overworld') return;
+  const o = currentObjective();
+  if (!o) return;
+  const p = state.player;
+  const wx = o.tx * TILE + 16,
+    wy = o.ty * TILE + 16;
+  const sx = wx - state.camera.x,
+    sy = wy - state.camera.y;
+  const dx = wx - (p.x + p.w / 2),
+    dy = wy - (p.y + p.h / 2);
+  const distT = Math.round(Math.hypot(dx, dy) / TILE);
+  ctx.save();
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  if (sx > 36 && sx < __g.VIEW_W - 36 && sy > 52 && sy < __g.VIEW_H - 36) {
+    if (distT > 2) {
+      const bob = Math.sin(Date.now() / 220) * 3;
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = o.color;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 32 + bob);
+      ctx.lineTo(sx + 6, sy - 24 + bob);
+      ctx.lineTo(sx, sy - 16 + bob);
+      ctx.lineTo(sx - 6, sy - 24 + bob);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  } else {
+    const cx = __g.VIEW_W / 2,
+      cy = __g.VIEW_H / 2;
+    const vx = sx - cx,
+      vy = sy - cy;
+    const s = Math.min(
+      (__g.VIEW_W / 2 - 54) / Math.abs(vx || 1e-6),
+      (__g.VIEW_H / 2 - 60) / Math.abs(vy || 1e-6),
+      1,
+    );
+    let ex = cx + vx * s,
+      ey = cy + vy * s;
+    const ang = Math.atan2(vy, vx);
+    // dodge the DOM overlays: HUD (top-left), quest box (top-right), log (bottom-left), minimap (bottom-right)
+    const Z = __g.ZOOM || 1;
+    if (ex < 310 / Z && ey < 352 / Z) ey = 352 / Z + 8;
+    if (ex > __g.VIEW_W - 290 / Z && ey < 140 / Z) ey = 140 / Z + 8;
+    if (ex < 340 / Z && ey > __g.VIEW_H - 186 / Z) ey = __g.VIEW_H - 186 / Z - 8;
+    if (ex > __g.VIEW_W - 200 / Z && ey > __g.VIEW_H - 162 / Z) ey = __g.VIEW_H - 162 / Z - 8;
+    if (Date.now() < __g._bannerUntil) {
+      const bBot = __g.VIEW_H * 0.15 + 84 / Z;
+      if (ey < bBot && Math.abs(ex - __g.VIEW_W / 2) < 330 / Z) ey = bBot + 10;
+    } // give way to the region banner while it's up
+    ctx.translate(ex, ey);
+    ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(10,12,20,0.6)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 13, 0, 6.28);
+    ctx.fill();
+    ctx.fillStyle = o.color;
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-6, -7);
+    ctx.lineTo(-2, 0);
+    ctx.lineTo(-6, 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.rotate(-ang);
+    const lbl = `${o.label} · ${distT}t ${compass8(dx, dy)}`;
+    const half = lbl.length * 3.1 + 6;
+    let lox = 0;
+    if (ex - half < 4) lox = half + 4 - ex;
+    if (ex + half > __g.VIEW_W - 4) lox = __g.VIEW_W - 4 - half - ex;
+    const ly = ey < cy ? 26 : -20;
+    ctx.fillStyle = 'rgba(10,12,20,0.66)';
+    ctx.fillRect(lox - half, ly - 10, half * 2, 14);
+    ctx.fillStyle = o.color;
+    ctx.fillText(lbl, lox, ly + 1);
+    ctx.translate(-ex, -ey);
+  }
+  ctx.restore();
+  ctx.textAlign = 'left';
+}
+
+// ================= SETUP =================

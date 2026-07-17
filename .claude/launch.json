@@ -2,10 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "eldermyr",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8137"],
-      "port": 8137
+      "name": "eldermyr-mp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/index.js"],
+      "port": 8138,
+      "autoPort": true
     }
   ]
 }

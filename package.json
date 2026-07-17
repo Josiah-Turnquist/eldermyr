@@ -1,0 +1,32 @@
+{
+  "name": "eldermyr-mp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realms of Eldermyr — authoritative multiplayer server (reuses the single-player sim headless).",
+  "scripts": {
+    "prestart": "node scripts/build.mjs",
+    "start": "node server/index.js",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:battery": "node tests/run-battery.mjs",
+    "test:golden": "node tests/golden/harness.mjs check",
+    "test:golden:mp": "node tests/golden/harness.mjs mp-check",
+    "test": "npm run test:battery && npm run test:golden && npm run test:golden:mp"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "acorn": "^8.17.0",
+    "esbuild": "0.28.1",
+    "eslint-scope": "^9.1.2",
+    "magic-string": "^0.30.21",
+    "prettier": "^3.9.5",
+    "typescript": "^7.0.2"
+  }
+}

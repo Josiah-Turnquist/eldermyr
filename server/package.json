@@ -1,0 +1,15 @@
+{
+  "name": "eldermyr-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Authoritative multiplayer server for Realms of Eldermyr — reuses the single-player sim headless, never copies it.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "world-test": "node world.js",
+    "smoke": "node smoke-client.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}

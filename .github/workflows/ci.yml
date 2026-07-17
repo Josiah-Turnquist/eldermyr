@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # Single-source era (P1 wrap): dist/eldermyr.html assembled from src/game/ IS the
+      # game; battery + golden load it by default. The dual "vs monolith / vs dist" gates
+      # retired with the monolith itself (it lives in the v2-final tag).
+      - run: npm run test:battery
+      - run: npm run test:golden
+      # 2-player world-kind baselines (rebuild P2/S2): the orchestration machinery the
+      # P2 ladder rewrites, frozen as hash trajectories; re-recorded consciously per slice.
+      - run: npm run test:golden:mp

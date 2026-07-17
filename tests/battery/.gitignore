@@ -1,0 +1,5 @@
+# Transient per-character saves written by the per-player orchestrators
+# (flags-pp-verify / quest-pp-verify) into __dirname during a run. The runner
+# deletes them on exit; this ignores any left behind by an interrupted run.
+_flags_save.json
+_qpp_save.json

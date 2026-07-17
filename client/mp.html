@@ -1,0 +1,1111 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Realms of Eldermyr — Multiplayer</title>
+<style>
+  #newgame-btn{display:none !important;}  /* no "new game" in a shared world; the status readout takes its spot */
+  #mp-status{position:fixed;left:50%;transform:translateX(-50%);top:10px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#9098a8;background:rgba(20,20,30,0.85);border:1px solid #5a5040;padding:4px 10px;border-radius:4px;text-shadow:1px 1px 0 #000;pointer-events:none}
+  #mp-hurt{position:fixed;inset:0;z-index:99998;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 42%, rgba(175,0,0,0.55) 100%)}
+  /* --- account / identity UI --- */
+  #mp-account{position:fixed;left:10px;top:236px;z-index:99999;font:11px ui-monospace,Menlo,monospace;color:#e8d9a8;background:rgba(20,20,30,0.85);border:1px solid #5a5040;padding:4px 9px;border-radius:4px;cursor:pointer;text-shadow:1px 1px 0 #000;display:none;user-select:none;white-space:nowrap}
+  #mp-account:hover{border-color:#c9a54e;color:#fff}
+  .mp-modal{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;background:rgba(6,6,10,0.72)}
+  .mp-modal.on{display:flex}
+  .mp-card{width:min(92vw,384px);max-height:88vh;overflow:auto;background:linear-gradient(#20202c,#171720);border:1px solid #5a5040;border-radius:8px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,0.6);font-family:ui-monospace,Menlo,monospace;color:#cdd2dc}
+  .mp-card h2{margin:0 0 6px;font-size:17px;color:#e8d9a8;letter-spacing:0.5px}
+  .mp-card p{margin:0 0 13px;font-size:12px;line-height:1.5;color:#9098a8}
+  .mp-card input{width:100%;box-sizing:border-box;background:#0e0e16;border:1px solid #4a4438;color:#fff;font:14px ui-monospace,Menlo,monospace;padding:9px 10px;border-radius:4px;margin-bottom:10px;outline:none}
+  .mp-card input:focus{border-color:#c9a54e}
+  .mp-card input:disabled{color:#8a8f9a}
+  .mp-btn{display:block;width:100%;box-sizing:border-box;background:#2b2b38;border:1px solid #5a5040;color:#e8d9a8;font:13px ui-monospace,Menlo,monospace;padding:9px 12px;border-radius:4px;cursor:pointer;text-align:center;margin-top:7px}
+  .mp-btn:hover{border-color:#c9a54e;background:#34343f;color:#fff}
+  .mp-btn.primary{background:#3a5a3a;border-color:#5c8c5c;color:#eaffea}
+  .mp-btn.primary:hover{background:#456945}
+  .mp-btn.danger:hover{border-color:#b05050;color:#ffb0b0}
+  .mp-code{font-size:19px;letter-spacing:2px;color:#ffe08a;background:#0e0e16;border:1px dashed #6a5f3a;border-radius:5px;padding:12px;text-align:center;margin-bottom:6px;word-break:break-all}
+  .mp-row{display:flex;gap:8px}
+  .mp-row .mp-btn{margin-top:0}
+  .mp-warn{font-size:11px;color:#e0a860;background:rgba(120,80,20,0.18);border:1px solid #6a5228;border-radius:4px;padding:7px 9px;margin-bottom:12px;line-height:1.45}
+  .mp-mut{font-size:11px;color:#6b7080;margin-top:12px;text-align:center}
+  /* --- chat --- */
+  /* the game's #log occupies bottom:12px + up to ~134px tall — keep chat ABOVE it */
+  #mp-chat{position:fixed;left:10px;bottom:188px;z-index:99990;width:min(46vw,360px);display:flex;flex-direction:column;gap:3px;pointer-events:none;font:12px ui-monospace,Menlo,monospace}
+  .mp-chat-line{align-self:flex-start;max-width:100%;background:rgba(16,16,24,0.72);border-left:2px solid #5a5040;padding:2px 8px;border-radius:0 4px 4px 0;color:#d3d8e2;text-shadow:1px 1px 0 #000;word-break:break-word;transition:opacity .8s ease}
+  .mp-chat-line b{color:#9fe0ff;font-weight:600}
+  #mp-chat-input{position:fixed;left:10px;bottom:154px;z-index:99991;width:min(46vw,360px);box-sizing:border-box;display:none;background:#0e0e16;border:1px solid #c9a54e;color:#fff;font:13px ui-monospace,Menlo,monospace;padding:6px 9px;border-radius:4px;outline:none;text-shadow:1px 1px 0 #000}
+  #mp-chat-input.on{display:block}
+</style>
+</head>
+<body>
+<div id="mp-hurt"></div>
+<div id="mp-account"></div>
+<div id="mp-status">loading Eldermyr…</div>
+<div id="mp-chat"></div>
+<input id="mp-chat-input" maxlength="200" autocomplete="off" spellcheck="false" placeholder="say something… (Enter to send, Esc to cancel)">
+
+<script>
+/* =============================================================================
+ * Multiplayer client — the "load-and-render" fork.
+ * Fetches the UNMODIFIED game artifact from the server (route '/eldermyr-rpg.html',
+ * which serves the built dist/eldermyr.html since the P1 wrap), boots it so all
+ * its sprite/HUD/audio machinery initializes, stubs its simulation loop, then
+ * drives its REAL renderer with authoritative snapshots from the server.
+ * Nothing about the game file is copied or modified.
+ * ========================================================================== */
+const MP_PORT = 8138;
+// The node server serves this page AND the ws on ONE port → same-origin works everywhere
+// (prod wss, local node on any port — incl. auto-assigned dev ports). The only exception:
+// the python single-player dev server (8137) serving this page — target the node port then.
+const WS_URL = (location.port === String(8137))
+  ? 'ws://localhost:' + MP_PORT
+  : (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
+const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.textContent = t; };
+
+(async function boot() {
+  // 1. fetch the untouched game
+  let html;
+  try { html = await (await fetch('/eldermyr-rpg.html')).text(); }
+  catch (e) { st('failed to fetch game: ' + e); return; }
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  // 2. adopt its <style>s and its <body> DOM (canvas + all HUD/overlay elements)
+  for (const styleEl of doc.querySelectorAll('style')) document.head.appendChild(styleEl.cloneNode(true));
+  const body = doc.body.cloneNode(true);
+  const gameScriptEl = body.querySelector('script');
+  const gameCode = gameScriptEl ? gameScriptEl.textContent : '';
+  if (gameScriptEl) gameScriptEl.remove();               // don't let innerHTML carry an inert copy
+  const frag = document.createDocumentFragment();
+  while (body.firstChild) frag.appendChild(body.firstChild);
+  document.body.insertBefore(frag, document.body.firstChild);
+
+  // 3. keep the game from grabbing the keyboard (we route input to the server)
+  //    and from ever running its own sim loop (stub rAF so its loop() can't recur).
+  const realWinAdd = window.addEventListener.bind(window);
+  window.addEventListener = (type, fn, opts) => { if (type === 'keydown' || type === 'keyup') return; return realWinAdd(type, fn, opts); };
+  const realRAF = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = () => 0;                // stays stubbed for the game forever
+
+  // 4. run the game code + capture the symbols we need to render
+  const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
+    'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
+    'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'renderLegion'];   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
+  const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
+  const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
+  // Dual-path (P1d): the rebuilt artifact (dist/eldermyr.html) ends by defining
+  // window.Eldermyr — the EXPLICIT, build-verified namespace of every CAPTURE/NAMES symbol
+  // (generated by scripts/build.mjs; a NAMES entry with no binding FAILS the build). Prefer
+  // it when present; the frozen monolith defines no namespace and uses the __G capture above.
+  const G = window.Eldermyr || window.__G;
+  // Dual-path (P1c): on the rebuilt artifact every rebindable module-level let (VIEW_W/VIEW_H,
+  // …) lives as a slot on the globals holder `window.__g`, not as a lexical binding — the
+  // try-capture above resolves those names undefined. If we are NOT on the namespace path,
+  // re-route exactly those through LIVE accessors onto the holder (so later rebinds, e.g.
+  // fitCanvas resizes, stay visible). The monolith path (no window.__g) is untouched.
+  if (window.__g) for (const n of NAMES) {
+    if (G[n] === undefined && (n in window.__g)) {
+      ((k) => Object.defineProperty(G, k, { get: () => window.__g[k], set: (v) => { window.__g[k] = v; }, configurable: true, enumerable: true }))(n);
+    }
+  }
+  // capture audit: surface any NAMES entry that resolved to undefined — the silent-capture failure
+  // class that hid 'log' for weeks and 'currentObjective' this release. Warn (don't throw): a few
+  // absences can be legitimate, but a missing symbol should never again fail silently.
+  { const _missing = G ? NAMES.filter((n) => G[n] === undefined) : NAMES.slice(); if (_missing.length) console.warn('[mp] NAMES symbols that captured undefined:', _missing.join(', ')); }
+  if (!G || !G.startGame) { st('game failed to load (no startGame)'); return; }
+
+  // 5. boot the render machinery (builds a valid state, sprites, camera, HUD)
+  window.addEventListener = realWinAdd;                  // restore for our own listeners
+  // The Dread Legion roster is SHARED WORLD STATE the server owns — the client must never generate its own.
+  // genLegion() BAKES each member's level from partyLvl() at generation time, and startGame() (just below) runs
+  // it while this hero is still the level-1 DEFAULT — the first snapshot hasn't applied our real level yet — so
+  // every member froze at "Lv 1" FOREVER, no matter the hero's level. Worse, that roster was a PHANTOM (its own
+  // RNG names) that never saw the encounters the server records, so the nemesis "wound it to learn" ??? reveals
+  // could never resolve. Stubbing the GLOBAL kills both fabrication paths at once: the game is one classic
+  // <script> with top-level `function genLegion(){}`, so window.genLegion IS the binding that startGame() and
+  // openLegion()'s `if(!state.legion) genLegion()` fallback each resolve through the scope chain. (Reassigning
+  // G.genLegion would NOT work — G is a separate capture object. Same lexical gotcha as the server's load-game.)
+  // state.legion simply stays null until the server's roster lands (welcome, then snap.legion); renderLegion()
+  // already draws a graceful "The Legion has not yet stirred." for that sliver, and nothing else here reads it
+  // (updateQuests reads state.player.quests.legion — the QUEST — not the roster).
+  window.genLegion = () => {};
+  try { G.startGame(); } catch (e) { console.error('startGame', e); }
+  if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {}
+  realWinAdd('resize', () => { if (G.fitCanvas) try { G.fitCanvas(); } catch (e) {} });
+
+  // EXPLICIT adoption of the server's Dread Legion roster (the architecture's per-field rule: nothing on the wire
+  // applies itself). Arrives on `welcome` — so [N] shows real members from the first frame, and a takeover, which
+  // adopts the live pid's already-caught-up _lgSeen, still seeds the fresh page — and thereafter only when the
+  // roster CHANGES (snap.legion, version-gated server-side by _lgN → 0 bytes/tick at rest). Re-render if the panel
+  // happens to be OPEN so a "???" strength/weakness reveal lands live as you wound the real member.
+  function adoptLegion(L) {
+    if (!L) return;
+    G.state.legion = L;
+    if (G.state.scene === 'legion' && G.renderLegion) try { G.renderLegion(); } catch (e) { console.error('renderLegion', e); }
+  }
+
+  // The EVENT FEED and the QUEST STATE are the roster's siblings: EDGE-triggered payloads that ride exactly ONE
+  // snapshot each (server-side `_feedSeen` vs `feedN`, `_qSeen` vs `_qN` — both consumed the instant they attach).
+  // All three are adopted from `ws.onmessage` for the reason spelled out in its `state` branch. Keeping them as
+  // named fns side by side is deliberate: these are the client's ENTIRE one-shot surface — anything added here
+  // needs the same treatment, and anything reconciled in the frame loop instead is a silent coin flip.
+  // Errors are throttled: onmessage is the ~66 Hz hot path, so an unthrottled console.error would flood the console.
+  let lastEdgeErrT = 0;
+  function edgeErr(what, e) {
+    const t = performance.now();
+    if (t - lastEdgeErrT > 2000) { lastEdgeErrT = t; console.error('mp ' + what + ' adopt error (payload skipped, socket continues):', e); }
+  }
+
+  // Server EVENT FEED → the game's bottom-left log (kills, drops, fishing, quests + other heroes' epic broadcasts).
+  // MESSAGE ORDER holds for free: the socket delivers messages in send order, this runs synchronously inside the
+  // onmessage for each one, and each snapshot's lines are appended in array order — so the log reads exactly as the
+  // server wrote it. A dropped feed line is UNRECOVERABLE (the server already advanced _feedSeen past it), which is
+  // precisely why this cannot live in the frame loop. It must also exist NOWHERE ELSE: a second call site would
+  // double-log every line.
+  function adoptFeed(F) {
+    if (!F) return;
+    for (const f of F) { try { G.log && G.log(f.m, f.c || 'good'); } catch (e) { edgeErr('feed', e); } }
+  }
+
+  // YOUR inventory (snapshot v2): the bag left `me` (the server gates it — safeClone skips it and it
+  // rides snap.inventory only when the %40 stamp saw it change, plus the `welcome` seed for joins and
+  // takeovers). Adopt it HERE, in ws.onmessage, for the same one-shot reason as legion/feed/quests —
+  // reconciled in the frame loop it would be a coin flip on a slow/hidden tab. state.inventory is the
+  // game's own singleton: every panel (inventory/skills/shop/smith), the HUD potion count, drawPlayer's
+  // equipped-gear read and updateQuests' key gate read it, and the frame-loop me-adopt never touches it.
+  function adoptInventory(s) {
+    if (!s || !s.inventory) return;
+    try { G.state.inventory = s.inventory; } catch (e) { edgeErr('inventory', e); }
+  }
+
+  // WORLD FEATURES (snapshot v2): the overworld's npcs/shrines/loreStones/pois — near-static, so the
+  // server sends the FULL lists once on `welcome` and then only on change (version-gated `snap.wf`),
+  // never per snapshot. Kept in a tab-local (like localShop) because the reconcile re-stamps state
+  // from it EVERY frame: on the overworld state.npcs/shrines/loreStones/pois come from here; inside a
+  // dungeon the (inline, near-culled) snap.npcs wins and the features blank — see the reconcile.
+  function adoptWorldFeatures(s) {
+    if (!s || !s.wf) return;
+    try { localWF = s.wf; } catch (e) { edgeErr('wf', e); }
+  }
+
+  // YOUR questline + bounty + Realm-stones + deepest depth → adopt, then re-render the quest box. Version-gated
+  // by _qN server-side, so a dropped snapshot leaves the box STALE until the NEXT quest change — potentially a
+  // game-hour of wrong information on screen, not a cosmetic one-frame blip. Fed by BOTH the `welcome` (join /
+  // reconnect / takeover seed) and the gated snapshot block — same payload shape, one adopt path.
+  function adoptQuests(s) {
+    if (!s || !s.quests) return;
+    try {
+      // The bag MUST be adopted before the box paints. updateQuests hides "Find the Dungeon Key" on
+      // `q.key.done || state.inventory.keys > 0` — and this runs in ws.onmessage, while state.inventory
+      // is otherwise adopted only by adoptInventory. The first snapshot always carries BOTH quests
+      // (_qSeen=0) and the bag (_invSeen=0 — snapshot v2 gated it off `me`), and onmessage provably
+      // precedes the first frame; without this line the first paint read the game's DEFAULT keys=0 bag
+      // and a 16-key hero was told to go find a key — and it stuck until _qN next moved. Self-contained
+      // on purpose (adoptInventory is called first at both call sites, so this is idempotent — but this
+      // fn is also extracted VERBATIM by the battery's objclient harness and must carry its own gate).
+      if (s.inventory) G.state.inventory = s.inventory;
+      if (G.state.player) G.state.player.quests = s.quests;   // P2/S13: the questline lives ON the player now (updateQuests/currentObjective read state.player.quests). Stamp the PLAYER, not a root ghost (risk #7); like bounty it never rides `me` (safeClone skips it), so the frame-loop reconcile carries THIS box across every wholesale me-adopt.
+      if (G.state.player) G.state.player.bounty = s.bounty || null;   // P2/S12: bounty lives ON the player now (updateQuests reads state.player.bounty). Stamp the PLAYER, not a root ghost (risk #7); it never rides `me` (safeClone skips it), so the frame-loop reconcile carries THIS value across every wholesale me-adopt.
+      if (s.loreFound && G.state.player) G.state.player.loreFound = s.loreFound;   // P2/S11: loreFound lives ON the player now (updateQuests reads state.player.loreFound). Stamp the PLAYER, not a root ghost (risk #7); the payload copy is per-hero and beats the frame-loop me-adopt to the repaint below, same reason as the bag line above. On `welcome` there is no snap.me yet — this seed is what covers a takeover.
+      if (s.maxDepth != null && G.state.player) G.state.player.maxDepth = s.maxDepth;   // P2/S12: maxDepth lives ON the player too — this gated stamp is what repaints the box BEFORE the first frame reconcile (it rides `me` thereafter, so the wholesale adopt keeps it honest).
+      window.updateQuests && window.updateQuests();
+    } catch (e) { edgeErr('quests', e); }
+  }
+
+  // 6. connect to the authoritative server
+  let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
+
+  // ---- identity: "hero name + recovery code" (no passwords), persisted per browser ----
+  // token   → the browser's saved secret; presenting it auto-restores the hero.
+  // recovery→ a human code (shown once) to reclaim the hero on another device.
+  const LS_TOKEN = 'eldermyr_token', LS_REC = 'eldermyr_recovery', LS_NAME = 'eldermyr_name', LS_PEND = 'eldermyr_pending_code', LS_SKIN = 'eldermyr_skin';
+  const lsGet = (k) => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+  const lsSet = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (e) {} };
+  let myToken = lsGet(LS_TOKEN), myRecovery = lsGet(LS_REC), myName = lsGet(LS_NAME) || 'Hero', persistent = false;
+  const pendingCode = lsGet(LS_PEND); if (pendingCode) lsSet(LS_PEND, '');   // a reclaim-by-code survives the reload here
+  // what we present on (re)connect: a reclaim code if pending, else our token, else nothing (→ name entry)
+  let authPayload = pendingCode ? { recoveryCode: pendingCode } : (myToken ? { token: myToken } : null);
+  if (pendingCode) myRecovery = pendingCode;
+  function sendAuth() { if (ws && ws.readyState === 1 && authPayload) { try { ws.send(JSON.stringify(Object.assign({ type: 'auth' }, authPayload))); } catch (e) {} } }
+
+  // modal plumbing
+  const modal = document.createElement('div'); modal.className = 'mp-modal'; document.body.appendChild(modal);
+  const acctBtn = document.getElementById('mp-account');
+  const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  function closeModal() { modal.classList.remove('on'); modal.innerHTML = ''; }
+  function openModal(html) { modal.innerHTML = '<div class="mp-card">' + html + '</div>'; modal.classList.add('on'); const c = modal.querySelector('.mp-card'); c.querySelectorAll('input').forEach((i) => i.addEventListener('keydown', (e) => e.stopPropagation())); return c; }
+  function updateAcctBtn() { if (!acctBtn) return; acctBtn.textContent = '◆ ' + myName + (persistent ? '' : ' ·'); acctBtn.style.display = 'block'; placeAccountBtn(); }
+  // Pin the account chip just under the game's stats panel (#hud), tracking its
+  // bottom edge so it never overlaps even as the HUD grows/shrinks with buffs.
+  function placeAccountBtn() {
+    if (!acctBtn || acctBtn.style.display === 'none') return;
+    const h = document.getElementById('hud');
+    if (!h) return;
+    const b = h.getBoundingClientRect();
+    if (b.height) { acctBtn.style.left = Math.round(b.left) + 'px'; acctBtn.style.top = Math.round(b.bottom + 6) + 'px'; }
+  }
+  function copyText(t, btn) {
+    const done = () => { const o = btn.getAttribute('data-l') || btn.textContent; btn.setAttribute('data-l', o); btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = o; }, 1200); };
+    try { navigator.clipboard.writeText(t).then(done, done); } catch (e) { try { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (_e) {} }
+  }
+  acctBtn && acctBtn.addEventListener('click', showAccount);
+
+  function showNameEntry() {
+    const c = openModal(
+      '<h2>Welcome to Eldermyr</h2>' +
+      '<p>Name your hero to begin. Progress saves automatically to this browser.</p>' +
+      '<input id="mp-name-in" maxlength="18" placeholder="Hero name" autocomplete="off" spellcheck="false">' +
+      '<button class="mp-btn primary" id="mp-name-go">Enter Eldermyr</button>' +
+      '<div class="mp-mut" id="mp-have-code" style="cursor:pointer">▸ I already have a recovery code</div>');
+    const inp = c.querySelector('#mp-name-in'); setTimeout(() => inp.focus(), 30);
+    const go = () => { const nm = (inp.value || '').trim().slice(0, 18); if (!nm) { inp.focus(); return; } authPayload = { name: nm }; myName = nm; lsSet(LS_NAME, nm); closeModal(); if (ws && ws.readyState === 1) sendAuth(); else connect(); };   // fresh heroes connect HERE (no socket is opened pre-name — the server reaps unauthed sockets after 10s)
+    c.querySelector('#mp-name-go').addEventListener('click', go);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    c.querySelector('#mp-have-code').addEventListener('click', () => showReclaim(true));
+  }
+
+  function showRecovery(code) {
+    const c = openModal(
+      '<h2>Save your recovery code</h2>' +
+      '<p>This is the only way to play this hero on another device or browser. Keep it somewhere safe — it won\'t be shown again.</p>' +
+      '<div class="mp-code">' + esc(code) + '</div>' +
+      '<div class="mp-row"><button class="mp-btn" id="mp-rec-copy">Copy</button><button class="mp-btn primary" id="mp-rec-ok">Got it</button></div>');
+    c.querySelector('#mp-rec-copy').addEventListener('click', (e) => copyText(code, e.currentTarget));
+    c.querySelector('#mp-rec-ok').addEventListener('click', closeModal);
+  }
+
+  function showReclaim(fromNameEntry) {
+    const c = openModal(
+      '<h2>Log in with a recovery code</h2>' +
+      '<p>Enter a hero\'s recovery code to bring it to this device.</p>' +
+      '<input id="mp-code-in" placeholder="WORD-XXXX-WORD-XXXX" autocomplete="off" spellcheck="false">' +
+      '<button class="mp-btn primary" id="mp-code-go">Reclaim hero</button>' +
+      '<button class="mp-btn" id="mp-code-cancel">Cancel</button>');
+    const inp = c.querySelector('#mp-code-in'); setTimeout(() => inp.focus(), 30);
+    const go = () => { const code = (inp.value || '').trim(); if (!code) { inp.focus(); return; } lsSet(LS_PEND, code); lsSet(LS_TOKEN, ''); location.reload(); };
+    c.querySelector('#mp-code-go').addEventListener('click', go);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    c.querySelector('#mp-code-cancel').addEventListener('click', () => (fromNameEntry ? showNameEntry() : showAccount()));
+  }
+
+  // ---- hero archetypes: 5 distinct characters, server-authoritative (drawPlayer reads p.skin) ----
+  // draw each hero ARCHETYPE as a real sprite so players pick an avatar, not a color/label (#22)
+  const AV_ARCH = [{ cape: '#4060c0', hair: '#6a4a2a' }, { cape: '#2e6b3f', hood: '#245232' }, { robe: '#6a3fa0', hat: '#4a2c78' }, { hair: '#241616', band: '#c03030', pauld: '#8a6a3a' }, { cape: '#3a4152', hair: '#1c1f2a', mask: '#2c3140', short: true }];
+  function avatarDataURL(skin) {
+    const S = 3, W = 22, H = 28, sx = 2, sy = 8;
+    const cv = document.createElement('canvas'); cv.width = (W + 4) * S; cv.height = (H + 10) * S;
+    const x = cv.getContext('2d'); x.scale(S, S); const AR = AV_ARCH[skin] || AV_ARCH[0], body = '#6b7086';
+    x.fillStyle = 'rgba(0,0,0,0.25)'; x.beginPath(); x.ellipse(sx + W / 2, sy + H + 2, W / 2, 3, 0, 0, 6.28); x.fill();
+    if (AR.cape) { const hemY = AR.short ? H - 10 : H - 4; x.fillStyle = AR.cape; x.beginPath(); x.moveTo(sx + 5, sy + 10); x.lineTo(sx + W - 5, sy + 10); x.lineTo(sx + W - 3, sy + hemY); x.lineTo(sx + 3, sy + hemY); x.closePath(); x.fill(); }
+    x.fillStyle = '#2c3050'; x.fillRect(sx + 7, sy + H - 6, 4, 5); x.fillRect(sx + W - 11, sy + H - 6, 4, 5);
+    x.fillStyle = body; x.fillRect(sx + 5, sy + 10, W - 10, H - 15);
+    x.fillStyle = '#3a2c18'; x.fillRect(sx + 5, sy + 15, W - 10, 2);
+    x.fillStyle = '#e8c090'; x.fillRect(sx + 6, sy, W - 12, 11);
+    if (AR.hair) { x.fillStyle = AR.hair; x.fillRect(sx + 6, sy, W - 12, 4); x.fillRect(sx + 6, sy, 2, 7); }
+    if (AR.hood) { x.fillStyle = AR.hood; x.fillRect(sx + 5, sy - 1, W - 10, 5); x.fillRect(sx + 5, sy + 2, 2, 8); x.fillRect(sx + W - 7, sy + 2, 2, 8); }
+    if (AR.hat) { x.fillStyle = AR.hat; x.beginPath(); x.moveTo(sx + W / 2, sy - 8); x.lineTo(sx + W - 3, sy + 3); x.lineTo(sx + 3, sy + 3); x.closePath(); x.fill(); }
+    if (AR.robe) { x.fillStyle = AR.robe; x.beginPath(); x.moveTo(sx + 5, sy + 12); x.lineTo(sx + W - 5, sy + 12); x.lineTo(sx + W - 3, sy + H); x.lineTo(sx + 3, sy + H); x.closePath(); x.fill(); }
+    if (AR.band) { x.fillStyle = AR.band; x.fillRect(sx + 6, sy + 3, W - 12, 2); }
+    if (AR.pauld) { x.fillStyle = AR.pauld; x.fillRect(sx + 3, sy + 10, 4, 4); x.fillRect(sx + W - 7, sy + 10, 4, 4); }
+    if (AR.mask) { x.fillStyle = AR.mask; x.fillRect(sx + 6, sy + 7, W - 12, 4); }
+    x.fillStyle = '#000'; x.fillRect(sx + 8, sy + 5, 2, 2); x.fillRect(sx + 13, sy + 5, 2, 2);
+    return cv.toDataURL();
+  }
+  function curSkin() { const n = parseInt(lsGet(LS_SKIN)); return Number.isFinite(n) ? Math.max(0, Math.min(4, n)) : ((snap && snap.me && snap.me.skin) | 0); }
+  function sendSkin(n) { lsSet(LS_SKIN, String(n)); if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'skin', skin: n })); } catch (_e) {} } }
+  function skinRowHtml() { const cur = curSkin(); return '<p style="margin-bottom:6px">Choose your hero:</p><div class="mp-row" id="mp-skin-row">' + [0, 1, 2, 3, 4].map((i) => '<button class="mp-btn" data-skin="' + i + '" title="Avatar ' + (i + 1) + '" style="padding:3px;background:#161a24;min-width:44px;height:58px;border:2px solid ' + (i === cur ? '#fff' : 'rgba(255,255,255,0.15)') + '"><img src="' + avatarDataURL(i) + '" style="height:48px;image-rendering:pixelated;pointer-events:none"></button>').join('') + '</div>';
+  }
+  function wireSkinRow(c) {
+    c.querySelectorAll('#mp-skin-row [data-skin]').forEach((b) => b.addEventListener('click', () => {
+      const n = parseInt(b.getAttribute('data-skin')) || 0;
+      sendSkin(n);
+      c.querySelectorAll('#mp-skin-row [data-skin]').forEach((x) => { x.style.border = '2px solid rgba(255,255,255,0.15)'; });
+      b.style.border = '2px solid #fff';
+      try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+    }));
+  }
+
+  function showAccount() {
+    if (!myId) return;   // not spawned yet
+    const recHtml = myRecovery
+      ? '<p style="margin-bottom:6px">Recovery code — use it to play this hero on another device:</p><div class="mp-code">' + esc(myRecovery) + '</div><button class="mp-btn" id="mp-acct-copy">Copy code</button>'
+      : '<p>No recovery code is saved on this device.</p>';
+    const warn = persistent ? '' : '<div class="mp-warn">⚠ Saves are OFF — no database is linked yet, so this hero won\'t persist. Progress and recovery codes activate once a database is connected.</div>';
+    const c = openModal(
+      '<h2>Your Hero</h2>' + warn +
+      '<p style="margin-bottom:6px">Name:</p>' +
+      '<input id="mp-acct-name" maxlength="18" value="' + esc(myName) + '"' + (persistent ? '' : ' disabled') + '>' +
+      (persistent ? '<button class="mp-btn" id="mp-acct-rename">Save name</button>' : '') +
+      '<div style="height:12px"></div>' + skinRowHtml() +
+      '<div style="height:12px"></div>' + recHtml +
+      '<div style="height:12px"></div>' +
+      '<button class="mp-btn" id="mp-acct-login">Log in with a different code</button>' +
+      '<button class="mp-btn danger" id="mp-acct-new">Start a new hero</button>' +
+      '<button class="mp-btn primary" id="mp-acct-close">Close</button>');
+    c.querySelector('#mp-acct-close').addEventListener('click', closeModal);
+    wireSkinRow(c);
+    const cp = c.querySelector('#mp-acct-copy'); cp && cp.addEventListener('click', (e) => copyText(myRecovery, e.currentTarget));
+    const rn = c.querySelector('#mp-acct-rename'); rn && rn.addEventListener('click', () => { const nm = (c.querySelector('#mp-acct-name').value || '').trim().slice(0, 18); if (nm && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'rename', name: nm })); } catch (e) {} } });
+    c.querySelector('#mp-acct-login').addEventListener('click', () => showReclaim(false));
+    c.querySelector('#mp-acct-new').addEventListener('click', () => {
+      const c2 = openModal('<h2>Start a new hero?</h2><p>Your current hero stays saved — return to it any time with its recovery code. Make sure you\'ve copied that code first.</p><button class="mp-btn danger" id="mp-new-yes">Yes, start fresh</button><button class="mp-btn primary" id="mp-new-no">Cancel</button>');
+      c2.querySelector('#mp-new-yes').addEventListener('click', () => { lsSet(LS_TOKEN, ''); lsSet(LS_REC, ''); lsSet(LS_NAME, ''); location.reload(); });
+      c2.querySelector('#mp-new-no').addEventListener('click', showAccount);
+    });
+  }
+
+  // ---- abandoned-tab handling ----
+  // The world NEVER pauses — it's multiplayer, it keeps running while anyone's online.
+  // The only guard: if the SERVER disconnects us for sitting idle too long (so an
+  // abandoned tab can't stream to itself), show a Resume screen instead of silently
+  // reconnecting into a kick loop. Your hero is saved.
+  let noReconnect = false, superseded = false;   // superseded → a reconnect took this hero over in another window; stop reconnecting for good
+  function showAwayScreen() {
+    if (noReconnect) return;
+    noReconnect = true;
+    try { ws && ws.close(); } catch (_e) {}
+    mpLive = false; st('○ away');
+    const c = openModal('<h2>Still there?</h2><p>You were disconnected after a while idle, so an abandoned tab doesn\'t sit online. Your hero is saved — jump right back in.</p><button class="mp-btn primary" id="mp-resume">Resume playing</button>');
+    c.querySelector('#mp-resume').addEventListener('click', () => { closeModal(); resumeSession(); });
+  }
+  function resumeSession() { noReconnect = false; connect(); }
+
+  // ---- chat: [Enter] opens a line, Enter sends, Esc cancels; messages relay to everyone ----
+  let chatting = false;
+  const chatBox = document.getElementById('mp-chat'), chatInput = document.getElementById('mp-chat-input');
+  function addChatLine(name, text) {
+    if (!chatBox) return;
+    const line = document.createElement('div'); line.className = 'mp-chat-line';
+    const b = document.createElement('b'); b.textContent = (name || '?') + ': ';
+    line.appendChild(b); line.appendChild(document.createTextNode(text));
+    chatBox.appendChild(line);
+    while (chatBox.children.length > 8) chatBox.removeChild(chatBox.firstChild);
+    setTimeout(() => { line.style.opacity = '0.3'; }, 12000);   // dim old lines, keep them readable
+  }
+  function openChat() { if (chatting || !chatInput) return; chatting = true; chatInput.value = ''; chatInput.classList.add('on'); setTimeout(() => chatInput.focus(), 10); }
+  function closeChat() { chatting = false; if (chatInput) { chatInput.classList.remove('on'); chatInput.blur(); } }
+  if (chatInput) chatInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();   // don't let the game see keys typed into chat
+    if (e.key === 'Enter') { const t = chatInput.value.trim(); if (t && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'chat', text: t })); } catch (_e) {} } closeChat(); }
+    else if (e.key === 'Escape') closeChat();
+  });
+
+  // ---- co-op: rally pings [T] + downed/revive UI ----
+  // Pings drop a shared world marker everyone sees (auto-fired when you go down, so
+  // teammates get a "⚑ down!" beacon). Screen-space math mirrors the game's own
+  // transform: entities draw at (worldX - camera.x) in a ZOOM-scaled space, and the
+  // visible world size is innerWidth/ZOOM (ZOOM = clamp(innerHeight/480,1,3)).
+  const pings = [];   // {x,y,name,kind,t}
+  function sendPing(kind) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'ping', kind: kind || 'alert' })); } catch (_e) {} } }
+  function viewSize() { const z = Math.max(1, Math.min(3, (window.innerHeight || 480) / 480)); return { sw: (window.innerWidth || 800) / z, sh: (window.innerHeight || 480) / z }; }
+  // full-screen "you are downed" overlay (created once, toggled by snapshot state)
+  const downedEl = document.createElement('div'); downedEl.id = 'mp-downed';
+  downedEl.style.cssText = 'position:fixed;inset:0;z-index:38;display:none;pointer-events:none;background:radial-gradient(ellipse at center,rgba(140,0,0,0) 38%,rgba(120,0,0,0.55) 100%);font-family:monospace';
+  downedEl.innerHTML = '<div style="position:absolute;left:0;right:0;top:32%;text-align:center;text-shadow:0 2px 8px #000">' +
+    '<div style="font-size:32px;font-weight:bold;letter-spacing:4px;color:#ff6a6a">DOWNED</div>' +
+    '<div id="mp-downed-sub" style="margin-top:8px;font-size:13px;color:#ffd0d0"></div>' +
+    '<div style="margin:14px auto 0;width:240px;height:9px;background:rgba(0,0,0,0.6);border:1px solid #944;border-radius:5px;overflow:hidden"><i id="mp-downed-bar" style="display:block;height:100%;width:100%;background:#e14b4b;transition:width .12s linear"></i></div>' +
+    '<div id="mp-downed-secs" style="margin-top:7px;font-size:12px;color:#ffb0b0"></div></div>';
+  try { document.body.appendChild(downedEl); } catch (_e) {}
+  function updateDownedOverlay(me) {
+    if (!downedEl) return;
+    if (!(me && me.downed)) { if (downedEl.style.display !== 'none') downedEl.style.display = 'none'; return; }
+    downedEl.style.display = 'block';
+    const bar = document.getElementById('mp-downed-bar'), sub = document.getElementById('mp-downed-sub'), secs = document.getElementById('mp-downed-secs');
+    if (me.beingRevived) { if (sub) { sub.textContent = 'A teammate is reviving you — hold on!'; sub.style.color = '#a6ffa6'; } if (bar) { bar.style.width = Math.round((me.reviveFrac || 0) * 100) + '%'; bar.style.background = '#4be07a'; } if (secs) secs.textContent = 'Reviving ' + Math.round((me.reviveFrac || 0) * 100) + '%'; }
+    else if (me.stabilizing) { if (sub) { sub.textContent = 'No foes near — recovering on your own…'; sub.style.color = '#ffe0a0'; } if (bar) { bar.style.width = '100%'; bar.style.background = '#e0b24b'; } if (secs) secs.textContent = 'Stabilizing…'; }
+    else { if (sub) { sub.textContent = 'Bleeding out — a teammate can revive you, or reach safety'; sub.style.color = '#ffd0d0'; } if (bar) { bar.style.width = Math.round((me.bleedFrac || 0) * 100) + '%'; bar.style.background = '#e14b4b'; } if (secs) secs.textContent = (me.bleedSecs != null ? me.bleedSecs : 0) + 's'; }
+  }
+  function drawRift() {   // #14: a swirling portal — BLUE = party (co-op) rift, PURPLE = solo rift
+    if (!snap || !snap.rift) return;
+    const ctx = G.ctx, cam = G.state.camera; if (!ctx) return;
+    const cx = snap.rift.x + 16 - cam.x, cy = snap.rift.y + 16 - cam.y;
+    const t = performance.now() / 1000, party = snap.rift.party;
+    for (let i = 3; i >= 0; i--) {
+      const r = 8 + i * 4 + Math.sin(t * 3 + i) * 2;
+      ctx.strokeStyle = party ? `rgba(${70 + i * 20},${150 - i * 10},${240},${0.85 - i * 0.16})` : `rgba(${150 - i * 20},${70 + i * 20},${220},${0.85 - i * 0.16})`;
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r, t * 2 + i, t * 2 + i + 4.6); ctx.stroke();
+    }
+    ctx.fillStyle = party ? 'rgba(12,26,60,0.6)' : 'rgba(40,10,60,0.6)'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 6.28); ctx.fill();
+    ctx.fillStyle = party ? '#a8d0ff' : '#e0b0ff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    const me = snap.me, near = me && Math.hypot((me.x) - snap.rift.x, (me.y) - snap.rift.y) < 58;
+    const kind = party ? 'Party Rift' : 'Rift';
+    const act = snap.rift.open ? (party ? '[E] Join' : 'in progress') : '[E] Breach';
+    ctx.fillText(near ? `${act} · Depth ${snap.rift.deep}` : `✦ ${kind} · Depth ${snap.rift.deep}`, cx, cy - 20);
+    ctx.fillStyle = party ? '#88b0e0' : '#b088cc'; ctx.font = '9px monospace'; ctx.fillText(snap.rift.secs + 's', cx, cy + 26);
+    ctx.textAlign = 'left';
+  }
+  function drawPings() {
+    const ctx = G.ctx; if (!ctx || !pings.length) return;
+    const now = performance.now(), LIFE = 6000;
+    for (let i = pings.length - 1; i >= 0; i--) if (now - pings[i].t > LIFE) pings.splice(i, 1);
+    if (!pings.length) return;
+    const { sw, sh } = viewSize(), cam = S.camera, me = S.player;
+    for (const pg of pings) {
+      const alpha = Math.max(0, 1 - (now - pg.t) / LIFE);
+      const col = pg.kind === 'downed' ? '#ff5a5a' : (pg.kind === 'danger' ? '#ffcc40' : '#5ad1ff');
+      const sx = pg.x - cam.x, sy = pg.y - cam.y;
+      const onScreen = sx >= 6 && sx <= sw - 6 && sy >= 6 && sy <= sh - 6;
+      ctx.save(); ctx.globalAlpha = alpha;
+      if (onScreen) {
+        const pulse = 8 + (Math.sin(now / 140) + 1) * 7;
+        ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(sx, sy, pulse, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(sx, sy - 20); ctx.lineTo(sx - 5, sy - 30); ctx.lineTo(sx + 5, sy - 30); ctx.closePath(); ctx.fill();
+        const txt = (pg.kind === 'downed' ? '⚑ ' : '') + (pg.name || 'ping') + (pg.kind === 'downed' ? ' down!' : '');
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        const tw = txt.length * 6 + 8; ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(sx - tw / 2, sy - 46, tw, 13);
+        ctx.fillStyle = col; ctx.fillText(txt, sx, sy - 36); ctx.textAlign = 'left';
+      } else {
+        const m = 26, ex = Math.max(m, Math.min(sw - m, sx)), ey = Math.max(m, Math.min(sh - m, sy));
+        const ang = Math.atan2(sy - sh / 2, sx - sw / 2);
+        ctx.translate(ex, ey); ctx.rotate(ang);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-6, -6); ctx.lineTo(-6, 6); ctx.closePath(); ctx.fill();
+        ctx.rotate(-ang);
+        const dist = Math.round(Math.hypot(pg.x - (me.x + me.w / 2), pg.y - (me.y + me.h / 2)) / (G.TILE || 32));
+        ctx.fillStyle = col; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillText((pg.name || 'ping') + ' ' + dist + 'm', 0, -11); ctx.textAlign = 'left';
+      }
+      ctx.restore();
+    }
+  }
+
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => { mpLive = true; st('● connected'); if (authPayload) sendAuth(); else showNameEntry(); };
+    ws.onclose = () => { mpLive = false; if (superseded) { st('This hero is now playing in another window.'); return; } if (noReconnect) { st('○ away'); return; } st('○ reconnecting…'); setTimeout(connect, 1000); };
+    ws.onerror = () => {};
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.type === 'welcome') {
+        myId = m.id;
+        serverHz = m.hz || 60;                           // sync prediction to the server's tick rate
+        persistent = !!m.persistent;
+        if (m.name) { myName = m.name; lsSet(LS_NAME, myName); }
+        if (m.token) { myToken = m.token; lsSet(LS_TOKEN, myToken); authPayload = { token: myToken }; }   // auto-login on future (re)connects
+        if (m.recoveryCode) { myRecovery = m.recoveryCode; lsSet(LS_REC, myRecovery); showRecovery(m.recoveryCode); }   // brand-new hero → show once
+        else if (pendingCode) { lsSet(LS_REC, pendingCode); }   // reclaimed via a code the player typed → remember it here
+        updateAcctBtn();
+        { const _sk = parseInt(lsGet(LS_SKIN)); if (Number.isFinite(_sk)) { try { ws.send(JSON.stringify({ type: 'skin', skin: _sk })); } catch (_e) {} } }   // re-apply this browser's hero look
+        G.maps.overworld = m.map.tiles;                  // adopt the server's world
+        G.state.map = 'overworld';
+        G.state.pois = []; G.state.shrines = []; G.state.loreStones = [];   // hide client-random features
+        adoptLegion(m.legion);                           // …and the Dread Legion roster, the other shared-world feature we must never invent locally
+        adoptWorldFeatures(m);                           // …and the server's npcs/shrines/loreStones/pois (snapshot v2: they ride the gated wf payload — the empties above stay empty until this seed or the first snapshot lands)
+        adoptInventory(m);                               // …and the bag (snapshot v2: gated off `me`) — BEFORE adoptQuests, whose box paint reads state.inventory.keys; the welcome seed is what covers a takeover
+        adoptQuests(m);                                  // …and THIS hero's questline. Required on a TAKEOVER (wifi blip / reload / second tab): that path adopts the live server-side player, whose _qSeen is already caught up, so no snapshot would ever re-send quests and this brand-new page would render the game's intro defaults forever. `m` already carries quests/bounty/loreFound/maxDepth (+ no `me`, so the bag line inside no-ops — the first snapshot, milliseconds later, does that half).
+        try { G.buildMinimapBase && G.buildMinimapBase(); } catch (e) {}
+        mapReady = true;
+      } else if (m.type === 'state') {
+        // Adopt the EDGE-TRIGGERED payloads HERE, not in reconcile: `snap` keeps only the NEWEST snapshot, and
+        // reconcile runs in the FRAME loop — at 66 Hz broadcast vs a browser rendering slower (or a backgrounded
+        // tab, where rAF throttles to ~1 Hz) most snapshots are overwritten before a frame ever sees them. Fields
+        // that ride EVERY snapshot (me, enemies, pickups) don't care — the next one carries them again. These ride
+        // exactly ONE snapshot each, so reconciling them was the naive one-shot ARCHITECTURE.md warns "WILL
+        // eventually be lost":
+        //   • legion — and it WAS lost: the live client sat on the stale boot roster (Lv 1) while the server had it
+        //     at Lv 19, after passing every headless check (headless calls snapshotFor directly, never dropping one).
+        //   • feed   — the server advances _feedSeen the moment it attaches, so a dropped line is gone FOREVER.
+        //   • quests — a drop leaves the quest box STALE until the NEXT quest change.
+        // onmessage observes EVERY message, so none of them can be dropped. Equally: these must run NOWHERE ELSE —
+        // a leftover reconcile-side copy would double-log every feed line.
+        //   • inventory — snapshot v2: the bag rides only when it CHANGES (gated off `me`); a dropped
+        //     edge would leave panels/HUD/key-gate stale until the next bag change.
+        //   • wf — snapshot v2: npcs/shrines/loreStones/pois ride once per change; a dropped edge
+        //     would strand shops/stones invisible until the next world event.
+        if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptWorldFeatures(m.snap); adoptInventory(m.snap); adoptQuests(m.snap); }
+        snap = m.snap;
+      }
+      else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
+      else if (m.type === 'shopData') {                  // server sent this hero's shop stock → open the panel
+        const d = m.data; if (!d) return;
+        localShop = { town: (d.town != null ? d.town : -1), name: d.name || 'Shop', stock: d.stock || { weapons: [], armor: [] } };   // P2/S9: the session lives ON the player now (renderShop reads state.player.active*) — keep the tab-local copy that the reconcile re-stamps after every wholesale adopt
+        if (G.state.player) { G.state.player.activeShopTown = localShop.town; G.state.player.activeShopName = localShop.name; G.state.player.activeStock = localShop.stock; }
+        if (G.state.player) G.state.player.shopPurchased = d.purchased || [];   // P2/S7: player-carried — pre-seed the open so 'Owned' greys instantly (the next snapshot's `me` re-syncs it anyway)
+        G.state.scene = 'shop';
+        const el = document.getElementById('shop'); if (el) el.style.display = 'block';
+        try { window.renderShop && window.renderShop(); } catch (_e) {}
+        try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+      }
+      else if (m.type === 'interactResult') {            // server resolved an [E] on an NPC
+        const r = m.res; if (!r) return;
+        if (r.kind === 'dialogue') openDialogueMP(r.speaker, r.lines);
+        else if (r.kind === 'toast') { try { G.log && G.log(r.text, r.cls || 'quest'); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+        else if (r.kind === 'panel') {
+          if (r.panel === 'cook') openCookMP();
+          else if (r.panel === 'hunts') { G.state.huntsSlain = r.huntsSlain || []; if (G.state.scene === 'hunts') { try { window.renderHunts && window.renderHunts(); } catch (_e) {} } else openHuntsMP(); }
+          else if (r.panel === 'trophy') { G.state.pinnacleSlain = r.pinnacleSlain || []; G.state.uniquesFound = r.uniquesFound || []; if (G.state.scene === 'trophy') { try { window.renderTrophy && window.renderTrophy(); } catch (_e) {} } else openTrophyMP(); }   // adopt the SHARED pinnacle progress, then render the Trophy Wall (mirrors hunts)
+          else if (r.panel === 'companions') { G.state.companions = r.companions || []; if (G.state.scene === 'companions') { try { window.renderCompanions && window.renderCompanions(); } catch (_e) {} } else openCompanionsMP(); }
+        }
+      }
+      else if (m.type === 'idle-disconnect') { showAwayScreen(); }   // server dropped an idle tab; wait for a Resume click
+      else if (m.type === 'superseded') { superseded = true; noReconnect = true; mpLive = false; st('This hero is now playing in another window.'); try { ws && ws.close(); } catch (_e) {} }   // a reconnect adopted this hero → stop reconnecting (would just get superseded again)
+      else if (m.type === 'chat') { addChatLine(m.name, m.text); try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+      else if (m.type === 'ping') { pings.push({ x: m.x, y: m.y, name: m.name, kind: m.kind, t: performance.now() }); if (pings.length > 16) pings.shift(); try { (m.kind === 'downed' ? (G.Sound && G.Sound.boss) : (G.Sound && G.Sound.blip)) && (m.kind === 'downed' ? G.Sound.boss() : G.Sound.blip()); } catch (_e) {} }
+    };
+  }
+  // Returning heroes (token/reclaim code) connect right away — they auth the instant the socket
+  // opens. FRESH heroes get the name dialog with NO socket: the server's 10s auth deadline would
+  // reap a socket idling unauthed while a human types, and the 1s auto-reconnect then re-rendered
+  // this dialog under their fingers (wiping the field). The submit button owns connecting instead.
+  if (authPayload) connect(); else showNameEntry();
+
+  // 7. input → server (held keys @20Hz + discrete actions)
+  const held = {}; let actions = [];
+  const KMAP = { w: 'w', a: 'a', s: 's', d: 'd', arrowup: 'w', arrowleft: 'a', arrowdown: 's', arrowright: 'd' };
+  // browsers block audio until a gesture — resume on first key/click so sound
+  // (and therefore mute) actually does something.
+  const wake = () => { if (G.Sound && G.Sound.resume) try { G.Sound.resume(); } catch (_e) {} };
+  realWinAdd('pointerdown', wake);
+  function closePanel() {
+    const sc = G.state.scene;
+    try {
+      if (sc === 'inventory') window.toggleInventory && window.toggleInventory();
+      else if (sc === 'skills') window.toggleSkills && window.toggleSkills();
+      else if (sc === 'shop') closeShopMP();
+      else if (sc === 'smith') closeSmithMP();
+      else if (sc === 'dialogue') closeDialogueMP();
+      else if (sc === 'cook') closeCookMP();
+      else if (sc === 'hunts') closeHuntsMP();
+      else if (sc === 'trophy') closeTrophyMP();
+      else if (sc === 'companions') closeCompanionsMP();
+      else if (sc === 'map') { window.closeFullMap ? window.closeFullMap() : (function () { const el = document.getElementById('fullmap'); if (el) el.style.display = 'none'; G.state.scene = 'play'; })(); }   // [Esc] closes the enlarged map
+      else if (sc !== 'play' && window.closeHubPanels) window.closeHubPanels();
+    } catch (_e) {}
+  }
+  // Menu action buttons call these globals; override them to round-trip through the
+  // server (local mutation would just be overwritten by the next snapshot).
+  for (const fn of ['equipWeapon', 'equipArmor', 'sellAllJunk', 'drinkPotion', 'spendPoint', 'unlockAbility']) {
+    if (typeof window[fn] === 'function') window[fn] = function () { actions.push({ rpc: fn, args: [].slice.call(arguments) }); };
+  }
+  // ---- Merchant shop (server-authoritative): open at a shop NPC, buy/sell via RPC ----
+  function nearestShopNpc() {
+    if (!snap || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
+    let best = null, bd = 66 * 66;
+    for (const n of (G.state.npcs || [])) { if (n.id !== 'shop') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: npcs live in state (stamped from the gated wf lists each frame), not on every snap
+    return best;
+  }
+  function openShopMP() { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'shop' })); } catch (_e) {} } }
+  function closeShopMP() { const el = document.getElementById('shop'); if (el) el.style.display = 'none'; if (G.state.scene === 'shop') G.state.scene = 'play'; }
+  // buys/sells act on our OWN hero. Item-taking calls carry an identifier the server
+  // resolves (stock id for buys; inventory index+name for a sell) since it can't take a ref.
+  window.buyPotion = () => actions.push({ rpc: 'buyPotion', args: [] });
+  window.buyTonic = () => actions.push({ rpc: 'buyTonic', args: [] });
+  window.buyGood = (k) => actions.push({ rpc: 'buyGood', args: [k] });
+  window.sellGood = (k) => actions.push({ rpc: 'sellGood', args: [k] });
+  window.sellIngredient = (k) => actions.push({ rpc: 'sellIngredient', args: [k] });
+  window.buyWeapon = (it) => { if (!it) return; const sp = G.state.player && G.state.player.shopPurchased; if (sp && !sp.includes(it.id)) sp.push(it.id); actions.push({ rpc: 'buyWeapon', args: [it.id] }); };   // P2/S7: optimistic grey-out on the PLAYER's list (renderShop reads state.player.shopPurchased)
+  window.buyArmor = (it) => { if (!it) return; const sp = G.state.player && G.state.player.shopPurchased; if (sp && !sp.includes(it.id)) sp.push(it.id); actions.push({ rpc: 'buyArmor', args: [it.id] }); };
+  // Resolve an item to its index in the CURRENT inventory. The snapshot REPLACES the inventory
+  // arrays every frame, so a button captured at render time holds a stale object that === nothing
+  // in the live array (arr.indexOf → -1) — that's why selling & repair silently did nothing.
+  // Fall back to a value match (name + stats) so the click still resolves to the right slot.
+  function invIndexOf(arr, it) {
+    if (!arr || !it) return -1;
+    const i = arr.indexOf(it); if (i >= 0) return i;
+    return arr.findIndex((x) => x && x.name === it.name && (x.atk | 0) === (it.atk | 0) && (x.def | 0) === (it.def | 0) && (x.dur | 0) === (it.dur | 0) && (x.rarity | 0) === (it.rarity | 0));
+  }
+  window.sellItem = (it, kind) => { const arr = kind === 'weapon' ? G.state.inventory.weapons : (kind === 'armor' ? G.state.inventory.armor : null); const idx = invIndexOf(arr, it); if (idx < 0) return; actions.push({ rpc: 'sellItem', args: [idx, kind, it.name] }); };
+  window.closeShop = closeShopMP;
+  // ---- Blacksmith (reforge / fuse / repair): like the shop but acts on your own gear (no stock) ----
+  function nearestSmithNpc() {
+    if (!snap || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2;
+    let best = null, bd = 66 * 66;
+    for (const n of (G.state.npcs || [])) { if (n.id !== 'smith') continue; const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: state-stamped npcs (see nearestShopNpc)
+    return best;
+  }
+  function openSmithMP() { G.state.scene = 'smith'; const el = document.getElementById('smith'); if (el) el.style.display = 'block'; try { window.renderSmith && window.renderSmith(); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+  function closeSmithMP() { const el = document.getElementById('smith'); if (el) el.style.display = 'none'; if (G.state.scene === 'smith') G.state.scene = 'play'; }
+  window.reforgeWeapon = () => actions.push({ rpc: 'reforgeWeapon', args: [] });
+  window.fuseWeapon = () => actions.push({ rpc: 'fuseWeapon', args: [] });
+  window.temperWeapon = () => actions.push({ rpc: 'temperWeapon', args: [] });   // capped per-weapon empower, blacksmith-only now
+  window.repairAll = () => actions.push({ rpc: 'repairAll', args: [] });
+  window.repairItem = (it) => { if (!it) return; const wi = invIndexOf(G.state.inventory.weapons, it), ai = wi < 0 ? invIndexOf(G.state.inventory.armor, it) : -1; if (wi >= 0) actions.push({ rpc: 'repairItem', args: ['weapon', wi, it.name] }); else if (ai >= 0) actions.push({ rpc: 'repairItem', args: ['armor', ai, it.name] }); };
+  window.closeSmith = closeSmithMP;
+
+  // ---- co-op NPC interactions: dialogue + hearth/hunts/warband (server-resolved) ----------
+  // [E] on any NPC → the server resolves it (dialogue lines / panel data / instant result) and
+  // we present it here using the game's OWN panel renderers. Shop & smith keep their dedicated
+  // handlers above; this covers the elder, guard, hearth, bounty, hunt master and sellsword.
+  function nearestNpc(maxPx) {
+    if (!snap || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 66) * (maxPx || 66);
+    let best = null, bd = r2;
+    for (const n of (G.state.npcs || [])) { const d = (n.x - px) ** 2 + (n.y - py) ** 2; if (d < bd) { bd = d; best = n; } }   // snapshot v2: state-stamped npcs (see nearestShopNpc)
+    return best;
+  }
+  function requestInteract(npcId) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'interact', npcId })); } catch (_e) {} } }
+  function openPanelMP(scene, id, render) { G.state.scene = scene; const el = document.getElementById(id); if (el) el.style.display = 'block'; try { render && render(); } catch (_e) {} try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {} }
+  function closePanelMP(scene, id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; if (G.state.scene === scene) G.state.scene = 'play'; }
+  function openCookMP() { openPanelMP('cook', 'cook', window.renderCook); }
+  function closeCookMP() { closePanelMP('cook', 'cook'); }
+  function openHuntsMP() { openPanelMP('hunts', 'hunts', window.renderHunts); }
+  function closeHuntsMP() { closePanelMP('hunts', 'hunts'); }
+  function openTrophyMP() { const h = document.getElementById('hunts'); if (h) h.style.display = 'none'; openPanelMP('trophy', 'trophy', window.renderTrophy); }   // hide the Hunt Master panel if we arrived via its "View Trophy Wall" button (mirrors SP openTrophy)
+  function closeTrophyMP() { closePanelMP('trophy', 'trophy'); }
+  function openCompanionsMP() { openPanelMP('companions', 'companions', window.renderCompanions); }
+  function closeCompanionsMP() { closePanelMP('companions', 'companions'); }
+  window.closeCook = closeCookMP; window.closeHunts = closeHuntsMP; window.closeCompanions = closeCompanionsMP;
+  window.closeTrophy = closeTrophyMP; window.openTrophy = () => requestInteract('trophy');   // the Trophy Wall button (inline onclick) round-trips for fresh SHARED progress; the hub tab still uses the game's lexical openTrophy (local state, like the Hunts tab)
+  // hearth (cook) + warband actions → server RPCs (own hero / the shared warband); warband actions
+  // re-request the panel so the roster reflects the server after the change.
+  window.cook = (key) => actions.push({ rpc: 'cook', args: [key] });
+  ['recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion'].forEach((fn) => {
+    window[fn] = function () { actions.push({ rpc: fn, args: [].slice.call(arguments) }); setTimeout(() => { if (G.state.scene === 'companions') requestInteract('recruit'); }, 200); };
+  });
+  // client-side dialogue: the server hands us the lines; advancing/closing is local
+  let mpDlg = null;
+  function openDialogueMP(speaker, lines) {
+    if (!lines || !lines.length) return;
+    mpDlg = { speaker: speaker || '', lines, idx: 0 };
+    G.state.scene = 'dialogue';
+    const el = document.getElementById('dialogue'); if (el) el.style.display = 'block';
+    const sp = document.getElementById('d-speaker'), tx = document.getElementById('d-text');
+    if (sp) sp.textContent = mpDlg.speaker; if (tx) tx.textContent = mpDlg.lines[0];
+    try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+  }
+  function advanceDialogueMP() {
+    if (!mpDlg) { closeDialogueMP(); return; }
+    mpDlg.idx++;
+    if (mpDlg.idx >= mpDlg.lines.length) { closeDialogueMP(); return; }
+    const tx = document.getElementById('d-text'); if (tx) tx.textContent = mpDlg.lines[mpDlg.idx];
+    try { G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+  }
+  function closeDialogueMP() { const el = document.getElementById('dialogue'); if (el) el.style.display = 'none'; if (G.state.scene === 'dialogue') G.state.scene = 'play'; mpDlg = null; }
+  // world features (shrine/lore/dragon/outpost/fish) fire via the 'interact' action server-side;
+  // add a local flavor line since the game's log runs on the server (its text can't reach us).
+  function nearestFeature(maxPx) {
+    if (!snap || !snap.me) return null;
+    const px = snap.me.x + snap.me.w / 2, py = snap.me.y + snap.me.h / 2, r2 = (maxPx || 52) * (maxPx || 52);
+    const scan = (arr, kind) => { for (const s of (arr || [])) { if ((s.x - px) ** 2 + (s.y - py) ** 2 < r2) return kind; } return null; };
+    return scan(G.state.loreStones, 'lore') || scan(G.state.shrines, 'shrine');   // snapshot v2: features live in state (stamped from the gated wf lists each frame)
+  }
+  function interactFlavor() {
+    const f = nearestFeature(56); if (!f) return;
+    try { G.log && G.log(f === 'lore' ? 'You study the Realm-stone…' : 'You reach out to the shrine…', 'lore'); } catch (_e) {}
+  }
+  let localWayfind = true;   // [O] objective guide is a CLIENT pref (P2/S6): p.wayfind rides `me` as the SP-save default only — this local value is authoritative on this tab (re-stamped after every snapshot adopt; no RPC, plan §3.4)
+  let localWF = null;        // this tab's adopted WORLD FEATURES {npcs,shrines,lore,pois} (snapshot v2): full overworld lists from `welcome` + the gated snap.wf — the reconcile re-stamps state from it every frame on the overworld (a dungeon's inline snap.npcs wins below ground)
+  let localShop = null;      // this tab's open shop session {town,name,stock} (P2/S9): the session lives ON state.player now, but the wholesale `S.player = snap.me` adopt would stomp it every snapshot — and `activeStock` is deliberately NOT on the wire (safeClone skips the fat stock; it arrives once in shopData) — so, like localWayfind, the shopData copy is re-stamped after every adopt (renderShop + the shop panel-sig refresh read state.player.active*)
+  realWinAdd('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    wake();
+    if (modal.classList.contains('on')) return;    // an account/identity modal is up — keys belong to it, not the game
+    if (k === 'enter') { if (G.state.scene === 'play' && !chatting) openChat(); return; }   // [Enter] → chat
+    if (k === 't') { if (G.state.scene === 'play' && !chatting) { sendPing('alert'); e.preventDefault(); } return; }   // [T] → rally ping
+    // meta + menu keys (any scene)
+    if (k === 'm') { if (G.Sound && G.Sound.toggleMute) try { G.Sound.toggleMute(); } catch (_e) {} return; }
+    if (k === 'h') { const c = document.getElementById('controls'); if (c) c.style.display = (c.style.display === 'block' ? 'none' : 'block'); return; }
+    if (k === 'i') { try { window.toggleInventory && window.toggleInventory(); } catch (_e) {} e.preventDefault(); return; }
+    if (k === 'k') { try { window.toggleSkills && window.toggleSkills(); } catch (_e) {} e.preventDefault(); return; }
+    if (k === 'escape') { closePanel(); return; }
+    if (G.state.scene === 'dialogue') { if (k === 'e' || k === ' ') { advanceDialogueMP(); e.preventDefault(); } return; }   // [E]/[Space] advance
+    if (G.state.scene === 'shop') { if (k === 'e') { closeShopMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the shop
+    if (G.state.scene === 'smith') { if (k === 'e') { closeSmithMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the smith
+    if (G.state.scene === 'cook') { if (k === 'e') { closeCookMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hearth
+    if (G.state.scene === 'hunts') { if (k === 'e') { closeHuntsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the hunts
+    if (G.state.scene === 'trophy') { if (k === 'e') { closeTrophyMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the Trophy Wall
+    if (G.state.scene === 'companions') { if (k === 'e') { closeCompanionsMP(); e.preventDefault(); } return; }   // [E]/[Esc] leave the warband
+    // gameplay keys only while actually playing (menu open = no walking/fighting)
+    if (G.state.scene !== 'play') return;
+    if (snap && snap.me && snap.me.downed) return;   // downed: no walking/fighting ([T] ping & [Enter] chat handled above)
+    if (KMAP[k]) { held[KMAP[k]] = true; e.preventDefault(); }
+    if (k === ' ' || k === 'j') { held._atk = true; e.preventDefault(); }
+    if (k === 'e') {
+      const npc = nearestNpc(66);
+      if (npc) {
+        if (npc.id === 'shop') openShopMP();
+        else if (npc.id === 'smith') openSmithMP();
+        else requestInteract(npc.id);            // hearth/bounty/hunts/recruit/shipwright/elder/guard → server resolves
+        e.preventDefault();
+      } else if (snap && snap.rift && Math.hypot(pred.x - snap.rift.x, pred.y - snap.rift.y) < 58) { actions.push('enterRift'); e.preventDefault(); }   // #14 breach the deep rift
+      else { actions.push('interact'); interactFlavor(); }   // world feature: shrine/lore/dragon/outpost/fish
+    }
+    if (k === 'o') {   // [O] toggle the objective guide — pure client pref; the game's own keydown never attaches in MP (its listeners are swallowed during eval above), so this branch IS the toggle
+      localWayfind = !localWayfind;
+      try { G.log && G.log('Objective guide ' + (localWayfind ? 'ON — follow the arrow' : 'OFF — wander free') + '.', 'lore'); G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
+    }
+    if (k === 'shift' || k === 'l') actions.push('dodge');
+    // abilities / potion / mount → server RPCs (applied to this player)
+    if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
+    if (k === 'r') actions.push({ rpc: 'useFocus', args: [] });
+    if (k === 'f') actions.push({ rpc: 'castSpell', args: [] });
+    if (k === 'z') actions.push({ rpc: 'useUltimate', args: [] });
+    if (k === 'x') actions.push({ rpc: 'useSummon', args: [] });
+    if (k === '1') actions.push({ rpc: 'drinkPotion', args: [] });
+    if (k === 'g') actions.push({ rpc: 'toggleMount', args: [] });
+    if (k === 'b') actions.push({ rpc: 'toggleBoat', args: [] });
+    if (k === 'c') {
+      actions.push({ rpc: 'doCamp', args: [] });   // server toggles: start camping / break camp
+      const me = snap && snap.me;                  // guard: [C] pressed after scene='play' but before the FIRST snapshot → snap is null (matches the 'e'/rift branches above)
+      if (me && me.camping) { try { G.log && G.log('You break camp.', 'lore'); } catch (_e) {} }
+      else if (me) {
+        const safe = !(snap.enemies || []).some((e) => Math.hypot((e.x + e.w / 2) - (pred.x + me.w / 2), (e.y + e.h / 2) - (pred.y + me.h / 2)) < 210);
+        try { if (safe) { G.spawnBurst && G.spawnBurst(pred.x + me.w / 2, pred.y + me.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 }); G.log && G.log('You make camp — resting… press [C] to break camp.', 'good'); } else G.log && G.log('Too dangerous to make camp — foes are near.', 'combat'); } catch (_e) {}
+      }
+    }
+  });
+  realWinAdd('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (KMAP[k]) held[KMAP[k]] = false;
+    if (k === ' ' || k === 'j') held._atk = false;
+  });
+  setInterval(() => {
+    if (!ws || ws.readyState !== 1) return;
+    const iAmDowned = snap && snap.me && snap.me.downed;
+    const inMenu = chatting || iAmDowned || (G.state && G.state.scene !== 'play');   // no walk/fight while paneled, chatting, or downed
+    const h = inMenu ? {} : { w: !!held.w, a: !!held.a, s: !!held.s, d: !!held.d };
+    const act = actions; actions = [];                    // always flush queued RPCs (even from menus)
+    if (!inMenu && held._atk) act.push('attack');
+    ws.send(JSON.stringify({ type: 'input', held: h, actions: act }));
+  }, 16);   // ~60Hz input to match the server tick (snappy start/stop/turns)
+
+  // 8. render loop — feed the game's renderer server state, then draw other players
+  const S = G.state;
+  // client-side prediction for MY player: move locally on input so it feels
+  // instant, and reconcile toward the server's authoritative position.
+  const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
+  // combat feedback regenerated from snapshot deltas (server has no client juice)
+  let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
+  // client-side smoothing: remote entities only get new positions at the snapshot rate
+  // (and unevenly over the wire); glide each toward its latest server position so a
+  // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
+  const smooth = new Map(); let lastSmoothT = 0;
+  // Overlay the other heroes on the corner minimap (same world→pixel transform the game
+  // uses for the "you" triangle: tile position × canvas/OW scale). Redrawn each frame after
+  // the game repaints the minimap. Cyan dot = ally, red = downed.
+  function drawPlayersOnMinimap() {
+    if (!snap || !snap.players) return;
+    const mm = document.getElementById('minimap'); if (!mm || mm.style.display === 'none') return;
+    const x = mm.getContext('2d'); if (!x) return;
+    const W = mm.width, H = mm.height, OWW = G.OW_W || 347, OWH = G.OW_H || 291, TILE = G.TILE || 32;
+    const sxr = W / OWW, syr = H / OWH;
+    for (const op of snap.players) {
+      if (op.id === myId) continue;
+      const mx = (op.x + (op.w || 0) / 2) / TILE * sxr, my = (op.y + (op.h || 0) / 2) / TILE * syr;
+      x.beginPath(); x.arc(mx, my, 2.4, 0, Math.PI * 2);
+      x.fillStyle = op.downed ? '#ff5a5a' : '#5ad1ff'; x.fill();
+      x.lineWidth = 0.8; x.strokeStyle = 'rgba(0,0,0,0.75)'; x.stroke();
+    }
+  }
+  // Overlay the LOCAL player's travel/wayfinder objective on the corner minimap as a gold
+  // diamond. currentObjective() returns {tx,ty,label,color} in TILE coords (or null) — same
+  // transform the game uses for its objective ring in drawMapMarkers (o.tx*W/OW_W, o.ty*H/OW_H).
+  // The game already pulses a gold RING here, so a filled gold pip in its center reads as one
+  // marker rather than a duplicate, and stays clearly distinct from the cyan player dots.
+  function drawTravelMarkerOnMinimap() {
+    if (!snap) return;
+    const mm = document.getElementById('minimap'); if (!mm || mm.style.display === 'none') return;
+    try {
+      const o = G.currentObjective && G.currentObjective();
+      if (!o || !Number.isFinite(o.tx) || !Number.isFinite(o.ty)) return;
+      const x = mm.getContext('2d'); if (!x) return;
+      const W = mm.width, H = mm.height, OWW = G.OW_W || 347, OWH = G.OW_H || 291;
+      const sxr = W / OWW, syr = H / OWH;
+      const mx = o.tx * sxr, my = o.ty * syr, r = 3.4;
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 260);   // sync with the game's pulsing objective ring
+      x.save();
+      x.beginPath();
+      x.moveTo(mx, my - r); x.lineTo(mx + r, my); x.lineTo(mx, my + r); x.lineTo(mx - r, my); x.closePath();
+      x.globalAlpha = 0.85 + 0.15 * pulse; x.fillStyle = '#ffd24a'; x.fill();
+      x.globalAlpha = 1; x.lineWidth = 0.8; x.strokeStyle = 'rgba(0,0,0,0.8)'; x.stroke();
+      x.restore();
+    } catch (e) {}
+  }
+  function drawOthers(others) {
+    const ctx = G.ctx; if (!ctx) return;
+    const meRef = S.player;
+    const invRef = S.inventory;
+    // (P2/S10: drawPlayer reads state.player.sailing/.dragon now — the temp hero below carries
+    //  them, so the old root S.sailing/S.dragon override+restore pair is gone with the keys.)
+    S.inventory = { weapons: [], armor: [], items: [] };   // drawPlayer reads equipped gear from the SINGLETON inventory — without this, MY plate armor turned every other hero metal on my screen
+    for (const op of others) {
+      const sy = op.y - S.camera.y - 16;
+      if (op.downed) {                                   // fallen teammate — collapsed marker + revive ring
+        const bx = op.x - S.camera.x + op.w / 2, by = op.y - S.camera.y + op.h / 2;
+        ctx.save();
+        ctx.fillStyle = 'rgba(90,16,16,0.9)'; ctx.beginPath(); ctx.ellipse(bx, by + 5, 13, 5, 0, 0, Math.PI * 2); ctx.fill();   // shadow on the ground
+        ctx.fillStyle = '#c94a4a'; ctx.beginPath(); ctx.ellipse(bx, by, 9, 6, 0, 0, Math.PI * 2); ctx.fill();                    // slumped body
+        if (op.reviveFrac > 0) { ctx.strokeStyle = '#7CFC7C'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(bx, by, 15, -Math.PI / 2, -Math.PI / 2 + op.reviveFrac * Math.PI * 2); ctx.stroke(); }
+        ctx.restore();
+        ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        const lab = '▼ ' + (op.name || '?') + (op.beingRevived ? ' — reviving…' : ' — DOWNED'), nw = lab.length * 5.6 + 8;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx - nw / 2, sy - 9, nw, 11);
+        ctx.fillStyle = op.beingRevived ? '#9dff9d' : '#ff8a8a'; ctx.fillText(lab, bx, sy);
+        ctx.textAlign = 'left';
+        continue;
+      }
+      if (op.auraEl) {   // teammate radiating a HEAT aura (auraEl = the element, set server-side only when heat≥40) — mirror drawPlayer's self-pulsate so co-op heroes SEE each other blaze
+        const _rgb = (G.elemRgb ? G.elemRgb(op.auraEl) : '192,192,208'), _hh = Math.min(1, (op.heat || 0) / 100);   // reuse the game's element→"r,g,b"; intensity ∝ Heat (op.heat rides lightPlayer), exactly like the self-pulsate
+        const _cx = op.x - S.camera.x + op.w / 2, _cy = op.y - S.camera.y + op.h / 2, _pz = 0.5 + 0.5 * Math.sin(Date.now() / (300 - 150 * _hh)), _rad = op.w * (0.6 + 0.55 * _hh) * (0.94 + 0.1 * _pz);   // world→screen center at the SMOOTHED position; same pulse/radius formula as drawPlayer
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const _g = ctx.createRadialGradient(_cx, _cy, 0, _cx, _cy, _rad); _g.addColorStop(0, 'rgba(' + _rgb + ',' + ((0.12 + 0.34 * _hh) * (0.65 + 0.35 * _pz)).toFixed(3) + ')'); _g.addColorStop(1, 'rgba(' + _rgb + ',0)');
+        ctx.fillStyle = _g; ctx.beginPath(); ctx.arc(_cx, _cy, _rad, 0, 6.28); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = 'rgba(' + _rgb + ',' + (0.3 + 0.4 * _pz).toFixed(3) + ')'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(_cx, _cy, op.w * 0.82, 0, 6.28); ctx.stroke();   // ring drawn source-over (auraEl truthy ⟺ heat≥40, so the live-aura ring always shows, matching the self-pulsate)
+        ctx.restore();
+      }   // drawn BEFORE G.drawPlayer() → glow sits UNDER the sprite; one save/restore keeps composite/stroke state from leaking across the loop
+      S.player = Object.assign({ invuln: 0, moving: false, animFrame: 0, dodge: 0, chillT: 0, w: meRef.w, h: meRef.h, dir: 'down' }, op);
+      S.player.dragon = op.mounted ? { mounted: true, tamed: true } : { mounted: false, tamed: false };   // this hero's flight (flag from lightPlayer; his boat rides the op spread above — P2/S10: drawPlayer reads the player obj)
+      try { G.drawPlayer(); } catch (e) {}
+      const sx = op.x - S.camera.x + op.w / 2;
+      ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      const label = (op.name || '?') + ' L' + op.level, nw = label.length * 5.6 + 8;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(sx - nw / 2, sy - 9, nw, 11);
+      ctx.fillStyle = '#9fe0ff'; ctx.fillText(label, sx, sy);
+      ctx.fillStyle = '#000'; ctx.fillRect(sx - 13, sy + 2, 26, 3);
+      ctx.fillStyle = '#66cc66'; ctx.fillRect(sx - 13, sy + 2, 26 * Math.max(0, op.hp / op.maxHp), 3);
+      ctx.textAlign = 'left';
+    }
+    S.player = meRef; S.inventory = invRef;
+  }
+  let _fpsN = 0, _fpsT = 0, statusHidden = false, lastReconcileErrT = 0, lastAdoptErrT = 0, lastPanelSigT = 0, lastNeedMapT = 0;
+  function frame() {
+    realRAF(frame);
+    _fpsN++; const _now = performance.now(); if (_now - _fpsT >= 1000) { window.__mpFps = _fpsN; _fpsN = 0; _fpsT = _now; const _on = snap ? (snap.n || (snap.players && snap.players.length) || 1) : 0; st((mpLive ? '● ' + _on + ' online · ' : '○ ') + window.__mpFps + ' fps' + (snap ? ' · ' + snap.enemies.length + ' foes' : '')); }
+    { const _open = !!(G.state && G.state.scene !== 'play'); if (_open !== statusHidden) { statusHidden = _open; const se = document.getElementById('mp-status'); if (se) se.style.display = _open ? 'none' : 'block'; } }   // hide the fps/status chip while any menu is open
+    // self-heal the canvas size: in some browsers innerWidth is 0 at boot (layout
+    // not settled), which zeroes fitCanvas. Re-fit once the viewport is real.
+    if (G.canvas && !G.canvas.width && window.innerWidth > 0 && G.fitCanvas) { try { G.fitCanvas(); } catch (e) {} }
+    if (!snap || !mapReady || !snap.me) return;
+    // --- reconcile prediction against the newest authoritative snapshot ---
+    if (snap !== lastSnap) { try {   // wrap reconcile: one malformed/unexpected snapshot field must not kill the frame loop for good
+      lastSnap = snap;
+      if (!predInit) { pred.x = snap.me.x; pred.y = snap.me.y; predInit = true; }
+      else {
+        const err = Math.hypot(snap.me.x - pred.x, snap.me.y - pred.y);
+        if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
+        else { pred.x += (snap.me.x - pred.x) * 0.45; pred.y += (snap.me.y - pred.y) * 0.45; }  // smooth drift correction (snapshot v2: 0.25→0.45 — corrections arrive per SNAPSHOT, now 20 Hz instead of ~66, so the per-correction pull grows to keep the same wall-clock convergence)
+      }
+      // ---- combat feedback (replay the game's own juice from deltas) ----
+      const me2 = snap.me;
+      if (feelHp !== null) {
+        if (me2.hp < feelHp - 0.5) {                                    // took damage
+          hurtFx = 1;
+          try { G.addShake && G.addShake(5); } catch (_e) {}
+          try { G.Sound && G.Sound.hurt && G.Sound.hurt(); } catch (_e) {}
+          try { G.floatDamage && G.floatDamage(pred.x + me2.w / 2, pred.y, Math.round(feelHp - me2.hp), '#ff6060'); } catch (_e) {}
+        } else if (me2.hp > feelHp + 0.5) {                             // healed
+          try { G.floatDamage && G.floatDamage(pred.x + me2.w / 2, pred.y, '+' + Math.round(me2.hp - feelHp), '#60e060'); } catch (_e) {}
+        }
+      }
+      feelHp = me2.hp;
+      if (me2.downed && !wasDowned) { sendPing('downed'); try { G.addShake && G.addShake(9); } catch (_e) {} }   // just fell → auto-beacon teammates
+      wasDowned = !!me2.downed;
+      // (tonics/sharpenLevel adopts DELETED — P2/S5: they live ON the player now, so the wholesale
+      //  S.player = snap.me below keeps the shop's Health-Tonic price live with no ghost state.X copy)
+      // (snap.feed is NOT read here — it is edge-triggered and adopted in ws.onmessage, which never drops a
+      //  snapshot. Re-adding it here would double-log every line.)
+      {                                                  // RARE+ LOOT gained → announce it (the server's drop messages never reach this screen)
+        const inv = G.state.inventory;                   // snapshot v2: the bag is gated off `me` — read the ws.onmessage-adopted singleton (changes land ≤0.5s after the server's %40 stamp)
+        if (inv) {
+          const sig = new Map();
+          for (const arr of [inv.weapons || [], inv.armor || []]) for (const it of arr) { if (!it || !it.name) continue; const k = it.name + '|' + (it.rarity | 0); sig.set(k, (sig.get(k) || 0) + 1); }
+          if (feelInv) {
+            for (const [k, n] of sig) {
+              if (n > (feelInv.get(k) || 0)) {
+                const r = parseInt(k.slice(k.lastIndexOf('|') + 1), 10) | 0;
+                if (r >= 2) {   // rare+ drop → jingle (the log line comes from the server feed now)
+                  try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {}
+                }
+              }
+            }
+          }
+          feelInv = sig;
+        }
+      }
+      {                                                  // FISHING: sync the bobber flag (drawPlayer shows the line) + splash on a catch; text comes from the feed
+        try { if (G.state && G.state.player) { G.state.player.fishing = !!me2.fishing; G.state.player.fishT = me2.fishT | 0; } } catch (_e) {}
+        const fn = (me2.ingredients && me2.ingredients.fish) | 0;
+        if (feelFishN !== null && fn > feelFishN) { try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 8, { color: '#a8d8f0', speed: 1.7, up: 0.6, decay: 0.05 }); G.Sound && G.Sound.item && G.Sound.item(); } catch (_e) {} }
+        feelFishN = fn;
+      }
+      {                                                  // ULTIMATE fired server-side (cooldown 0 → ~300) → REPLAY its nova here. The ult runs headlessly on the server (draws nothing), so without this replay a mage's [Z] showed nothing.
+        const uc = me2.abilityCd ? (me2.abilityCd.ultimate | 0) : 0;
+        if (feelUltCd !== null && uc > 200 && feelUltCd <= 60) {
+          // derive the caster's style/element/power from `me` (abilityRank/_lastStyle) + the adopted bag (snapshot v2: inventory is gated off `me`; the singleton is ≤0.5s stale — the _lastStyle fallback covers a race)
+          const inv = G.state.inventory, wep = (inv && inv.weapons) ? inv.weapons.find((w) => w && w.equipped) : null;
+          const style = wep ? (wep.style || 'melee') : (me2._lastStyle || 'melee');
+          const el = wep ? (wep.element || null) : null;
+          const rank = (me2.abilityRank && (me2.abilityRank.ultimate | 0)) || 1;
+          const pow = 1 + 0.35 * (rank - 1);                          // mirrors useUltimate's _um (rank1 ~1.0 → rank5 ~2.4)
+          const nx = pred.x + me2.w / 2, ny = pred.y + me2.h / 2;
+          const tint = style === 'magic' ? undefined : (style === 'ranged' ? { col: '#e8d8a0', rgb: '232,216,160' } : { col: '#cfe6ff', rgb: '207,230,255' });   // magic → element/arcane (matches SP); ranged → gold; melee → steel. An elemental weapon's color always wins.
+          try {
+            if (G.ultimateNova) G.ultimateNova(nx, ny, el, pow, tint);
+            else { G.addShake && G.addShake(6); for (let ri = 0; ri < 3; ri++) G.spawnBurst && G.spawnBurst(nx, ny, 20, { color: ri === 1 ? '#fff060' : '#cfe6ff', speed: 2.2 + ri * 1.3, decay: 0.035 }); }   // fallback for a pre-capture client build
+          } catch (_e) {}
+          try { if (style === 'ranged') { G.Sound && G.Sound.shoot && G.Sound.shoot(); } else { G.Sound && G.Sound.cast && G.Sound.cast(); } } catch (_e) {}
+          try { G.Sound && G.Sound.whirl && G.Sound.whirl(); } catch (_e) {}
+          try { G.log && G.log(style === 'magic' ? '✦ ELEMENTAL NOVA! ✦' : (style === 'ranged' ? '⟫ ARROW STORM! ⟪' : '⚔ CLEAVING STORM! ⚔'), 'good'); } catch (_e) {}
+        }
+        feelUltCd = uc;
+      }
+      // (snap.quests/bounty/loreFound/maxDepth are NOT read here either — same edge-triggered hazard, same cure:
+      //  adopted in ws.onmessage. Reconciling them here left the quest box stale on every dropped snapshot.)
+      if ((me2._dungeonBlockN || 0) > lastDungeonBlockN) {   // tried to enter a dungeon — co-op instances not ready yet
+        lastDungeonBlockN = me2._dungeonBlockN || 0;
+        try { G.log && G.log('The dungeon stays sealed in co-op — shared delves are coming soon.', 'quest'); } catch (_e) {}
+        try { G.Sound && G.Sound.error && G.Sound.error(); } catch (_e) {}
+      }
+      if (feelLvl !== null && me2.level > feelLvl) {
+        try { G.Sound && G.Sound.levelup && G.Sound.levelup(); } catch (_e) {}
+        try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 }); } catch (_e) {}
+      }
+      feelLvl = me2.level;
+      if (feelGold !== null && me2.gold > feelGold) { try { G.Sound && G.Sound.gold && G.Sound.gold(); } catch (_e) {} }
+      feelGold = me2.gold;
+      // enemy hits + deaths via stable _nid
+      const seen = new Set();
+      for (const en of (snap.enemies || [])) {
+        if (en._nid == null) continue;
+        seen.add(en._nid);
+        const prev = enemyMem.get(en._nid);
+        if (prev && en.hp < prev.hp - 0.5) {
+          try { G.floatDamage && G.floatDamage(en.x + en.w / 2, en.y, Math.round(prev.hp - en.hp), '#fff060'); } catch (_e) {}
+          try { G.Sound && G.Sound.hit && G.Sound.hit(); } catch (_e) {}
+        }
+        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h, nm: en.name, hunt: !!en.isGreatBeast, big: !!(en.isBoss || en.isNemesis || en.isWildDragon) });
+      }
+      for (const [nid, prev] of enemyMem) {
+        if (seen.has(nid)) continue;
+        if (prev.hp <= (prev.mhp || 999) * 0.34) {                      // was dying → vanish = kill
+          try { G.spawnBurst && G.spawnBurst(prev.x + prev.w / 2, prev.y + prev.h / 2, 12, { color: '#c04040', speed: 2.4, decay: 0.04 }); } catch (_e) {}
+          try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {}
+          if (prev.hunt) { try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {} }   // kill TEXT now comes from the server feed; keep the flourish
+          if (prev.hunt || prev.big) { try { G.addShake && G.addShake(5); } catch (_e) {} }
+        }
+        enemyMem.delete(nid);
+      }
+      // --- record smoothing targets for remote entities (enemies, projectiles, other players) ---
+      const _live = new Set();
+      for (const en of (snap.enemies || [])) if (en._nid != null) { const k = 'e' + en._nid; const s = smooth.get(k); if (s) { s.tx = en.x; s.ty = en.y; } else smooth.set(k, { tx: en.x, ty: en.y, rx: en.x, ry: en.y }); _live.add(k); }
+      for (const pr of (snap.proj || [])) if (pr._pid != null) { const k = 'r' + pr._pid; const s = smooth.get(k); if (s) { s.tx = pr.x; s.ty = pr.y; } else smooth.set(k, { tx: pr.x, ty: pr.y, rx: pr.x, ry: pr.y }); _live.add(k); }
+      for (const pl of (snap.players || [])) { if (pl.id === myId) continue; const k = 'u' + pl.id; const s = smooth.get(k); if (s) { s.tx = pl.x; s.ty = pl.y; } else smooth.set(k, { tx: pl.x, ty: pl.y, rx: pl.x, ry: pl.y }); _live.add(k); }
+      for (const c of (snap.comps || [])) if (c._cid != null) { const k = 'c' + c._cid; const s = smooth.get(k); if (s) { s.tx = c.x; s.ty = c.y; } else smooth.set(k, { tx: c.x, ty: c.y, rx: c.x, ry: c.y }); _live.add(k); }
+      for (const a of (snap.allies || [])) if (a._aid != null) { const k = 'a' + a._aid; const s = smooth.get(k); if (s) { s.tx = a.x; s.ty = a.y; } else smooth.set(k, { tx: a.x, ty: a.y, rx: a.x, ry: a.y }); _live.add(k); }
+      for (const k of smooth.keys()) if (!_live.has(k)) smooth.delete(k);
+    } catch (_re) { const _rt = performance.now(); if (_rt - lastReconcileErrT > 2000) { lastReconcileErrT = _rt; console.error('mp reconcile error (snapshot skipped, loop continues):', _re); } } }
+    // --- dead-reckon my movement each frame (input feels instant) ---
+    const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
+    let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
+    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+    if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && (snap.me.downed || snap.me.camping))) {
+      const _fly = !!(snap.me.dragon && snap.me.dragon.mounted), _sail = !!snap.me.sailing;   // per-player mount/boat (server-authoritative)
+      let _exh = false; try { _exh = !_fly && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
+      const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : (snap.me.chillT > 0 ? 0.55 : 1))) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror updatePlayer: flight/sail speed + exhaustion slow (v2.38.0)
+      const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
+      const _move = _fly ? (G.flyCanMove || null) : (_sail ? (G.canSailTo || null) : G.canMoveTo);   // fly over everything / sail on water / walk on land — match the server so prediction doesn't rubber-band
+      if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
+      if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;
+    }
+    // adopt authoritative state, but render MY player at the predicted position
+    let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
+    try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
+    const _pb = S.player.bounty;   // P2/S12: capture the contract BEFORE the wholesale adopt — bounty lives ON the player but never rides `me` (safeClone skips it; gated-only), so the adopt below would blank it every frame
+    const _pq = S.player.quests;   // P2/S13: same carry for the QUESTLINE — it lives ON the player but never rides `me` (safeClone skips it; it arrives via the version-gated quest payload / welcome seed), so the wholesale adopt below would blank the quest box every frame
+    S.player = snap.me;
+    S.player.x = pred.x; S.player.y = pred.y;
+    S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
+    if (localShop) { S.player.activeShopTown = localShop.town; S.player.activeShopName = localShop.name; S.player.activeStock = localShop.stock; }   // P2/S9: same inversion for the shop session — activeStock never rides `me` (safeClone skips it), so the adopt above would blank the open panel's stock; re-stamp the shopData copy (town/name ride `me` too, but the local session is authoritative on this tab)
+    S.player.bounty = _pb || null;   // P2/S12: re-stamp the last adopted contract (adoptQuests stamps it in ws.onmessage — the S6 wayfind inversion, carried across the adopt instead of a second local). maxDepth needs no line: it rides `me` (~15 B), so the wholesale adopt above IS its adoption — the old explicit S.maxDepth root adopt died with the move (risk #7), and the gated copy still repaints the box on the FIRST snapshot via adoptQuests.
+    if (_pq) S.player.quests = _pq;   // P2/S13: re-stamp the last adopted quest box (same carry as bounty — adoptQuests stamps state.player.quests in ws.onmessage; quests never rides `me`). Before the first payload lands this is the game's own boot literal (startGame seeded it), so updateQuests/currentObjective never see an undefined box. The old root `G.state.quests` adopt died with the move (risk #7).
+    // (inventory adopt DELETED here in snapshot v2: the bag is GATED off `me` — it arrives via
+    //  snap.inventory/welcome and is adopted in ws.onmessage (adoptInventory), the one-shot rule.
+    //  state.inventory is a separate singleton the wholesale me-adopt above never touches, so the
+    //  last adopted bag simply persists across frames — no carry needed.)
+    // (cargo + lastRestDay adopts DELETED in P2/S7: they live ON the player now, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.cargo/S.lastRestDay copy would be a
+    //  ghost the panels could read stale, risk #7.)
+    // (ingredients adopt DELETED in P2/S8: the pantry lives ON the player now, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.ingredients copy would be a ghost
+    //  the cook/shop panels could read stale, risk #7.)
+    // (maxDepth adopt DELETED in P2/S12: it lives ON the player and rides `me`, so the wholesale
+    //  S.player = snap.me above IS the adoption — a leftover S.maxDepth copy would be a ghost the
+    //  panels could read stale, risk #7. bounty is gated-only and re-stamped above.)
+    // (sailing + dragon adopts DELETED in P2/S10: they live ON the player now, so the wholesale
+    //  S.player = snap.me above IS the adoption — drawPlayer/HUD/prediction read state.player.
+    //  A leftover S.sailing/S.dragon copy would be a ghost the panels could read stale, risk #7.)
+    // per-player map: the shared overworld OR your own private dungeon (server sends the grid on switch)
+    if (snap.dgTiles && G.maps) G.maps.dungeon = snap.dgTiles;
+    if (snap.map && S.map !== snap.map) { if (snap.map !== 'dungeon' || (G.maps && G.maps.dungeon)) S.map = snap.map; }   // never flip INTO the dungeon before its grid exists — renderWorld's maps.dungeon[0] would throw (frame guard below is the backstop)
+    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; S.floorMod = snap.floorMod || null; S.citadel = snap.citadel || 0; }   // floor modifier (👑/🐀/☠/🏦) → dungeon HUD tag; #121 S.citadel → Sunken Citadel HUD
+    // #121: the world-shared Citadel gate (a slain pinnacle opened it). Stamp it into THIS tab's overworld
+    // grid so it renders + [E]-resolves even for a client connected before the pinnacle fell (the join grid
+    // predates the tile flip). state.X field → an explicit adopt line (the LESSON that bit twice).
+    if (snap.citadelGate && G.maps && G.maps.overworld) { S.citadelGate = snap.citadelGate; const gr = G.maps.overworld[snap.citadelGate.ty]; if (gr) gr[snap.citadelGate.tx] = G.T.CITADEL_GATE; }
+    S.enemies = snap.enemies || [];
+    S.pickups = snap.pickups || [];
+    S.projectiles = snap.proj || [];
+    // World features (snapshot v2): on the overworld they come from the tab's adopted `wf` lists
+    // (full lists, version-gated — snap no longer carries them per broadcast); inside a dungeon the
+    // inline near-culled snap.npcs (normally empty) wins and the overworld features blank, so an
+    // [E] prompt or a drawn shop can never resolve against topside coordinates from below ground.
+    if (snap.map === 'dungeon') { S.npcs = snap.npcs || []; S.shrines = []; S.loreStones = []; S.pois = []; }
+    else if (localWF) { S.npcs = localWF.npcs || []; S.shrines = localWF.shrines || []; S.loreStones = localWF.lore || []; S.pois = localWF.pois || []; }
+    S.allies = snap.allies || [];   // co-op allies (thralls/bound elites/patrols) — server-owned, direct adopt (renderWorld draws them)
+    if (snap.holdings) { for (let i = 0; i < snap.holdings.length; i++) { if (S.holdings && S.holdings[i]) Object.assign(S.holdings[i], snap.holdings[i]); } }   // outpost status → [E] prompt + flip on capture
+    if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
+    S.time = snap.t; S.weather = snap.wx;
+    others = (snap.players || []).filter((p) => p.id !== myId);
+    // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
+    { const _sn = performance.now(), _sdt = Math.min(100, _sn - (lastSmoothT || _sn)); lastSmoothT = _sn;
+      const _sk = Math.min(1, _sdt / 40), _skp = Math.min(1, _sdt / 18);   // snapshot v2 retune for 50 ms gaps (was /55 and /26 at ~15 ms): an entity covers ~70% of each new 50 ms step per gap at 60 fps — continuous motion, ~1 snapshot of lag; projectiles snap harder (fast movers read as trailing otherwise)
+      for (const e of S.enemies) { const s = smooth.get('e' + e._nid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; e.x = s.rx; e.y = s.ry; } }
+      for (const pr of S.projectiles) { const s = smooth.get('r' + pr._pid); if (s) { s.rx += (s.tx - s.rx) * _skp; s.ry += (s.ty - s.ry) * _skp; pr.x = s.rx; pr.y = s.ry; } }
+      for (const op of others) { const s = smooth.get('u' + op.id); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; op.x = s.rx; op.y = s.ry; } }
+      for (const c of (S.companions || [])) { const s = c._cid != null && smooth.get('c' + c._cid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; c.x = s.rx; c.y = s.ry; } }   // warband glides too (it stepped/jittered without smoothing)
+      for (const a of (S.allies || [])) { const s = a._aid != null && smooth.get('a' + a._aid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; a.x = s.rx; a.y = s.ry; } }   // allies glide too (they teleport-stepped without smoothing)
+    }
+    } catch (_ae) { const _at = performance.now(); if (_at - lastAdoptErrT > 2000) { lastAdoptErrT = _at; console.error('mp adopt/smooth error (frame degraded, loop continues):', _ae); } }
+    // keep an open inventory/skills panel fresh after server-applied changes.
+    // Throttle the (full-inventory JSON.stringify) change-signature to ~every 150ms — between
+    // recomputes the panel is treated as unchanged (may refresh up to 150ms late — acceptable).
+    { const _psNow = performance.now(); if (_psNow - lastPanelSigT >= 150) { lastPanelSigT = _psNow;
+    if (G.state.scene === 'inventory' || G.state.scene === 'skills') {
+      const sig = (G.state.inventory ? JSON.stringify(G.state.inventory) : '') + '|' + snap.me.skillPoints + '|' + snap.me.gold + '|' + snap.me.level;   // snapshot v2: the bag is gated off `me` — sig the adopted singleton
+      if (sig !== panelSig) { panelSig = sig; try { if (G.state.scene === 'inventory') { window.renderInventory && window.renderInventory(); } else { window.renderSkills && window.renderSkills(); } } catch (_e) {} }
+    } else if (G.state.scene === 'shop') {
+      const sig = 'shop|' + snap.me.gold + '|' + (G.state.inventory ? JSON.stringify(G.state.inventory) : '') + '|' + (snap.me.cargo ? JSON.stringify(snap.me.cargo) : '') + '|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + (((G.state.player && G.state.player.shopPurchased) || []).length);
+      if (sig !== panelSig) { panelSig = sig; try { window.renderShop && window.renderShop(); } catch (_e) {} }
+    } else if (G.state.scene === 'smith') {
+      const sig = 'smith|' + snap.me.gold + '|' + (G.state.inventory ? JSON.stringify(G.state.inventory) : '');
+      if (sig !== panelSig) { panelSig = sig; try { window.renderSmith && window.renderSmith(); } catch (_e) {} }
+    } else if (G.state.scene === 'cook') {                 // hearth: reflect ingredients spent as you cook
+      const sig = 'cook|' + (snap.me.ingredients ? JSON.stringify(snap.me.ingredients) : '') + '|' + snap.me.gold;
+      if (sig !== panelSig) { panelSig = sig; try { window.renderCook && window.renderCook(); } catch (_e) {} }
+    } else if (panelSig) panelSig = '';
+    } }
+    // HARD GUARD (last line of defense): we're in the dungeon but its tile grid never arrived (dropped dgTiles,
+    // or a reconnect that landed straight inside a live dungeon — welcome only carries the overworld). renderWorld
+    // would read maps.dungeon[0] on null and throw every frame. Skip the world render and ask the server to resend
+    // the grid (throttled ~1/s); the server's transactional attach + resendMap re-sends it and we recover.
+    if (snap.map === 'dungeon' && (!G.maps || !G.maps.dungeon)) {   // key off SERVER truth (snap.map): the flip above stays gated on the overworld until the grid lands
+      st('entering the depths…');
+      const _nm = performance.now(); if (_nm - lastNeedMapT > 1000) { lastNeedMapT = _nm; try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'needmap' })); } catch (_e) {} }
+      updateDownedOverlay(snap.me);
+      return;
+    }
+    try {
+      if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
+      G.updateCamera(); G.applyShake(); G.renderWorld();
+      drawOthers(others);
+      drawPings();                                       // co-op rally markers (world-space, on top of players)
+      drawRift();                                         // #14 ephemeral deep-dungeon rift
+      G.drawWayfinder && G.drawWayfinder();
+      G.updateMinimap && G.updateMinimap();
+      drawPlayersOnMinimap();                            // overlay other heroes on the corner minimap
+      drawTravelMarkerOnMinimap();                        // gold diamond = current travel objective, on top of the minimap
+      G.updateHubTabs && G.updateHubTabs();
+      G.updateCombatHud && G.updateCombatHud();
+      G.updateHUD && G.updateHUD();
+      placeAccountBtn();                                 // keep the account chip pinned under the (live-sized) HUD
+    } catch (e) { st('render error: ' + e.message); console.error(e); }
+    updateDownedOverlay(snap.me);                        // "you are downed" vignette + bleed/revive readout
+    if (hurtFx > 0.001) { hurtFx = Math.max(0, hurtFx - 0.06); const hv = document.getElementById('mp-hurt'); if (hv) hv.style.opacity = hurtFx.toFixed(2); }
+  }
+  realRAF(frame);
+  st('● booted — waiting for world…');
+})();
+</script>
+</body>
+</html>

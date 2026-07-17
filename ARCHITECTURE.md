@@ -1,259 +1,255 @@
-# Eldermyr — Multiplayer Architecture
+# Eldermyr — Architecture
 
-*For humans and AI agents. Read this before touching `server/`, `client/`, or `server-spike/`.
-It documents invariants and gotchas, not line numbers — verify specifics against the code.*
+*For humans and AI agents. Read this before touching `server/`, `client/`, or the sim. It
+documents invariants and gotchas, not line numbers — verify specifics against the code. For
+how to ADD content (an enemy, spell, gear, dungeon…), see [CONTENT.md](CONTENT.md); this file
+is the cross-cutting machinery.*
 
 ## The one-sentence model
 
-The single-player game file (`eldermyr-rpg.html`) is never forked: the **server loads it
-headlessly and orchestrates it** for N players; the **client loads the same file and renders
-it** from server snapshots. All game logic changes go into `eldermyr-rpg.html` and must stay
-browser-safe and single-player-identical.
+`npm run build` compiles `src/content` + `src/game/` into one artifact, **`dist/eldermyr.html`**;
+the **server loads that artifact headlessly and orchestrates it** for N players, and the
+**client loads the same artifact and renders it** from server snapshots. The sim is
+multiplayer-native — one shared `state`, every hero a first-class `players[]` entry. There is
+no single-player fork.
 
-## Load-and-orchestrate (server side)
+## The build (`scripts/build.mjs`)
 
-`server-spike/load-game.js` extracts the `<script>` from `eldermyr-rpg.html`, installs
-DOM/canvas/audio stubs, `eval`s it, and captures lexical symbols into `global.__game` (`G`)
-per its `CAPTURE` list.
+- esbuild bundles `src/content/index.ts` → one non-minified IIFE **content chunk** that assigns
+  `globalThis.CONTENT`; the build prepends it to `src/game/shell-head.html` + the `src/game/parts/`
+  (ordered by `manifest.json`) + `shell-tail.html`, then appends a generated `globalThis.Eldermyr`
+  **namespace** and writes `dist/eldermyr.html`.
+- The namespace is the explicit export surface: **every `CAPTURE` symbol (`server/load-game.js`) ∪
+  every `NAMES` symbol (`client/mp.html`) ∪ `{state, maps, g}`**. A listed name with **no top-level
+  binding FAILS the build** — this is the loud replacement for the monolith-era "a missing capture
+  silently no-ops" bug. So: a new game function the server/client calls by name needs its `CAPTURE`
+  and/or `NAMES` entry, or the build stops.
+- Module-level `let`s that are **rebound after init** (townZones, VIEW_W, hitStop, …) live as slots
+  on a globals holder `const __g` (`globalThis.__g`) — ES modules forbid assigning to an import, so
+  rebindable state sits on one mutable object. The parts read/write `__g.x`.
+- Content is read via `CONTENT.<registry>` or a positional alias at the old declaration line
+  (`const ELEMENTS = CONTENT.elements;`). Registries are deliberately **not frozen** (sloppy-mode
+  writes to a frozen object fail *silently* — the failure class this codebase refuses); the
+  `content-purity` battery is the tripwire (see Verification).
 
-**THE gotcha of this codebase:** game functions call each other by *lexical* name.
-Reassigning `G.someFn` after load does **not** change internal call sites. To intercept an
-internal call you must rewrap the lexical binding in the load-game **epilogue**. Existing
-hooks (mirror these): `log` → `globalThis.__onLog`; `gameOver` → `__onGameOver` (server sets
-a no-op — co-op death is the downed/revive pass, never SP game-over);
-`liberateHolding`/`clearPOI`/`liberateTown` → gated by `__libGate` (set to `()=>false` only
-while combat runs against a partitioned bucket; the `_seen` sweeps own liberation).
-`townZones` is reassigned at worldgen, so it's exposed via a live getter (`getTownZones`),
-not a direct capture — copy that pattern for any symbol the game rebinds after boot.
+## The headless loader (`server/load-game.js`)
 
-**Timers:** the global timers are stubbed **only during eval** and restored from
-`node:timers` right after (pg/ws resolve globals at call time and need real ones).
-`server/index.js` additionally pre-captures `node:timers` as module-locals. `requestAnimationFrame`
-stays stubbed forever (the server drives ticks manually). The game's own repeating timers
-(localStorage autosave, music sequencer) are latched off *inside* the eval — if you add a new
-`setInterval` to the game, decide its headless fate in load-game.
+Installs DOM/canvas/audio stubs, extracts the single `<script>` from `dist/eldermyr.html`, `eval`s
+it, and captures the `CAPTURE` symbols into `global.__game` (`G`). Prefers the `Eldermyr` namespace
+when present.
 
-**Capture drift:** `G.__missingCaptures` lists CAPTURE names that resolved `undefined`
-(warned at boot). If you make the server or client call a new game function, add it to
-`CAPTURE` (server) **and** `NAMES` in `client/mp.html` (client). A missing capture silently
-no-ops behind `G.fn && G.fn()` guards — this class of bug hid the event feed and the travel
-marker for weeks.
+- **Epilogue hooks** rewrap two lexical bindings so the server can intercept internal calls (game
+  functions call each other by *lexical* name — reassigning `G.fn` after load does nothing):
+  `log` → `globalThis.__onLog` (the event feed) and `gameOver` → `globalThis.__onGameOver` (the
+  server sets a no-op — co-op death is the downed/revive pass, never SP game-over). Mirror this
+  pattern for any new internal call you must intercept.
+- `townZones` is reassigned at worldgen, so it is exposed via a live getter `getTownZones()`, not a
+  direct capture — copy that for any symbol the game rebinds after boot.
+- **Timers** are stubbed only for the span of the eval, then restored from `node:timers` (pg/ws
+  resolve global timers at call time and need real ones); `requestAnimationFrame` stays stubbed
+  forever (the server drives ticks by hand). The game's autosave/music intervals are latched off
+  inside the eval — decide the headless fate of any new `setInterval` you add.
 
 ## The room (`server/world.js`)
 
-One shared game `state` (`S`). Per tick, **player rotation**: `S.player = p;
-S.inventory = p.inventory; swapInPP(p)` → run game functions as that player → `writeBackPP(p)`.
+One shared game `state` (`S`). **The acting-hero seam is a two-slot pin:** `S.player = p;
+S.inventory = p.inventory` runs game functions as that hero. Since every per-hero key lives ON the
+player object, **that pin IS the whole swap** — the old `PP_KEYS` / `swapInPP` / `writeBackPP` mirror
+machinery is deleted and must not return.
 
-- **PP_KEYS rule:** every per-player key must appear in *both* `swapInPP` and `writeBackPP`,
-  and (if durable) in `characterOf` + the load path, and (if client-visible) in the snapshot
-  + explicit client adoption. `lastRestDay` was missing from writeBack for weeks; don't be next.
-- **Partitioned combat:** `S.enemies` is replaced by per-player buckets, then recombined.
-  Inline game checks that scan `state.enemies` are *bucket-blind* during this window — that's
-  why `__libGate` exists and why holdings/POIs/town-sieges are liberated only by the
-  full-roster `_seen` sweeps after recombination.
-- **Allies** partition by `a._owner` *after* enemy recombination (targeting needs the full
-  enemy list). Unowned allies self-heal to the nearest hero. Allies are overworld-only; a
-  delving owner leaves them idling topside. Ally `name` must always be a string
-  (`drawAlly` splits it).
-- **Downed/revive** is owned by world.js (`goDown`/`_downedPass`, triggered by `hp<=0`).
-  `gameOver()` must never run its SP consequences server-side (scene='dead',
-  `nemesisGrows`, `recordRun`).
-- **Shared dungeon:** exactly one `sharedDg`. `grabWorld()`/`putWorld()` swap the
-  `WORLD_SLOTS` (map/enemies/pickups/npcs/projectiles/dungeonLevel/dungeonEntrance/
-  dungeonThemeData/floorMod + `md`). The dungeon phase is `try { … } finally { putWorld(owBase) }` —
-  any new code path that swaps worlds must restore in a `finally`, or one throw strands the
-  whole room in the dungeon.
-- **Threat scaling** (`_rescaleThreats`) must be *idempotent*: recompute from a cached
-  base/template at the target level. Never multiply current stats in place — that compounds
-  on every party-level rise.
-- **Shared-phase systems** (weather, faction war, nemesis) run once per tick under
-  `players[0]`. Their log lines must broadcast (feed attribution), and any *per-player
-  effect* (e.g. snow chill) belongs in the per-player loop, not the shared phase.
+- **world.js runs no per-player system loops.** Movement, enemies, allies, companions, projectiles,
+  fatigue and spawning are each ONE `G.fn()` call per world phase. Each such fn is an **A-shape**: the
+  SP body is `updateXFor(...)`, and the MP dispatcher loops the world-scoped **`partyIn()`** itself in
+  **JOIN order**, pinning each hero for their slice. Per-bucket pins often have *no restore* — the
+  ambient last-hero pin is part of the hashed state the 2-player baselines freeze.
+- **What world.js still owns:** the per-hero **action queue** (`_runActions`: attack/dodge/interact/
+  RPC — the world-slot choreography that cannot live in-sim), which runs AFTER the movement call
+  (within a tick: the party moves, then acts); **downed/revive** (`goDown`/`_downedPass`, on `hp<=0`
+  — `gameOver()` must never run its SP consequences server-side); the world-slot instancing; threat
+  rescale; the liberation `_seen` reconciliation sweeps; feed; serialization; the connection layer.
+- **RPC and interact do not trust the caller's pin.** `_runRpc` and `resolveInteract` run their
+  bodies under the game's own **`actAs(p, fn)`** (pins only player + inventory, restores both in a
+  `finally`), so a handler invoked outside an action slice cannot act as a stale hero.
+
+### Per-hero state — the one rule
+
+**New per-player state is a scalar (or object) field on `state.player`. Full stop.** It rides the
+whole chain for free: `S.player = p` swaps it, `snapshot()`'s player whitelist persists it,
+`characterOf` (which pins `S.player = p` before `snapshot()`) saves it, `_loadCharacter`'s
+`Object.assign(p, c.player)` restores it, `safeClone` rides it on `me`, and the client's wholesale
+`S.player = snap.me` adopts it — **no explicit client-adopt line**. There is no `state.X` per-player
+slice left; do not reintroduce one.
+
+- Before adding a field, ask **per-HERO or shared WORLD fact?** `state.flags` once held both and was
+  wrong for years. The split is the invariant: **`enteredDungeon`/`gotKey`/`enteredFrozen` are
+  per-hero scalars on `state.player`** ("have I been there?"); **`krakenDead`/`legionBroken` are WORLD
+  facts on the shared `state.flags`** (one Kraken, one Legion). You **cannot alias a scalar** — a
+  partner's Kraken kill must still count for you, so world facts stay shared, not per-hero.
+
+### The seams beside `party()` (all in the sim, all captured)
+
+- **`party()`** — all heroes (non-positional: money, reputation, quests). **`partyIn()`** — heroes
+  whose `p.map === state.map` (anything positional: hazards, hit-tests). A shared-phase per-player
+  effect must loop `partyIn()` **inside the sim fn** (world.js carries no players[1..N] replica
+  patches), or it silently hits only the pinned hero.
+- **`actAs(p, fn)`** — pins player+inventory, restores in `finally`; the acting-context seam for
+  RPC/interact/day-tick.
+- **`aliasSharedQuests()`** — re-attaches the three WORLD-tracking quests (`main`=Kraken,
+  `frozen`=Cache, `legion`=war) **by reference** into every hero's `quests` on join/load, so the room
+  shares one object. `talk`/`key`/`slay`/`dragon`/`finale` genuinely fork per hero. A private copy of
+  a shared quest silently FORKS the room's war — the mp-golden object-identity assert guards it.
+- **`addRep`** credits the acting hero; **`addRepParty`** (party news — liberations, siege breaks,
+  the war's end) loops `party()` via `actAs`; a shared-phase READ of standing uses **`partyRep(fac)`**
+  (the party's extreme member), never `facTierIdx` (reads whoever is pinned). SP: all degenerate to
+  the one hero.
+- **The day tick is split:** `onNewDay` = `maybeRaiseNemesis()` → `for (p of party()) actAs(p,
+  onNewDayHero)` → `onNewDayWorld()`. A daily effect touching one hero's state goes in `onNewDayHero`
+  (tribute, upkeep); roster/respawn work goes in `onNewDayWorld`. Never read `state.player` from
+  world-scoped day code (it is whatever the last tick left pinned — scale to `state._partyLevel ||
+  state.player.level`).
+
+### Determinism contract
+
+Per-player iteration order is **`state.players` JOIN order**, everywhere (dispatchers, `party()`,
+`actAs` loops). The mp-golden baselines freeze exactly this. Bucketed passes recombine survivors in
+bucket order (join order; mid-pass spawns land at the acting owner's tail) — next tick iterates that
+array, so **the order IS the contract**.
+
+### Shared dungeon & threat scaling
+
+Exactly one `sharedDg`. `grabWorld()`/`putWorld()` swap the `WORLD_SLOTS` (map/enemies/pickups/npcs/
+projectiles/dungeonLevel/… + `citadel`). The dungeon/citadel phase is `try { … } finally {
+putWorld(owBase) }` — **any new world-swapping path must restore in a `finally`**, or one throw
+strands the whole room underground. `_rescaleThreats` must be **idempotent** (recompute from a cached
+base/template at the target level; never multiply current stats in place — that compounds every
+party-level rise; it deliberately rebuilds only Great Beasts and warlords, never a flat-levelled rung).
+
+## Content mechanics live as scalars
+
+The combat pillars (style resources, elite affixes, pinnacle/apex bosses, chase uniques) add **no
+server plumbing** because all their state is **scalars on the player or the enemy**, which
+`safeClone`/`packScalar` copy to the wire automatically — so they need **no client-adopt line** (the
+whole reason they live there). Invariants that keep this working:
+
+- **Per-enemy memory must be authored server-side.** The client rebuilds `state.enemies` from fresh
+  JSON every snapshot (`S.enemies = snap.enemies`), so an enemy cannot remember anything across
+  frames on the client. Any per-enemy state (hysteresis, a latched facing bit, mark ownership, affix
+  shields, boss phase) is an **enemy scalar** authored server-side; deriving it in the renderer
+  compiles, looks right in SP, and **strobes in MP**. `packScalar` drops object/array fields — object
+  refs like `e._markBy` / `e._pinRef` deliberately never serialize (identity checks run
+  server-authoritatively); gate any costly scalar to the types that need it (the `FACING` map).
+- **One damage gate:** every player/ally/companion→enemy hp subtraction routes through `afxHit(e,dmg)`
+  (ward/shield live there); enemy→player through `enemyStrike`. A new damage site routes through them,
+  not a parallel path. Momentum/riposte/mark/heat all fold into the existing `playerDmgMul`/`crit`/
+  `applyElementOnHit`.
+- **Unique/relic effects are `recalcStats`-derived player flags** (`p.uLance`/`p.uAegis`/…), never a
+  combat-time gear read — a gear read sees the wrong bag in MP (a bucket pin swaps `state.player` but
+  not always the equipped-bag context). Projectile effects are projectile-stamped at fire time.
+- **Pinnacle/apex bosses + the steed are FLAT-levelled** (`PIN_LEVEL`, `DRAGON_LEVEL`, kraken/citadel
+  levels) — they do NOT read `partyLvl()`, because scaling *down* to the party let a low hero solo an
+  apex terror. Party-size / cycle / ascension / distance still multiply on top. Never put a flat rung
+  into `_rescaleThreats`, and keep the DROP tracking `partyLvl()` (the reward suits the killer).
+
+The registries themselves are pure — a content hook reads its arguments and mutates only the
+instance/refs it is handed, never `state`/DOM/`Sound` (the `content-purity` grep enforces it). See
+CONTENT.md for the recipes.
 
 ## Snapshots & the wire
 
-`snapshotFor(id)` builds each client's view (~10 Hz): `me` via depth-bounded `safeClone`
-(skip-list includes `held`, `inventory` internals, `dodgeHits`), other players via
-`lightPlayer` (includes `sailing`/`mounted` flags), interest-culled enemies/allies/npcs/pickups.
+`snapshotFor(id)` builds each client's view at **20 Hz** (`BCAST_MS`=50 in `index.js`, decoupled from
+the 80 Hz sim): `me` via depth-bounded `safeClone` (skips `held`, `dodgeHits`, and the whole
+`inventory` — it rides a gated payload); other players via `lightPlayer` (includes `sailing`/`mounted`/
+`auraEl`); enemies/allies/pickups interest-culled at **34 tiles**. Measured at rest: **~170 KB/s/player**
+(a 3.5× cut from the pre-v2 66 Hz wire); `/health.json` exposes the live `wireKBs`.
 
-**Edge-triggered extras** (sent only on change, tracked by per-player counters): the event
-feed (`_feedSeen`), quest state (`_qSeen`), and the dungeon tile grid (`_sentDgN` vs
-`_mapSwitchN`). **dgTiles is transactional:** the flag is consumed *only when a grid actually
-attaches*; otherwise it retries next tick. Clients that still end up grid-less send
-`{type:'needmap'}` → `world.resendMap(pid)` rewinds the flag. If you add a new edge-triggered
-payload, follow this pattern — a naive one-shot WILL eventually be lost (broadcast wraps each
-client's send in try/catch) and the client will be stuck.
-
-**Event feed:** game `log()` → `__onLog` → `World.feed`. Personal lines go to the acting
-player; epic lines (FEED_BROADCAST regex) go to everyone.
-
-**Connection layer (`server/index.js`):** auth resolves a token → DB character (Neon
-Postgres; ephemeral mode without `DATABASE_URL`). **Session takeover:** an auth for a token
-that already has a live socket supersedes the old one (`{type:'superseded'}` then terminate)
-and the new socket **adopts the live pid** — no DB reload, no duplicate hero; a superseded
-socket's close skips both save and removePlayer. DB *errors* refuse auth ("try again") —
-they must never mint a fresh hero for a valid token. Saves serialize per token through a
-promise chain. `maxPayload` 64 KB; 10 s auth deadline; idle-kick counts only intent-bearing
-messages (the client streams no-op input at 60 Hz — never count that).
+- **Edge-triggered payloads** (sent only on change, per-player counters): the event feed (`_feedSeen`),
+  quest state (`_qSeen`/`_qN` — per-player, the questline is per-hero), the Legion roster (`_lgSeen`),
+  the dungeon tile grid (`_sentDgN`), the **inventory** (`me._invSeen`/`_invN`), and **world features**
+  `wf` (npcs/shrines/loreStones/pois — near-static, full lists on change, never per-snapshot). The
+  version counters/stringify caches live on the World instance keyed by player id, **off the hashed sim
+  state** so the mp-golden baselines don't move.
+- **A one-shot payload must be consumed in `ws.onmessage`, NOT in the reconcile.** `client/mp.html`
+  keeps only the newest snapshot and reconciles inside the *frame loop*; at 20 Hz vs a slower render —
+  or a **backgrounded tab, where `requestAnimationFrame` throttles to ~1 Hz** — most snapshots are
+  overwritten before a frame sees them, so an edge-triggered field reconciled in the frame loop is a
+  coin flip. This is not theoretical: it is exactly how the Legion-roster fix passed every headless
+  check and failed its first live test.
+- **Every edge-triggered payload needs a join seed in `welcome`** (a pure `xPayload` builder) **and** a
+  takeover rewind of its `_seen` cursor. **Takeover is why** `welcome` seeds everything: an auth for a
+  token with a live socket supersedes the old one and the new socket adopts the live pid (no DB reload)
+  — a brand-new page whose `_seen` counters were already caught up would render boot defaults forever.
+  Every wifi blip, reload and second tab takes this path. Verify this class of fix over a **real socket**
+  — headless calls `snapshotFor` directly and never exercises `welcome`.
+- **Sizing rule:** tiny shared state (`holdings`, ~165 B) rides every snapshot; anything bigger must be
+  **version-gated** (stringify-compare on a throttled `% 40` tick, bump a `_xN`, attach only when
+  `me._xSeen !== _xN`), or it silently costs `size × 20 Hz × players` forever. Prefer stringify-compare
+  over a per-mutation `_rev` (it cannot miss a site).
+- **Event feed:** game `log()` → `__onLog` → `World.feed`; personal lines to the acting hero, epic
+  lines (FEED_BROADCAST regex) to everyone.
+- **Connection (`server/index.js`):** auth resolves a token → DB character (Neon Postgres; ephemeral
+  mode without `DATABASE_URL`). DB *errors* refuse auth ("try again") — they must never mint a fresh
+  hero for a valid token. Saves serialize per token through a promise chain. `maxPayload` 64 KB; the
+  idle-kick counts only intent-bearing messages (the client streams no-op input at 60 Hz).
 
 ## Client (`client/mp.html`)
 
-Loads the same game script, captures the `NAMES` list into `window.__G` (boot audit warns on
-undefined captures). Server-authoritative: reconcile adopts snapshots into `G.state`
-(wrapped in throttled try/catch — keep it that way), local prediction covers own movement
-(collision/speed switch on `sailing`/`mounted`).
+Loads the same artifact, captures `NAMES` into `window.__G`. Server-authoritative: the reconcile
+adopts snapshots into `G.state` (wrapped in a throttled try/catch — keep it that way); local
+prediction covers own movement (collision/speed switch on `sailing`/`mounted`).
 
-- **LESSON (bit us twice):** per-player fields riding `me` are *not* auto-applied — each
-  needs an explicit `G.state.X = me.X` adoption (tonics, sharpenLevel, sailing, dragon,
-  allies, floorMod…).
-- **Map switches:** never flip `state.map` to `'dungeon'` before `G.maps.dungeon` exists;
-  the frame loop has a hard guard that skips world render and requests `needmap` — keep it.
-- RPC overrides (`window.buyX = () => actions.push({rpc:…})`) mirror a server allow-list
-  (`RPC_OK` in world.js). Adding a menu action means: game fn (browser) + RPC_OK + CAPTURE +
-  client override.
+- **Fields that live ON the player need no adopt line** (`S.player = snap.me` is the adoption). A
+  per-player **`state.X`** field riding `me` (floorMod, allies) DOES need an explicit `G.state.X = me.X`
+  — this bit twice. Two inversions: a client-side **preference** (the `[O]` guide toggle) is re-stamped
+  from a tab-local *after* the wholesale adopt (the server default would otherwise stomp it), and a key
+  deliberately OFF the wire (the shop `activeStock`, `bounty`, `quests` — `safeClone` skips them) is
+  carried across the me-adopt from a tab-local or captured value.
+- **The client must never GENERATE shared world state.** `welcome` nukes the client-random features and
+  adopts the server's; `window.genLegion` is **stubbed to a no-op before `startGame()`** so the client
+  cannot fabricate a roster (overriding `window.X` DOES intercept the game's internal lexical calls
+  here — the client is one classic `<script>`, so top-level `function`s are window properties; the
+  opposite of the server's `G.fn=` gotcha).
+- **Map switches:** never flip `state.map` to `'dungeon'` before `G.maps.dungeon` exists; the frame
+  loop's hard guard skips world render and requests `needmap` — keep it.
+- **RPC overrides** (`window.buyX = () => actions.push({rpc:…})`) mirror a server allow-list (`RPC_OK`
+  in world.js). A new menu action = game fn + `RPC_OK` + `CAPTURE` + client override.
 
-## Verification idioms
+## Saves
 
-- Headless game: `const G = require('./server-spike/load-game.js')` → `G.startGame()`, call
-  captured fns directly.
-- Room: boot `World` the way `server/index.js` does (no DB needed); `node server/world.js`
-  runs a 1200-tick self-test that must stay green.
-- Full stack: `env -u DATABASE_URL PORT=<high> node server/index.js` + a `ws` client script
-  (server/node_modules has `ws`).
-- Perf/lag questions: `GET /health` exposes tick EMA/max, snapshot EMA, entity counts, RSS.
+`accounts.character` is a JSONB blob stamped with `schemaVersion` (the v7-era shape: per-hero slice,
+`player.quests` included). `characterOf` writes it (pinning `S.player = p`, so the player whitelist is
+the save); `_loadCharacter` **applies** a pure importer's output, never migrates inline. The importer
+is **`server/migrate.js` `migrateCharacter(blob) → {blob, fromVersion, toVersion}`** — it normalizes
+every historical shape (folds old top-level/`shop` slices into `player.*`, defaults absent fields)
+into the current player-slice shape, so `migrate(old row) ≡ characterOf(new hero)`. Readers are
+**field-keyed, player-first with a root fallback** (`s.player.X !== undefined ? s.player.X : s.X`) so a
+mid-rebuild snapshot and a current one both load. Tokens + recovery codes carry over untouched. A
+pre-cutover DB backup is `scripts/db-dump.mjs` (owner-run, needs `DATABASE_URL`, redacts secrets,
+refuses committable output).
+
+## Verification
+
+- **Golden oracles** (`tests/golden/`): a seeded PRNG drives the captured update fns and hashes
+  `{state, maps}` at intervals against a recorded oracle — 1-player (`check`, 8 trajectories) and
+  2-player (`mp-check`, 4). A moved hash fails the gate; that is the safety net for every data/refactor
+  slice. **Re-record ONLY with divergence evidence** (`record`/`mp-record`, confirm only the intended
+  leaves moved, commit the oracle in the same change): full protocol in `tests/golden/README.md`.
+- **Battery** (`tests/battery/`, `node tests/run-battery.mjs [name…]`): ~50 standalone suites that drive
+  the real game headlessly (`server/load-game.js` + `server/world.js`) or boot the MP server, asserting
+  behavior the oracles can't see (co-op partitioning, per-hero credit, MP-only paths). `content-purity`
+  greps the compiled chunk for banned tokens and runs a 3k-tick live-vs-fresh-chunk mutation canary.
+  See `tests/battery/MANIFEST.md`.
+- **Vacuous-test rule:** a new assertion counts only after it has been **seen failing** against
+  perturbed behavior once — otherwise it proves nothing.
+- Boot headless: `const G = require('./server/load-game.js')` → `G.startGame()`, call captured fns.
+  Room: `node server/world.js` (1200-tick self-test, must stay green). Full stack:
+  `env -u DATABASE_URL PORT=<high> node server/index.js` + a `ws` client. Perf/lag: `GET /health`.
 
 ## Iron rules
 
-1. Bump the displayed `GAME_VERSION` on every game change (the integrating session owns it).
-2. `eldermyr-rpg.html` edits ship to both branches (`main` = Netlify SP, `multiplayer` =
-   Railway MP); `server/`/`client/` stay on `multiplayer`.
-3. No bare `catch (_e) {}` around subsystem calls — use the throttled `_err(key, e)` logger.
-4. New per-player state: PP_KEYS + swapInPP + writeBackPP + save/load + snapshot + client adopt.
-5. **Update this file** when you change any invariant above — a wrong doc is worse than none.
-
-## Style-identity resources (Pillar 1: Momentum / Quarry Marks / Heat)
-
-Each combat style has a resource loop whose state and logic live **entirely inside the
-existing combat functions**, so the loader/room inherit it for free — no new server plumbing.
-
-- **All player state is scalars on `state.player`** (melee `momentum`/`riposteT`/`_momoDecay`;
-  magic `heat`/`_heatCool`/`_auraCd`/`_auraEl`; ranged `_lastMarkN`/`_markShowT`;
-  plus `_lastStyle`). These are **transient** — deliberately *not* in `snapshot()`'s whitelist,
-  and `applySnapshot` zeroes them, so old saves default to 0/off. They reach MP clients with
-  **zero extra wiring**: the client adopts `me` wholesale (`S.player = snap.me`), and `safeClone`
-  copies top-level scalars — so unlike `state.X` fields (tonics/sailing/…), these need **no
-  explicit adoption line**. That is the whole reason they live on the player object.
-- **Marks are per-TARGET, so they live on the ENEMY**, not the player: `e._markN` (0–3, a number
-  — it *does* ride `packEnemy`/`packScalar`, harmless) and `e._markBy` = the **owning player
-  OBJECT ref**. The "bonus damage from you" check is `e._markBy === po` (identity, O(1)); packScalar
-  drops object-typed fields, so `_markBy` **never serializes** — do not change it to an id/string
-  (a string would leak onto the wire, and SP players have no `.id`). For MP own-mark rendering,
-  `packEnemy` emits a SEPARATE derived scalar `_markById = _markBy.id` (leave `_markBy` an object);
-  `drawEnemy` shows a viewer's own pips via `_markBy===state.player` (SP) or `_markById===state.player.id` (MP).
-  Enemies are shared in MP, so one enemy carries exactly one owner's mark. Entity scans these
-  mechanics may do are all **kill-rate, not frame-rate**: the nearest-foe scan in `killEnemy` for
-  the kill-chain transfer, and (ranged prof ≥24 capstone) the in-radius scan for the Deadeye
-  marked-kill burst (routes damage through the one `afxHit` gate; splices the corpse before its
-  burst snapshot so nested bursts can't re-hit it).
-  Everything else is O(1): Deadeye/point-blank are computed at hit-time from shooter→impact
-  distance (no scan), momentum/heat decay are counters in `updateStyleResources`.
-- **Reset-on-swap is a single seam:** `updateStyleResources()` (called each frame from
-  `updatePlayer`) compares `styleOf(equippedWeapon())` to `p._lastStyle`; on a *style* change it
-  wipes every other style's transients. This is the ONE reset path — it fires for SP equips, MP
-  equip RPCs, and load alike, so nothing else needs to know about swaps. (It runs after the first
-  frame latches `_lastStyle`, which is why `updatePlayer` must run before any attack — it already
-  does, both in the SP loop and the world tick's per-player phase.)
-- **Heat is a passive elemental AURA** — no key, no RPC (the old manual `[V]` vent + peg/overload/
-  silence punishment, and the `silenceT`/`ventT`/`ventHeat`/`_vHeld`/`doVent`/`ventNova` machinery,
-  were all removed). Casting an **elemental** staff builds `heat` (gated on `w.element`, scaled by
-  weapon power in `magicShot`); a plain staff never heats and never auras. Past `HEAT_AURA_MIN` (40)
-  the player radiates an aura that periodically strikes nearby foes with the staff's element. It
-  lives **inside `updateStyleResources`** — which `updatePlayer` runs per player, SP loop and world
-  tick alike, on the overworld and in the shared-dungeon phase — so the loader/room inherit it with
-  zero plumbing. The nearby-foe scan (`updateHeatAura`) is **GATED then THROTTLED, in that order:**
-  the call is gated on `w.element && heat≥40` *before* it happens (else `_auraCd` is zeroed); inside,
-  a per-player `_auraCd` counter fires the scan only every `HEAT_AURA_TICKS` (16) frames — so the
-  `[...state.enemies]` copy allocates on ~1/16 aura ticks and **never** while idle/under-threshold.
-  Aura damage routes through the one `afxHit` gate (warded/shielded elites respected) + the shared
-  `applyElementOnHit`. `_auraEl` (the element *string*, else `0`) is set/cleared **every** tick and
-  rides `lightPlayer` as `auraEl` so teammates can draw the glow — it is not a throttled value, so it
-  never sticks stale on the wire. (The `[V]` key is dead: the SP keydown no longer binds it, and the
-  MP client still streams a vestigial `held.v` that `setKeys` sets but nothing reads — harmless, but
-  a candidate for cleanup in `client/mp.html`.) If you ever add a NON-key trigger for a new game fn
-  the server must call, that's when you'd touch `RPC_OK`+`CAPTURE` (see the capture-drift note above).
-- **Perfect-dodge seam:** `playerTakeDamage` treats a hit arriving during *active roll i-frames*
-  (`p.dodge>0 && p.invuln>0`) as a perfect dodge — melee keeps its pips (we `return` before the
-  on-hit pip drop) and opens the riposte window. Keying on `p.dodge>0` (not just `invuln`) is what
-  distinguishes a dodge from post-hit/blessing invuln.
-- **No parallel damage paths:** Momentum folds into `playerDmgMul()` (the one damage multiplier),
-  riposte/Deadeye set the existing `crit` flag, mark bonus multiplies the computed hit, and Heat
-  amplification routes through `applyElementOnHit` via `heatAmp()`. Touch those, not a copy.
-
-## Elite affixes (Pillar 3: Shielded / Vampiric / Splitting / Warded)
-
-- **All affix state is SCALARS on the enemy** (`_afxN`, `afxShield`/`afxVamp`/`afxSplit`/`afxWard`,
-  `shieldHp`/`shieldMax`/`shieldRegenT`, `wardT`/`wardCd`, the precomputed `afxTag` badge string, and the
-  prefixed `name`). packScalar keeps numbers/strings/booleans and DROPS arrays/objects — that is why there
-  is deliberately no `e.afx = [...]` array. Affixed elites therefore ride packEnemy → snapshot → the client's
-  wholesale enemy adoption → game-side drawEnemy with **zero mp.html changes**, and absent fields default OFF
-  (old saves and pre-affix enemies behave identically).
-- **Elite-only invariant:** affixes roll ONLY in `rollEliteAffixes`, called from `makeElite` (and the
-  keep-guardian branch, after its rename so the prefix/shield read the final identity). It refuses
-  isBoss/isNemesis/isGreatBeast/isWildDragon/isFinalBoss/named/dread/warlordRef and never re-rolls
-  (`_afxN` set = done). Party gate: 1 affix at partyLvl ≥15, 2 at ≥22, distinct picks.
-  `rollEliteAffixes(e, maxAfx)` is the hook for the later pinnacle/cycle 3-affix budget (pass 3);
-  pass 0 to suppress. (The `triggerEvent` war-pack sets a bare `e.elite=true` without `makeElite` —
-  those event mobs intentionally stay affix-free.)
-- **One damage gate:** every player/ally/companion→enemy hp subtraction routes through `afxHit(e,dmg)`
-  (`e.hp-=afxHit(e,dmg)`) — ward immunity and shield absorption live there and nowhere else; non-affixed
-  enemies pay one falsy check. **A new damage site must route through afxHit.** Enemy→player contact damage
-  goes through `enemyStrike(e,amt)` (`playerTakeDamage` now RETURNS the damage actually dealt) so vampiric
-  healing has one seam; hostile projectiles carry `ownerRef` = the shooting ENEMY (object ref — packScalar
-  drops it on the wire; world.js's friendly-shooter stamp is gated on `pr.friendly`, so no clash).
-- **Copies never split & carry no site tags:** `afxSplitDeath` (killEnemy) builds the two 45%-stat copies
-  from an explicit WHITELIST — type/color/size/speed/homeDf/aquatic only. poiKey/holdKey/raidTown/legion/
-  guardian/treasure/cycle/night/elite are deliberately NOT copied, so liberation/siege sweeps (SP inline and
-  the MP `_seen` sweeps) never wait on scraps, and `_splitChild:1` blocks both re-splitting and future affix
-  rolls. `dominateElite` likewise builds its ally from a fresh whitelist — dominating an affixed elite yields
-  a CLEAN thrall (name scrubbed of affix words).
-- **Ward windows are timer-bounded** (66 frames up per 300 down, ticked at the TOP of updateEnemies before
-  the stun/aggro `continue`s), so a warded quest/bounty target can never be immune-locked, even leashed,
-  stunned, or attacked from beyond aggro range.
-
-## Pinnacle bosses & chase uniques (Pillar 2: Drowned King / Pale Shepherd)
-
-- **All per-fight boss state is SCALARS on the enemy** (`isPinnacle`, `pinKey`, `arenaR`, `_nextKill`, `_hazT`,
-  `_lairTx`/`_lairTy`, `cycle`; adds carry `_orderIdx`/`_rezN` numbers). They ride packEnemy → snapshot → the
-  client's wholesale adoption with **zero mp.html changes**, exactly like affixes/marks. The ONE object field,
-  `_pinRef` (an add → its boss), is **deliberately dropped by packScalar and never serialized**: the ordered-kill
-  resurrect that reads it (`killEnemy`, O(1) — the boss's `_nextKill` cursor vs the add's `_orderIdx`, capped by
-  `_rezN`, gated on `_pinRef.hp>0` so a dead boss's court dies clean, no sibling scan) runs SERVER-AUTHORITATIVELY.
-  No client code reads `_pinRef`. Pinnacle bosses ARE `isBoss` (they partition/wander/aggro like any boss) but NOT
-  `isFinalBoss`/`isKraken` (killEnemy never calls `victory()`).
-- **World progress is shared state, not PP keys:** `pinnacleSlain`/`pinnacleCycle`/`pinnacleRespawnDay`/
-  `uniquesFound` live on `state.X` (the room's shared S), persist via the game's `snapshot()` save exactly like
-  `huntsSlain`, and reach clients through the **Trophy Wall RPC** (`resolveInteract('trophy')` returns them,
-  resolved BEFORE the NPC-proximity guard — it's a codex, no world NPC to stand at). They are NOT on `me`, so NOT
-  in the periodic wire snapshot; the minimap lair markers read the client's last-adopted copy (cosmetic staleness,
-  mirrors hunts). Kill attribution (gold, the drop, the `_lastStyle`-matched first-kill unique) uses `state.player`
-  at kill time — for a projectile kill that's the shooter (`updateProjectiles` swaps it in), which is why the drop
-  reads `_lastStyle` (rides `me`) and NOT a raw `equippedWeapon()` (whose bag isn't swapped there).
-- **Unique build-effects are recalcStats-derived player flags, never gear-reads in combat.** Each equipped `.uniq`
-  item sets a scalar in recalcStats (`p.uLance`/`uFrostNova`/`uBell`/`uCloak`, cleared when broken, matching affix
-  gating). Combat code reads ONLY the flag — like `p.crit`/`p.lifesteal` these ride `me` (safeClone copies top-level
-  scalars) with **no client-adoption line**. The projectile effect (Leviathan Spine's lance) is **projectile-stamped**
-  (`pr.uLance` set in tryAttack; the free lance carries none → no recursion), not gear-read at impact. Every unique's
-  damage routes through the existing `afxHit`/`applyElementOnHit` gates — no parallel damage path. The cloak still-timer
-  (`p._stillT`) is a scalar increment in updatePlayer; ANY action clears `cloaked`/`_stillT` together (one seam,
-  mirrored in playerTakeDamage + each ability).
-- **Two shared-phase passes, both cheap:** `maybePinnacleBosses` (fixed-lair spawn / night-gate / dawn-melt / cycle
-  respawn) runs in the once-per-tick shared block, **self-throttled** by `state._pinCheckT` (real work ~1/40 frames).
-  Its dawn-melt "is anyone engaged nearby?" test must scan `state.players` (the MP roster; `[state.player]` in SP) —
-  a `players[0]`-only check would vanish the boss mid-fight for another player (the shared-phase per-player-effect
-  rule). The **party-wide arena hazard** (world.js, MP-only, 42-throttled) menaces heroes OUTSIDE the shrinking ring
-  that the bucketed duelist's per-frame `pinnacleHazard` can't reach; it only READS the live `arenaR` (never shrinks
-  it) and DEFERS its player-filter allocation until a pinnacle boss is found (no allocation / early-out on the common
-  no-boss tick).
-- **PP-loop bag sync:** the enemy-combat partition loop sets `S.inventory = p.inventory` alongside `S.player = p`
-  (every iteration, like the shared/spawn phases) so combat-time gear reads inside `updateEnemies` — melee-riposte's
-  `equippedWeapon()`, future on-hit gear checks — see the BUCKET player's bag, not a stale one from a prior phase.
+1. Bump `GAME_VERSION` on every game change; add a `server/releases.js` entry in the same commit.
+2. New per-player state is a **field on `state.player`** — never a `state.X` slice (that machinery is
+   deleted). Ask per-HERO vs WORLD fact first.
+3. A game function the server/client call by name needs its `CAPTURE`/`NAMES` entry — else the build
+   fails (by design).
+4. No bare `catch (_e) {}` around subsystem calls — use the throttled `_err(key, e)` logger.
+5. **Update this file** when you change an invariant above — a wrong doc is worse than none.

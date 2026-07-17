@@ -1,0 +1,661 @@
+function makePinnacleAdd(pin, isKing, tx, ty, idx) {
+  const e = makeEnemy(tx, ty, 'skeleton');
+  e.name = isKing ? 'Drowned Dead' : 'Pale Flock';
+  e.color = isKing ? '#3f7794' : '#cdddec';
+  const lf =
+    (1 + Math.max(0, PIN_LEVEL - 5) * 0.13) *
+    (1 + (state.ascension || 0) * 0.18) *
+    (1 + (partyN() - 1) * 0.28) *
+    (1 + (state.pinnacleCycle || 0) * 0.35);
+  e.maxHp = Math.round(46 * lf);
+  e.hp = e.maxHp;
+  e.atk = Math.round((11 + PIN_LEVEL * 0.7) * (1 + (state.ascension || 0) * 0.18));
+  e.def = 2 + Math.floor(PIN_LEVEL * 0.15);
+  e.xp = Math.round(30 * lf);
+  e.gold = Math.round(16 * lf);
+  e.speed = isKing ? 1.15 : 1.0;
+  e.element = 'frost';
+  if (isKing) e.aquatic = true;
+  else e.frost = true;
+  e._orderIdx = idx;
+  e._pinRef = pin;
+  e._rezN = 0;
+  return e;
+} // ordered adds: aquatic 'drowned' (King, water ring) / frozen 'flock' (Shepherd, land); normal enemies otherwise → serialize/partition free   // FLAT at PIN_LEVEL too — the court BELONGS to the encounter, so it scales with the fight (ascension/party-size/cycle still stack), not with whoever walked in
+// #121 — the Drowned Archivist's court: FLAT level-100 acolytes (§0.4: ~18k HP each — a real phase,
+// not chaff). Same three ordered-kill fields as makePinnacleAdd (_orderIdx/_pinRef/_rezN), so
+// killEnemy's resurrect honors them with ZERO new code. Party-size/ascension/cycle stack on top.
+function makeCitadelAdd(pin, tx, ty, idx) {
+  const e = makeEnemy(tx, ty, 'skeleton');
+  e.name = 'Drowned Acolyte';
+  e.color = '#5fb0a8';
+  const pnh = 1 + (partyN() - 1) * 0.4,
+    asc = 1 + (state.ascension || 0) * 0.2,
+    cyc = state.citadelCycle || 0;
+  e.maxHp = Math.round(18233 * pnh * asc * (1 + cyc * 0.4));
+  e.hp = e.maxHp;
+  e.atk = Math.round(145 * asc);
+  e.def = 29;
+  e.xp = 600;
+  e.gold = 300;
+  e.element = 'frost';
+  e.frost = true;
+  e.isCitadelMinion = true;
+  e.level = 100; // flat, drawn via the citadel Lv tag, rides packEnemy
+  e._orderIdx = idx;
+  e._pinRef = pin;
+  e._rezN = 0;
+  return e;
+}
+// #121 — the level-200 Sunken Citadel boss. FLAT (no partyLvl); party-size/ascension/cycle multiply
+// on top. Every field is a SCALAR (packScalar drops arrays/objects) — e.specials is an array, already
+// dropped on the wire on every boss, read only by the server-authoritative AI; stance/phase/arenaR/
+// level all ride packEnemy to the client for free.
+function makeCitadelBoss(tx, ty) {
+  const e = makeBoss(tx, ty);
+  const A = CONTENT.apex.archivist;
+  e.isCitadel = true;
+  e.citKey = A.key;
+  e.name = A.name;
+  e.color = A.color;
+  e.w = 62;
+  e.h = 62;
+  e.x = tx * TILE - 15;
+  e.y = ty * TILE - 15;
+  e.level = A.level; // 200 — now MEANINGFUL (§0.4) and drawn (the Lv tag)
+  const pnh = 1 + (partyN() - 1) * 0.7,
+    asc = 1 + (state.ascension || 0) * 0.2,
+    cyc = state.citadelCycle || 0;
+  e.maxHp = Math.round(A.hp * pnh * asc * (1 + cyc * 0.4)); // ~237-240k solo — a 3.6-min ceiling fight
+  e.hp = e.maxHp;
+  e.atk = Math.round(A.atk * asc * (1 + cyc * 0.15)); // atk stays gentle (§0.3, the 45% floor)
+  e.def = A.def; // 46 — off the cliff (§0.2)
+  e.xp = A.xp;
+  e.gold = A.gold;
+  e.cycle = cyc;
+  e._lairTx = tx;
+  e._lairTy = ty;
+  e.arenaR = PIN_ARENA_START;
+  e._nextKill = 0;
+  e._hazT = 0;
+  e.phase = 1;
+  e.stance = 'blade';
+  e._stanceT = 1120; // ~14s @80Hz
+  e._enrage = 0;
+  e.caster = true;
+  e.castCd = 100;
+  e.specialCd = 120;
+  e.specials = A.stances.blade; // shared registry array (read-only — the stance IS the array pointer)
+  return e;
+}
+const CITADEL_STANCE_ORDER = ['blade', 'storm', 'grave'];
+const CITADEL_STANCE_COLOR = { blade: '#e8f0f0', storm: '#7fe0d0', grave: '#4a5a6a' };
+function rotateCitadelStance(e) {
+  const A = CONTENT.apex.archivist;
+  const i = (CITADEL_STANCE_ORDER.indexOf(e.stance) + 1) % 3;
+  e.stance = CITADEL_STANCE_ORDER[i];
+  e.specials = A.stances[e.stance]; // re-point → new fighting style (updateBoss picks from it)
+  e.color = CITADEL_STANCE_COLOR[e.stance];
+}
+// #121 — stance rotation + phase transitions (thresholds on hp/maxHp — no new persisted state).
+// Phase 2 (66%): a wave of 3 lvl-100 court + faster stance churn. Phase 3 (33%): enrage + a second
+// wave. Runs at the top of updateBoss's citadel path (before the special pick).
+function citadelBossPhase(e, pcx, pcy) {
+  const ph = e.hp > e.maxHp * 0.66 ? 1 : e.hp > e.maxHp * 0.33 ? 2 : 3;
+  if (ph !== e.phase) {
+    e.phase = ph;
+    addShake(6);
+    rotateCitadelStance(e);
+    if (ph === 2) {
+      startBossSpecial(e, 'raisecourt', pcx, pcy);
+      log('★ The Drowned Archivist sheds its calm — the drowned court rises!', 'combat');
+    } else if (ph === 3) {
+      e._enrage = 1;
+      startBossSpecial(e, 'raisecourt', pcx, pcy);
+      log('★ The Archivist boils with grave-cold fury — its final gambit begins!', 'combat');
+    }
+  }
+  e._stanceT = (e._stanceT || 0) - 1;
+  if (e._stanceT <= 0) {
+    rotateCitadelStance(e);
+    e._stanceT = e._enrage ? 560 : 1120; // stance churns twice as fast when enraged
+  }
+}
+
+// ===== STAGE B REPLACEMENT POINT: replace this whole placeholder with the drop-pool logic — first kill guarantees
+// PINNACLE_BOSSES[*].drops.styleUniq matching the killer's style; re-kills (cycle) roll {styleUniq, universalUniq} +
+// reagents. For Stage A it drops solid gold + a legendary-floor loot pickup so the kill is rewarding. =====
+function dropPinnacleReward(e, isFirst) {
+  const cyc = e.cycle || 0;
+  const level = partyLvl() + 8 + cyc * 3;
+  const g = 900 + cyc * 450;
+  state.player.gold += g;
+  const pb = PINNACLE_BOSSES.find((p) => p.key === e.pinKey) || {};
+  const dr = pb.drops || {};
+  const drops = [];
+  if (isFirst) {
+    // FIRST kill guarantees the unique matching the KILLER'S style; else the universal one (suits everyone)
+    const ks =
+      state.player._lastStyle ||
+      styleOf(
+        equippedWeapon(),
+      ); /* _lastStyle rides `me` and is derived from the equipped style each frame — MP-safe (a projectile kill swaps state.player to the shooter but NOT state.inventory, so a raw equippedWeapon() read could hit the wrong bag) */
+    const matchStyle =
+      dr.style === 'summon'
+        ? 'magic'
+        : dr.style; /* the Shepherd's summoner drop is a magic weapon → a magic killer matches */
+    const u = makeUnique(ks === matchStyle ? dr.styleUniq : dr.universalUniq, level);
+    if (u) drops.push(u);
+  } else {
+    // RE-KILL (cycle): roll the 2-unique pool (both eventually obtainable) + a cycle super-loot legendary (mirrors the hunt cycle branch)
+    const pool = [dr.styleUniq, dr.universalUniq].filter(Boolean);
+    const u = makeUnique(pool[Math.floor(Math.random() * pool.length)], level);
+    if (u) drops.push(u);
+    const rIdx = Math.max(4, rollRarity(level, true));
+    drops.push(Math.random() < 0.5 ? genWeapon(level, rIdx) : genArmor(level, rIdx));
+  }
+  const tx = Math.floor((e.x + e.w / 2) / TILE),
+    ty = Math.floor((e.y + e.h / 2) / TILE);
+  drops.forEach((inner, i) => {
+    const item = inner.atk !== undefined ? { weapon: inner } : { armor: inner };
+    const o = findOpenTile(state.map, tx + (i % 2), ty + ((i / 2) | 0));
+    state.pickups.push(makePickup(o.tx, o.ty, 'loot', item));
+  });
+  const nm = drops.map((d) => d.name).join(' & ');
+  log(`${e.name}'s hoard spills across the ground — ${nm} and ${g} gold!`, 'quest');
+}
+// #121 — open the persistent gate to the Sunken Citadel where a pinnacle boss fell. No-op once it
+// stands (never re-placed, never consumed → persists on death). World-shared, NOT persisted — a
+// reboot regenerates it by re-kill (the krakenDead class). The tile rides the overworld grid
+// (mapPayload at join); state.citadelGate rides the snapshot so already-connected clients render it.
+// #121 — pick a Citadel relic for the acting hero: the one that fits HIS style (read _lastStyle, which
+// rides `me` — NEVER a raw equippedWeapon(), the :2107 wrong-bag trap), else a universal (Aegis/Locket).
+function rollCitadelRelic() {
+  const style = state.player._lastStyle || styleOf(equippedWeapon());
+  const byStyle = { melee: 'sunderking', ranged: 'hundredfold', magic: 'chainbreaker' };
+  const universal = ['namelessaegis', 'emberheart'];
+  const key = byStyle[style] || universal[Math.floor(Math.random() * universal.length)];
+  return makeUnique(key, 200);
+}
+// Direct-to-bag (no ground pickup → no sniping): under actAs(pl) state.inventory IS the acting hero's
+// bag, so the relic + the Trophy-Wall record land on the RIGHT hero.
+function bagCitadelRelic(item) {
+  if (!item) return;
+  if (item.atk !== undefined) state.inventory.weapons.push(item);
+  else state.inventory.armor.push(item);
+  if (!state.uniquesFound) state.uniquesFound = [];
+  if (item.uniq && !state.uniquesFound.includes(item.uniq)) state.uniquesFound.push(item.uniq);
+}
+// #121 — the Archivist's spoils. PER-PLAYER hidden 1% relic (independent roll per present hero, direct
+// to his OWN bag, invisible to others; no pity, no counter — the owner's override of the spec's sigil
+// design) + a guaranteed clear reward (gold + two legendaries on the floor) for the whole party.
+function dropCitadelReward(e) {
+  const cx = e.x + e.w / 2,
+    cy = e.y + e.h / 2;
+  const tx = Math.floor(cx / TILE),
+    ty = Math.floor(cy / TILE);
+  for (const pl of partyIn())
+    actAs(pl, () => {
+      if (Math.random() < 0.01) {
+        const relic = rollCitadelRelic();
+        if (relic) {
+          bagCitadelRelic(relic);
+          log(`★ ${state.player.name || 'A hero'} pries a black-glass RELIC from the Archivist's husk — ${relic.name}!`, 'quest');
+        }
+      }
+      state.player.gold += 6000; // guaranteed clear gold, per present hero
+    });
+  const lvl = 200;
+  for (let i = 0; i < 2; i++) {
+    const rIdx = Math.max(4, rollRarity(lvl, true));
+    const inner = Math.random() < 0.5 ? genWeapon(lvl, rIdx) : genArmor(lvl, rIdx);
+    const item = inner.atk !== undefined ? { weapon: inner } : { armor: inner };
+    const o = findOpenTile(state.map, tx + (i % 2), ty + ((i / 2) | 0));
+    state.pickups.push(makePickup(o.tx, o.ty, 'loot', item));
+  }
+}
+function openCitadelGate(e) {
+  if (state.citadelGate) return;
+  const btx = Math.floor((e.x + e.w / 2) / TILE),
+    bty = Math.floor((e.y + e.h / 2) / TILE);
+  const g = findOpenTile('overworld', btx, bty);
+  state.citadelGate = { tx: g.tx, ty: g.ty };
+  if (maps.overworld && maps.overworld[g.ty]) maps.overworld[g.ty][g.tx] = T.CITADEL_GATE;
+  log('✦ Where the apex terror fell, a black-glass GATE tears open — the drowned Sunken Citadel calls. Step through [E] when you dare.', 'quest');
+}
+function pinnacleHazard(e, pcx, pcy) {
+  const lx = (e._lairTx != null ? e._lairTx : Math.floor((e.x + e.w / 2) / TILE)) * TILE + 16,
+    ly = (e._lairTy != null ? e._lairTy : Math.floor((e.y + e.h / 2) / TILE)) * TILE + 16;
+  e.arenaR = Math.max(PIN_ARENA_MIN, (e.arenaR || PIN_ARENA_START) - PIN_ARENA_SHRINK);
+  const pdl = Math.hypot(pcx - lx, pcy - ly);
+  if (pdl > PIN_LEASH) {
+    e.tele = null;
+    e.dash = null;
+    const ecx = e.x + e.w / 2,
+      ecy = e.y + e.h / 2,
+      dh = Math.hypot(ecx - lx, ecy - ly);
+    if (dh > 26) {
+      const a = Math.atan2(ly - ecy, lx - ecx),
+        nx = e.x + Math.cos(a) * e.speed * 2.2,
+        ny = e.y + Math.sin(a) * e.speed * 2.2;
+      if (canMoveTo(nx, e.y, e.w, e.h)) e.x = nx;
+      if (canMoveTo(e.x, ny, e.w, e.h)) e.y = ny;
+    } else e.arenaR = PIN_ARENA_START;
+    return true;
+  } // wander-home: the acting player abandoned the arena → abort any special, drift back to the lair, reset the ring
+  if (pdl > e.arenaR) {
+    e._hazT = (e._hazT || 0) - 1;
+    if (e._hazT <= 0) {
+      e._hazT = 42;
+      const isKing = e.pinKey === 'drownedking';
+      playerTakeDamage(Math.max(4, Math.round(e.atk * 0.4)));
+      state.player.chillT = Math.max(state.player.chillT || 0, 80);
+      floatDamage(
+        state.player.x + state.player.w / 2,
+        state.player.y - 8,
+        isKing ? 'DROWNING' : 'THE DARK',
+        isKing ? '#2f7fb0' : '#c8d8f0',
+      );
+      addShake(2);
+    }
+  } else e._hazT = 0; // outside the shrinking ring: drowning (King) / the killing dark (Shepherd) — throttled dmg+chill on the ACTING player
+  if (state.time % 42 === 0) {
+    /* P2/S3: the party-wide arena menace (Stage C), folded in from world.js's MP-only pass — any OTHER
+       hero of this world outside the ring but within leash takes the same throttled drowning/killing-dark
+       + chill. Same 42-tick clock throttle, same damage, only READS the arenaR shrunk above. The acting
+       duelist (state.player, this boss's bucketed nearest hero) is skipped — the per-frame _hazT block
+       above already owns them. Runs only when the duelist is engaged (the wander-home branch returns
+       before this: a boss walking home menaces nobody — when the NEAREST hero is beyond leash, so is
+       everyone else). downed heroes are spared. SP: partyIn() === [state.player] → the skip empties the
+       loop; zero writes, zero RNG draws, byte-identical. */
+    for (const pl of partyIn()) {
+      if (pl === state.player || pl.downed) continue;
+      const pd2 = Math.hypot(pl.x + pl.w / 2 - lx, pl.y + pl.h / 2 - ly);
+      if (pd2 > e.arenaR && pd2 <= PIN_LEASH) {
+        const _sp = state.player,
+          _si = state.inventory;
+        state.player = pl;
+        if (pl.inventory) state.inventory = pl.inventory;
+        playerTakeDamage(Math.max(4, Math.round(e.atk * 0.4)));
+        state.player = _sp;
+        state.inventory = _si;
+        pl.chillT = Math.max(pl.chillT || 0, 80);
+      }
+    }
+  }
+  return false;
+}
+function maybeRespawnPinnacle() {
+  if (!state.pinnacleRespawnDay || curDay() < state.pinnacleRespawnDay) return;
+  state.pinnacleCycle = (state.pinnacleCycle || 0) + 1;
+  state.pinnacleSlain = [];
+  state.pinnacleRespawnDay = null;
+  log(
+    `★ The apex terrors stir anew — the Drowned King and Pale Shepherd return, mightier and richer (Pinnacle cycle ${state.pinnacleCycle}).`,
+    'quest',
+  );
+  Sound.boss && Sound.boss();
+} // #cycle: whole roster returns a few days after the FIRST kill, harder & richer (e.cycle stamps the drop tier)
+function maybePinnacleBosses() {
+  if (state.map !== 'overworld') return;
+  if (state._pinCheckT > 0) {
+    state._pinCheckT--;
+    return;
+  }
+  state._pinCheckT = 40; // cheap throttle (~every 40 SP frames); Stage C drives this from the room tick
+  if (!state.pinnacleSlain) state.pinnacleSlain = [];
+  const slain = state.pinnacleSlain;
+  for (const pb of PINNACLE_BOSSES) {
+    const boss = state.enemies.find((x) => x.isPinnacle && x.pinKey === pb.key);
+    const dead = slain.includes(pb.key);
+    const lr = pinnacleLair(pb);
+    if (pb.night) {
+      if (dead) continue; // Pale Shepherd: rises only at NIGHT; melts at dawn when no one's engaged nearby
+      if (isNight()) {
+        if (!boss) state.enemies.push(makePinnacleBoss(pb, lr.tx, lr.ty));
+      } else if (boss) {
+        const bx = boss.x + boss.w / 2,
+          by = boss.y + boss.h / 2;
+        const _pp = party(); // P2/S2: the canonized helper (p22) — identical to the inline idiom this line used to carry
+        const near = _pp.some((pl) => Math.hypot(pl.x + pl.w / 2 - bx, pl.y + pl.h / 2 - by) < 520);
+        if (!near) {
+          for (let i = state.enemies.length - 1; i >= 0; i--) {
+            const x = state.enemies[i];
+            if (x === boss || x._pinRef === boss) state.enemies.splice(i, 1);
+          }
+          log('The Pale Shepherd melts into the snow as dawn breaks.', 'lore');
+        }
+      } /* dawn-melt: keep the Shepherd alive while ANY party member is engaged nearby — the shared phase runs under players[0], so a players[0]-only proximity check would vanish the boss mid-fight for a non-first player (state.players is the MP roster; undefined in SP → falls back to [state.player], byte-identical single-player behaviour) */
+    } else {
+      if (!dead && !boss) state.enemies.push(makePinnacleBoss(pb, lr.tx, lr.ty));
+    } // Drowned King: always broods at his shipwreck isle until slain
+  }
+}
+function flyCanMove(nx, ny, w, h) {
+  const m = maps.overworld;
+  if (!m) return false;
+  const x0 = Math.floor(nx / TILE),
+    y0 = Math.floor(ny / TILE),
+    x1 = Math.floor((nx + w - 1) / TILE),
+    y1 = Math.floor((ny + h - 1) / TILE);
+  return x0 >= 0 && y0 >= 0 && x1 < m[0].length && y1 < m.length;
+}
+function toggleMount() {
+  const p = state.player; // P2/S10: the steed + boat-state live ON the player
+  if (!p.dragon.tamed) {
+    log('You have no steed — tame the Emberwyrm first.');
+    Sound.error();
+    return;
+  }
+  if (state.map !== 'overworld') {
+    log('The dragon cannot fly within the dungeon.');
+    Sound.error();
+    return;
+  }
+  if (p.sailing) {
+    log('You cannot mount while at sea.');
+    Sound.error();
+    return;
+  }
+  p.dragon.mounted = !p.dragon.mounted;
+  resetFishing();
+  recalcStats();
+  if (p.dragon.mounted) {
+    log('You mount the Emberwyrm and soar! (+speed, +power; fly over peaks & lava)', 'good');
+    Sound.tone(180, 0.45, 'sawtooth', 0.18, { slideTo: 520 });
+  } else {
+    log('You dismount the Emberwyrm.', 'lore');
+    Sound.tone(420, 0.3, 'sine', 0.12, { slideTo: 180 });
+  }
+  updateHUD();
+}
+function toggleBoat() {
+  const p = state.player;
+  if (!p.hasBoat) {
+    log('You have no boat — seek the Shipwright by the western sea.', 'combat');
+    Sound.error();
+    return;
+  }
+  if (state.map !== 'overworld') {
+    Sound.error();
+    return;
+  }
+  if (p.dragon.mounted) {
+    log('Dismount before you set sail.', 'combat');
+    Sound.error();
+    return;
+  }
+  resetFishing();
+  const ptx = Math.floor((p.x + p.w / 2) / TILE),
+    pty = Math.floor((p.y + p.h / 2) / TILE);
+  if (!p.sailing) {
+    let dest = null;
+    for (let r = 1; r <= 3 && !dest; r++)
+      for (let dy = -r; dy <= r && !dest; dy++)
+        for (let dx = -r; dx <= r && !dest; dx++) {
+          const tx = ptx + dx,
+            ty = pty + dy;
+          if (isWaterTile(tx, ty) && getTile('overworld', tx, ty) === T.WATER) dest = { tx, ty };
+        }
+    if (!dest) {
+      log('No open water nearby to set sail.', 'combat');
+      Sound.error();
+      return;
+    }
+    p.x = dest.tx * TILE + (TILE - p.w) / 2;
+    p.y = dest.ty * TILE + (TILE - p.h) / 2;
+    p.sailing = true;
+    log('⛵ You set sail upon the Sundered Sea. [B] to make landfall.', 'lore');
+    Sound.tone(300, 0.4, 'sine', 0.12, { slideTo: 460 });
+  } else {
+    let dest = null;
+    for (let r = 1; r <= 4 && !dest; r++)
+      for (let dy = -r; dy <= r && !dest; dy++)
+        for (let dx = -r; dx <= r && !dest; dx++) {
+          const tx = ptx + dx,
+            ty = pty + dy;
+          const t = getTile('overworld', tx, ty);
+          if (!SOLID.has(t) && t !== T.WATER) dest = { tx, ty };
+        }
+    if (!dest) {
+      log('No shore nearby to make landfall.', 'combat');
+      Sound.error();
+      return;
+    }
+    p.x = dest.tx * TILE + (TILE - p.w) / 2;
+    p.y = dest.ty * TILE + (TILE - p.h) / 2;
+    p.sailing = false;
+    log('You make landfall.', 'lore');
+    Sound.tone(420, 0.3, 'sine', 0.12, { slideTo: 200 });
+  }
+  updateHUD();
+}
+function buyBoat() {
+  if (state.player.hasBoat) {
+    log('You already own a boat. Press [B] beside open water to set sail.', 'lore');
+    Sound.error();
+    return;
+  }
+  const cost = 250;
+  if (state.player.gold < cost) {
+    Sound.error();
+    log(`A boat costs ${cost} gold — return when you can pay.`, 'combat');
+    return;
+  }
+  state.player.gold -= cost;
+  state.player.hasBoat = true; // P2/S6: YOUR boat (per-hero + persisted), not the room's
+
+  Sound.jingle();
+  addShake(2);
+  log(
+    '★ You acquire a sturdy boat! Press [B] by the water to sail the Sundered Sea and plunder its isles.',
+    'quest',
+  );
+  updateHUD();
+  saveGame();
+}
+function tameDragon(e) {
+  if (state.player.level < 20) {
+    log('You are not yet mighty enough to tame it (Level 20 required).', 'combat');
+    Sound.error();
+    return;
+  }
+  state.player.dragon.tamed = true; // P2/S10: YOUR steed (per-hero — the acting hero tames HIS Emberwyrm)
+  addRep('wilds', 45);
+  addRep('vigil', 5);
+  const i = state.enemies.indexOf(e);
+  if (i >= 0) state.enemies.splice(i, 1);
+  if (state.player.quests.dragon) state.player.quests.dragon.done = true;
+  state.player.quests.main.started = true;
+  state.player.quests.main.hidden = false;
+  updateQuests();
+  spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 30, { color: '#ff8030', speed: 3, decay: 0.03 });
+  log('★ The Emberwyrm submits — it is now your steed! Press [G] to mount and take to the skies.', 'quest');
+  log('Beyond the western peaks broods the Mountain Kraken. Only a dragon-rider may reach it.', 'quest');
+  Sound.levelup();
+  addShake(8);
+  saveGame();
+}
+
+// ================= ENDGAME & META-PROGRESSION =================
+const FINAL_DEPTH = 10;
+const LEGACY_KEY = 'eldermyr_legacy';
+let legacy = { bestScore: 0, wins: 0, bestDepth: 0, ascension: 0 };
+async function loadLegacy() {
+  try {
+    const v = await SaveStore.get(LEGACY_KEY);
+    if (v) {
+      const o = JSON.parse(v);
+      legacy.bestScore = o.bestScore || 0;
+      legacy.wins = o.wins || 0;
+      legacy.bestDepth = o.bestDepth || 0;
+      legacy.ascension = o.ascension || 0;
+    }
+  } catch (e) {}
+}
+function saveLegacy() {
+  try {
+    SaveStore.set(LEGACY_KEY, JSON.stringify(legacy));
+  } catch (e) {}
+}
+function computeScore() {
+  const p = state.player;
+  return Math.round(
+    (p.level * 120 +
+      p.maxDepth * 600 + /* P2/S12: player-carried */
+      p.gold +
+      ((state.legion && state.legion.kills) || 0) * 1000 +
+      (state.won ? 6000 : 0)) *
+      (1 + (state.ascension || 0) * 0.5),
+  );
+}
+function recordRun(won) {
+  const sc = computeScore();
+  const newBest = sc > legacy.bestScore;
+  if (newBest) legacy.bestScore = sc;
+  if (state.player.maxDepth > legacy.bestDepth) legacy.bestDepth = state.player.maxDepth;
+  if (won) {
+    legacy.wins++;
+    legacy.ascension = Math.max(legacy.ascension, (state.ascension || 0) + 1);
+  }
+  saveLegacy();
+  return { score: sc, newBest };
+}
+function legacyLineHtml() {
+  if (legacy.bestScore <= 0 && legacy.wins <= 0 && legacy.bestDepth <= 0) return '';
+  return `★ Best ${legacy.bestScore} &nbsp;•&nbsp; Wins ${legacy.wins} &nbsp;•&nbsp; Deepest ${legacy.bestDepth}${legacy.ascension > 0 ? ` &nbsp;•&nbsp; Ascension ${legacy.ascension}` : ''}`;
+}
+function victory() {
+  state.scene = 'won';
+  state.won = true;
+  state.player.quests.main.done = true;
+  updateQuests();
+  Sound.levelup();
+  const r = recordRun(true);
+  try {
+    SaveStore.set(SAVE_KEY, JSON.stringify(snapshot()));
+  } catch (e) {}
+  const ov = document.getElementById('overlay');
+  ov.className = '';
+  ov.style.display = 'flex';
+  const bestTag = r.newBest ? ' <span style="color:#90ff90">(NEW BEST!)</span>' : '';
+  ov.innerHTML = `<h1 style="color:#90ffa0">VICTORY</h1><div class="subtitle">~ The Mountain Kraken is undone ~</div><div class="intro-text">You slew the Mountain Kraken at level ${state.player.level} — the realm's doom is broken.<br><b style="color:#f0d050">Score: ${r.score}${bestTag}</b><br>The realm draws breath — yet darker depths await those who would ascend.</div><div><button class="start-btn continue-btn" onclick="resumeAfterVictory()">DESCEND ONWARD</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME+ (Ascension ${legacy.ascension})</button></div>`;
+}
+function resumeAfterVictory() {
+  document.getElementById('overlay').style.display = 'none';
+  state.scene = 'play';
+}
+
+function gameOver() {
+  state.scene = 'dead';
+  Sound.gameover();
+  const _run = recordRun(false);
+  if (state.nemesis && state.nemesis.alive) nemesisGrows();
+  const ov = document.getElementById('overlay');
+  ov.className = 'death-screen';
+  ov.style.display = 'flex';
+  const depthLine = state.player.maxDepth > 0 ? ` You delved to dungeon depth ${state.player.maxDepth}.` : '';
+  ov.innerHTML = `<h1>YOU HAVE FALLEN</h1><div class="subtitle">~ Darkness claims Eldermyr ~</div><div class="intro-text">You reached level ${state.player.level} with ${state.player.gold} gold before falling.${depthLine}<br><b style="color:#f0d050">Score: ${_run.score}${_run.newBest ? ' <span style="color:#90ff90">(NEW BEST!)</span>' : ''}</b><br>Your last save endures — continue to fight on.</div><div><button class="start-btn continue-btn" onclick="location.reload()">CONTINUE FROM SAVE</button><button class="start-btn" onclick="clearSaveAndRestart()">NEW GAME</button></div>`;
+}
+async function clearSaveAndRestart() {
+  try {
+    await SaveStore.remove(SAVE_KEY);
+  } catch (e) {}
+  location.reload();
+}
+function confirmNewGame() {
+  if (confirm('Start a NEW game? This erases your saved progress.')) clearSaveAndRestart();
+}
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+function rectDist(a, b) {
+  const ax = a.x + a.w / 2,
+    ay = a.y + a.h / 2,
+    bx = b.x + b.w / 2,
+    by = b.y + b.h / 2;
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function loop() {
+  if (state.scene === 'play') {
+    if (__g.hitStop > 0) {
+      __g.hitStop--;
+    } else {
+      updateTime();
+      updatePlayer();
+      updateEnemies();
+      updateAllies();
+      updateCompanions();
+      updateProjectiles();
+      maybeSpawnWild();
+      maybePinnacleBosses();
+      updateParticles();
+      updateFires();
+      updateWeather();
+      updateEvents();
+      updateFactionWar();
+      updateWarband();
+      updateFatigue();
+      updateNemesisPresence();
+      updateWorldLine();
+      updateMusicMood();
+      updateAmbience();
+    }
+  }
+  if (
+    [
+      'play',
+      'dialogue',
+      'inventory',
+      'skills',
+      'shop',
+      'smith',
+      'travel',
+      'factions',
+      'legion',
+      'hunts',
+      'trophy',
+      'cook',
+      'companions',
+      'map',
+    ].includes(state.scene)
+  ) {
+    updateCamera();
+    applyShake();
+    renderWorld();
+    drawWayfinder();
+    updateMinimap();
+    updateHubTabs();
+    updateCombatHud();
+  }
+  requestAnimationFrame(loop);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) saveGame(true);
+});
+async function init() {
+  const vt = document.getElementById('version-tag');
+  if (vt) vt.textContent = GAME_VERSION;
+  try {
+    Sound.muted = localStorage.getItem('eldermyr_muted') === '1';
+  } catch (e) {}
+  updateAudioIndicator();
+  await loadLegacy();
+  const ll = document.getElementById('legacy-line');
+  if (ll) ll.innerHTML = legacyLineHtml();
+  const sb = document.getElementById('start-btn');
+  if (sb && legacy.ascension > 0) sb.textContent = 'NEW GAME+ (Asc ' + legacy.ascension + ')';
+  let hasSave = false;
+  try {
+    const v = await SaveStore.get(SAVE_KEY);
+    if (v) hasSave = true;
+  } catch (e) {}
+  document.getElementById('continue-btn').style.display = hasSave ? 'inline-block' : 'none';
+  loop();
+}
+init();

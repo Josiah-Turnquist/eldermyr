@@ -1,0 +1,592 @@
+function maybeRespawnHunts() {
+  if (!state.huntRespawnDay || curDay() < state.huntRespawnDay) return;
+  if (state.map !== 'overworld') return;
+  /* can only place overworld beasts; retry next day */ if (
+    (state.huntsSlain || []).length < GREAT_HUNTS.length
+  ) {
+    state.huntRespawnDay = null;
+    return;
+  }
+  state.huntCycle = (state.huntCycle || 0) + 1;
+  state.huntsSlain = [];
+  state.huntRespawnDay = null;
+  for (const h of GREAT_HUNTS) {
+    if (state.enemies.some((e) => e.isGreatBeast && e.huntKey === h.key)) continue;
+    const t = h.island
+      ? { tx: h.lair.tx, ty: h.lair.ty }
+      : findWildTileNear(h.lair.tx, h.lair.ty, 7) || { tx: h.lair.tx, ty: h.lair.ty };
+    state.enemies.push(makeGreatBeast(h, t.tx, t.ty));
+  }
+  log(
+    `⊹ The Great Hunts return — the fallen beasts stalk the realm anew, mightier and bearing richer trophies (Hunt cycle ${state.huntCycle}).`,
+    'quest',
+  );
+  Sound.boss && Sound.boss();
+}
+// #123 — the finale respawn cycle (the pinnacle/hunt precedent): a few in-world days after the
+// Mountain Kraken falls it broods anew, harder & richer. Clears the (now non-permanent) krakenDead
+// world fact and bumps krakenCycle, which makeKraken reads for its HP/atk/reward scaling. In MP the
+// world regenerates each boot anyway, so cycles are per-boot exactly like the hunts.
+function maybeRespawnKraken() {
+  if (!state.krakenRespawnDay || curDay() < state.krakenRespawnDay) return;
+  if (state.map !== 'overworld') return; // can only place the sea finale on the overworld; retry next day
+  if (!state.krakenArena) {
+    state.krakenRespawnDay = null;
+    return;
+  }
+  state.krakenCycle = (state.krakenCycle || 0) + 1;
+  state.flags.krakenDead = false;
+  state.krakenRespawnDay = null;
+  if (!state.enemies.some((e) => e.isKraken)) state.enemies.push(makeKraken(state.krakenArena.tx, state.krakenArena.ty));
+  log(
+    `★ The Mountain Kraken rises from the drowned deep once more — vaster and more terrible (Kraken cycle ${state.krakenCycle}).`,
+    'quest',
+  );
+  Sound.boss && Sound.boss();
+}
+function maybeRespawnLegion() {
+  if (!state.legionRespawnDay || curDay() < state.legionRespawnDay) return;
+  const L = state.legion;
+  if (!L) {
+    state.legionRespawnDay = null;
+    return;
+  }
+  if (L.overlord && L.overlord.alive) {
+    state.legionRespawnDay = null;
+    return;
+  }
+  state.legionCycle = (state.legionCycle || 0) + 1;
+  state.legionRespawnDay = null;
+  const lvl = partyLvl();
+  const corners = [0, 2, 6, 8];
+  const taken = new Set(L.warlords.filter((w) => w.alive).map((w) => w.region));
+  let oReg = corners.find((c) => !taken.has(c));
+  if (oReg === undefined) oReg = corners[Math.floor(Math.random() * corners.length)];
+  L.overlord = mkWarlord(3, oReg, lvl);
+  /* #2: new Overlord LEVEL tracks party 1:1 (was +5+cyc*2); cycle toughness rides cycHp/cycAtk in makeWarlordEnemy, not the level number */ for (const w of L.warlords) {
+    if (w.alive) {
+      w.grudge = (w.grudge || 0) + 1;
+    }
+  }
+  log(
+    `☠ A NEW DREAD OVERLORD rises in ${REGION_NAMES[oReg]} — the Legion musters for another reign, harder and dripping richer spoils (Legion cycle ${state.legionCycle}).`,
+    'combat',
+  );
+  Sound.boss && Sound.boss();
+}
+
+// ---- dynamic lighting (overworld nights) ----
+function drawLighting(camX, camY) {
+  const d = darkness();
+  if (d <= 0.02 || !__g.lightCtx) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = __g.ZOOM * dpr;
+  const W = __g.lightCanvas.width,
+    H = __g.lightCanvas.height;
+  __g.lightCtx.setTransform(1, 0, 0, 1, 0, 0);
+  __g.lightCtx.clearRect(0, 0, W, H);
+  __g.lightCtx.fillStyle = 'rgba(10,14,38,' + (d * 0.84).toFixed(3) + ')';
+  __g.lightCtx.fillRect(0, 0, W, H);
+  __g.lightCtx.globalCompositeOperation = 'destination-out';
+  const addLight = (wx, wy, r, st) => {
+    const cx = (wx - camX) * s,
+      cy = (wy - camY) * s,
+      rr = Math.max(1, r * s);
+    if (cx < -rr || cy < -rr || cx > W + rr || cy > H + rr) return;
+    const g = __g.lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    g.addColorStop(0, 'rgba(0,0,0,' + st + ')');
+    g.addColorStop(0.62, 'rgba(0,0,0,' + st * 0.5 + ')');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    __g.lightCtx.fillStyle = g;
+    __g.lightCtx.beginPath();
+    __g.lightCtx.arc(cx, cy, rr, 0, 6.28);
+    __g.lightCtx.fill();
+  };
+  const p = state.player;
+  const flick = 0.92 + Math.sin(state.time * 0.3) * 0.05;
+  addLight(p.x + p.w / 2, p.y + p.h / 2, 122 * flick, 1);
+  for (const tz of __g.townZones) {
+    const c = townCenter(tz);
+    addLight(c.x * TILE + 16, c.y * TILE + 16, 140, 0.58);
+  }
+  for (const h of __g.houseTiles) addLight(h.x * TILE + 16, h.y * TILE + 14, 94, 0.92);
+  for (const fr of state.fires) {
+    const flk = 0.8 + Math.sin(state.time * 0.4 + fr.tx) * 0.15;
+    addLight(fr.tx * TILE + 16, fr.ty * TILE + 18, 82 * flk, 0.92);
+  }
+  __g.lightCtx.globalCompositeOperation = 'lighter';
+  const warm = (wx, wy, r, col, a) => {
+    const cx = (wx - camX) * s,
+      cy = (wy - camY) * s,
+      rr = Math.max(1, r * s);
+    if (cx < -rr || cy < -rr || cx > W + rr || cy > H + rr) return;
+    const g = __g.lightCtx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    g.addColorStop(0, col + (a * d).toFixed(3) + ')');
+    g.addColorStop(1, col + '0)');
+    __g.lightCtx.fillStyle = g;
+    __g.lightCtx.beginPath();
+    __g.lightCtx.arc(cx, cy, rr, 0, 6.28);
+    __g.lightCtx.fill();
+  };
+  for (const h of __g.houseTiles) warm(h.x * TILE + 16, h.y * TILE + 15, 74, 'rgba(255,184,86,', 0.26);
+  for (const fr of state.fires) {
+    const fl = 0.4 + Math.sin(state.time * 0.4 + fr.tx) * 0.12;
+    warm(fr.tx * TILE + 16, fr.ty * TILE + 18, 86, 'rgba(255,140,45,', fl);
+  }
+  __g.lightCtx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(__g.lightCanvas, 0, 0);
+  ctx.restore();
+}
+
+// ---- weather ----
+function rerollWeather() {
+  const r = Math.random();
+  state.weather = r < 0.55 ? 'clear' : r < 0.8 ? 'rain' : 'snow';
+  state.weatherTimer = 1800 + Math.floor(Math.random() * 2700);
+}
+function updateWeather() {
+  if (state.map !== 'overworld') {
+    weatherParts.length = 0;
+    return;
+  }
+  state.weatherTimer--;
+  if (state.weatherTimer <= 0) rerollWeather();
+  if (state.weather !== 'clear') {
+    const n = state.weather === 'snow' ? 3 : 5;
+    for (let i = 0; i < n && weatherParts.length < 260; i++)
+      weatherParts.push({
+        x: Math.random() * __g.VIEW_W,
+        y: -4,
+        vy: state.weather === 'snow' ? 1.4 + Math.random() : 6 + Math.random() * 3,
+        vx: state.weather === 'snow' ? (Math.random() - 0.5) * 0.7 : -1.4,
+        snow: state.weather === 'snow',
+      });
+  }
+  for (let i = weatherParts.length - 1; i >= 0; i--) {
+    const w = weatherParts[i];
+    w.x += w.vx;
+    w.y += w.vy;
+    if (w.snow) w.x += Math.sin(w.y * 0.05) * 0.4;
+    if (w.y > __g.VIEW_H + 6) weatherParts.splice(i, 1);
+  }
+  if (state.weather === 'snow') {
+    for (const pl of partyIn()) {
+      /* P2/S3: EVERY hero in this world takes the frozen-band chill, not just whoever is pinned into
+         state.player (the shared phase pins players[0]) — this fold retires world.js's per-rotation
+         chill replica. downed heroes are spared (bleed-out owns them; MP-only field, undefined in SP).
+         SP: partyIn() === [state.player] → same reads, same condition order, same write. */
+      if (pl.downed) continue;
+      const ftx = Math.floor((pl.x + 11) / TILE),
+        fty = Math.floor((pl.y + 11) / TILE);
+      if (isFrozenTile(ftx, fty) && state.time % 150 === 0)
+        pl.chillT = Math.max(pl.chillT || 0, 75);
+    }
+  }
+}
+function drawWeather() {
+  if (state.weather === 'clear' || state.map !== 'overworld') return;
+  if (state.weather === 'snow') {
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.85;
+    for (const w of weatherParts) ctx.fillRect(w.x, w.y, 2, 2);
+    ctx.globalAlpha = 1;
+    const ftx = Math.floor((state.player.x + 11) / TILE),
+      fty = Math.floor((state.player.y + 11) / TILE);
+    if (isFrozenTile(ftx, fty)) {
+      ctx.fillStyle = 'rgba(220,232,245,0.24)';
+      ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
+    }
+  } else {
+    ctx.strokeStyle = 'rgba(150,170,210,0.5)';
+    ctx.lineWidth = 1;
+    for (const w of weatherParts) {
+      ctx.beginPath();
+      ctx.moveTo(w.x, w.y);
+      ctx.lineTo(w.x - w.vx * 1.6, w.y - w.vy * 1.4);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(40,50,72,0.13)';
+    ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
+  }
+}
+function weatherLabel() {
+  return state.weather === 'snow' ? '❄ snow' : state.weather === 'rain' ? '🌧 rain' : '☀ clear';
+}
+// ================= SEASONS =================
+// P3/S10: the season display arrays live in src/content/tables.ts (CONTENT.tables.seasons); p14 keeps
+// positional aliases. SEASON_LEN (the season-length formula knob) stays in-part with seasonIdx.
+const SEASONS = CONTENT.tables.seasons.names;
+const SEASON_LEN = 3;
+const SEASON_ICON = CONTENT.tables.seasons.icon;
+const SEASON_TINT = CONTENT.tables.seasons.tint;
+function seasonIdx() {
+  return Math.floor((curDay() - 1) / SEASON_LEN) % 4;
+}
+function curSeason() {
+  return SEASONS[seasonIdx()];
+}
+function isWinter() {
+  return seasonIdx() === 3;
+}
+function drawSeasonTint() {
+  if (state.map !== 'overworld') return;
+  ctx.fillStyle = SEASON_TINT[seasonIdx()];
+  ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
+}
+// ================= QUIET LIFE — foraging, fishing, cooking =================
+// P3/S10: the quiet-life food data lives in src/content/tables.ts (CONTENT.tables.foods); positional aliases.
+const INGR = CONTENT.tables.foods.ingredients;
+const FOODS = CONTENT.tables.foods.recipes;
+const FOOD_LABEL = CONTENT.tables.foods.labels;
+function gainIngredient(k, n) {
+  if (!state.player.ingredients) state.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
+  state.player.ingredients[k] = (state.player.ingredients[k] || 0) + (n || 1);
+}
+function canCook(f) {
+  for (const k in f.need) if ((state.player.ingredients[k] || 0) < f.need[k]) return false;
+  return true;
+}
+function cook(key) {
+  const f = FOODS[key];
+  if (!f) return;
+  if (!canCook(f)) {
+    Sound.error();
+    log('You lack the ingredients for that dish.', 'combat');
+    return;
+  }
+  for (const k in f.need) state.player.ingredients[k] -= f.need[k];
+  const p = state.player;
+  p.foodBuff = f.buff;
+  p.foodT = f.dur;
+  recalcStats();
+  Sound.heal();
+  spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 12, { color: '#ffcf80', speed: 1.4, up: 0.7, decay: 0.04 });
+  log(`You cook a ${f.name}. ${FOOD_LABEL[f.buff]}: ${f.desc} (${Math.round(f.dur / 60)}s).`, 'good');
+  updateHUD();
+  if (state.scene === 'cook') renderCook();
+  saveGame();
+}
+function tickFood() {
+  const p = state.player;
+  if (p.foodT > 0) {
+    p.foodT--;
+    if ((p.foodBuff === 'hearty' || p.foodBuff === 'wellfed') && p.hp < p.maxHp && p.foodT % 18 === 0)
+      p.hp = Math.min(p.maxHp, p.hp + Math.max(1, Math.round(p.maxHp * 0.01)));
+    if (p.foodT <= 0) {
+      p.foodBuff = null;
+      recalcStats();
+      log('The warmth of your meal fades.', 'lore');
+      updateHUD();
+    }
+  }
+}
+// Camp rest heals gradually — a slow regen that grants ~35% maxHp over a handful of seconds, so [C] can't instantly top you off.
+function tickCampRest() {
+  const p = state.player;
+  if (!p.camping) {
+    if (p.campHealLeft > 0) p.campHealLeft = 0;
+    return;
+  }
+  if (p.campHealLeft <= 0 || p.hp >= p.maxHp) {
+    p.camping = false;
+    p.campHealLeft = 0;
+    log('You feel rested and break camp.', 'good');
+    updateHUD();
+    return;
+  }
+  p.campTick = (p.campTick || 0) + 1;
+  if (p.campTick % 12 !== 0) return;
+  const step = Math.min(p.campHealLeft, Math.max(1, Math.round(p.maxHp * 0.012)));
+  p.hp = Math.min(p.maxHp, p.hp + step);
+  p.campHealLeft -= step;
+}
+function tryFish() {
+  const p = state.player;
+  if (p.fishCd > 0 || p.fishing) return false;
+  const ptx = Math.floor((p.x + p.w / 2) / TILE),
+    pty = Math.floor((p.y + p.h / 2) / TILE);
+  let near = false;
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      if (getTile('overworld', ptx + dx, pty + dy) === T.WATER) near = true;
+    }
+  if (!near) return false;
+  if (isWinter()) {
+    p.fishCd = 60;
+    log('The waters lie frozen — no fishing until the thaw.', 'lore');
+    Sound.error();
+    return true;
+  }
+  p.fishing = true;
+  p.fishT = 80 + Math.floor(Math.random() * 50);
+  p.fishCd = 9999;
+  Sound.tone(300, 0.2, 'sine', 0.1, { slideTo: 520 });
+  log('🎣 You cast your line and wait for a bite…', 'lore');
+  updateHUD();
+  return true;
+}
+function tickFishing() {
+  const p = state.player;
+  if (!p.fishing) return;
+  if (p.moving) {
+    p.fishing = false;
+    p.fishT = 0;
+    p.fishCd = 30;
+    log('You reel your line back in.', 'lore');
+    updateHUD();
+    return;
+  }
+  p.fishT--;
+  if (p.fishT === 12) {
+    Sound.tone && Sound.tone(440, 0.12, 'sine', 0.09, { slideTo: 600 });
+  }
+  if (p.fishT <= 0) {
+    p.fishing = false;
+    p.fishCd = 45;
+    resolveFishing();
+  }
+}
+// Cancel any in-progress fishing cast — the world/position changed under the player (dungeon, fast-travel, mount, boat), so a lingering bobber + 9999 casting sentinel would leak across the transition. Idempotent; no-op when not fishing.
+function resetFishing() {
+  const p = state.player;
+  if (!p || !p.fishing) return;
+  p.fishing = false;
+  p.fishT = 0;
+  p.fishCd = 0;
+}
+function resolveFishing() {
+  const p = state.player;
+  spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 8, { color: '#a8d8f0', speed: 1.7, up: 0.6, decay: 0.05 });
+  const r = Math.random();
+  if (r < 0.6) {
+    gainIngredient('fish', 1);
+    Sound.item && Sound.item();
+    log('🎣 A tug on the line — you land a fish! (cook at a town Hearth)', 'good');
+  } else if (r < 0.75) {
+    const lv = Math.max(1, p.level - 1);
+    const fine = Math.random() < 0.35;
+    const rIdx = fine ? 1 : 0;
+    const it = Math.random() < 0.5 ? { weapon: genWeapon(lv, rIdx) } : { armor: genArmor(lv, rIdx) };
+    if (it.weapon) {
+      normItem(it.weapon, true);
+      state.inventory.weapons.push(it.weapon);
+      log(
+        `🎣 Your hook snags ${rarityName(it.weapon.rarity)} ${it.weapon.name}! (check [I])`,
+        fine ? 'good' : 'lore',
+      );
+    }
+    if (it.armor) {
+      normItem(it.armor, false);
+      state.inventory.armor.push(it.armor);
+      log(
+        `🎣 Your hook snags ${rarityName(it.armor.rarity)} ${it.armor.name}! (check [I])`,
+        fine ? 'good' : 'lore',
+      );
+    }
+    Sound.jingle && Sound.jingle();
+  } else if (r < 0.8) {
+    const g = 3 + Math.floor(Math.random() * 8);
+    p.gold += g;
+    Sound.gold && Sound.gold();
+    log(`🎣 You fish out ${g} soggy gold coins.`, 'good');
+  } else {
+    log('🎣 The line comes up empty — cast again.', 'lore');
+  }
+  updateHUD();
+  if (typeof saveGame === 'function') saveGame();
+}
+function nearWater() {
+  if (state.map !== 'overworld') return false;
+  const p = state.player;
+  const ptx = Math.floor((p.x + p.w / 2) / TILE),
+    pty = Math.floor((p.y + p.h / 2) / TILE);
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++) {
+      if (getTile('overworld', ptx + dx, pty + dy) === T.WATER) return true;
+    }
+  return false;
+}
+
+// ---- rest / fatigue (minimal: auto-rest in towns; Camp [C]; Exhausted after 2 days) ----
+function daysSinceRest() {
+  return curDay() - (state.player.lastRestDay || 1);
+}
+function isExhausted() {
+  return daysSinceRest() >= 2;
+}
+function doCamp() {
+  if (state.scene !== 'play' || (state.map !== 'overworld' && state.map !== 'dungeon')) return;
+  const p = state.player;
+  if (p.camping) {
+    p.camping = false;
+    p.campHealLeft = 0;
+    log('You break camp.', 'lore');
+    Sound.blip && Sound.blip();
+    updateHUD();
+    return;
+  }
+  for (const e of state.enemies)
+    if (rectDist(p, e) < 210) {
+      log('Too dangerous to make camp — foes are near.', 'combat');
+      Sound.error();
+      return;
+    }
+  const inDungeon = state.map === 'dungeon';
+  if (!inDungeon) {
+    const dayStart = Math.floor(state.time / DAY_FRAMES) * DAY_FRAMES;
+    let target = dayStart + Math.floor(0.06 * DAY_FRAMES);
+    if (target <= state.time) target += DAY_FRAMES;
+    state.time = target;
+  }
+  p.lastRestDay = curDay();
+  /* Only the SHARED CLOCK is overworld-only: skipping state.time underground would shove EVERY player's day forward in MP because state.time is world state. lastRestDay is NOT — it lives ON the player (P2/S7; formerly a PP_KEY, swapped in/written back), and it is the ONE thing that clears Exhausted (isExhausted() = curDay()-lastRestDay >= 2). So EVERY successful camp records the rest, dungeon included, or camping underground heals you but leaves you permanently Exhausted (the v2.56.2 bug: this line was fenced behind the !inDungeon guard along with the clock skip). No skip underground means curDay() is simply today — exactly right. */ const heal =
+    Math.round(p.maxHp * 0.35);
+  p.camping = true;
+  p.campHealLeft = heal;
+  p.campTick = 0;
+  p.energy = p.maxEnergy;
+  p.chillT = 0;
+  __g._wasExhausted = isExhausted();
+  recalcStats();
+  spawnBurst(p.x + p.w / 2, p.y + p.h / 2, 16, { color: '#ffb060', speed: 1.6, up: 0.8, decay: 0.04 });
+  log(
+    inDungeon
+      ? `You make camp in the dark and rest — your wounds knit slowly (+${heal} HP). You cannot move; press [C] to break camp.`
+      : `You make camp and rest — your wounds knit slowly (+${heal} HP). You cannot move; press [C] to break camp.`,
+    'good',
+  );
+  reviveCompanions();
+  Sound.heal();
+  updateHUD();
+}
+function updateFatigueFor(mp) {
+  /* The SP body, verbatim — the ONE per-hero difference is where the exhaustion EDGE MEMORY
+     lives: SP keeps the module slot __g._wasExhausted (one hero, one slot — byte-identical to
+     the pre-split fn); MP keeps it ON the acting hero (p._exWas — world.js's addPlayer seeds it
+     false and its doCamp RPC pre-arms it, exactly like the game's own __g pre-arms in doCamp/
+     doTravel/applySnapshot). Everything else reads state.player/state.inventory, so the
+     dispatcher's pin IS the per-hero context (recalcStats reads the pinned bag; log() reaches
+     the acting hero's feed; markTownVisited/facTierIdx read the pinned hero's own keys). */
+  const ex = isExhausted();
+  const was = mp ? !!state.player._exWas : __g._wasExhausted;
+  if (ex !== was) {
+    if (mp) state.player._exWas = ex;
+    else __g._wasExhausted = ex;
+    recalcStats();
+    updateHUD();
+    if (ex) {
+      log('You are Exhausted — rest in a town or make camp [C]. Your strength wanes.', 'combat');
+      Sound.error();
+    } else log('You feel rested.', 'good');
+  }
+  if (state.map === 'overworld') {
+    const tx = Math.floor((state.player.x + 11) / TILE),
+      ty = Math.floor((state.player.y + 11) / TILE);
+    if (isInTown(tx, ty)) {
+      state.player.lastRestDay = curDay();
+      markTownVisited();
+      const pl = state.player;
+      if (facTierIdx('vigil') >= 2 && pl.hp < pl.maxHp && state.time % 18 === 0) {
+        pl.hp = Math.min(pl.maxHp, pl.hp + Math.max(1, Math.round(pl.maxHp * 0.01)));
+        updateHUD();
+      }
+    }
+  }
+  if (ex) {
+    const p = state.player;
+    if (state.time % 80 === 0 && p.hp > p.maxHp * 0.65) {
+      p.hp = Math.max(Math.floor(p.maxHp * 0.65), p.hp - 1);
+      updateHUD();
+    }
+    if (state.time % 55 === 0)
+      spawnBurst(state.player.x + state.player.w / 2, state.player.y - 2, 1, {
+        color: '#8090b0',
+        speed: 0.3,
+        up: 0.6,
+        decay: 0.05,
+        size: 2,
+      });
+  }
+}
+function updateFatigue() {
+  /* P2 (updateFatigue-in-MP, plan §2): the A-shape dispatcher. updateFatigue was NEVER called in
+     the MP tick — world.js replicated only the recalc EDGE per rotation, so town rest, vigil
+     regen, markTownVisited, the Exhausted/rested feed lines and the exhaustion HP drain silently
+     didn't exist for MP heroes (the LAST shared-state bug). Now world.js makes ONE call per world
+     phase and the fn loops the WORLD-SCOPED party itself (partyIn, plan risk #9 — a delver's
+     dungeon coordinates must never pass the overworld town test; the dungeon phase's own call
+     covers delvers with the town block map-gated off, exactly like SP underground). JOIN ORDER
+     (party()'s contract). Downed heroes are spared — bleed-out owns them (the hazards rule): no
+     town rest while bleeding out, no vigil regen fighting the downed pass, frozen edge memory.
+     Pin-with-restore (the updateFires idiom): each hero is pinned (player + inventory — the
+     recalc edge reads the bag) and the ambient pin is put back, so a tick in which fatigue does
+     no work leaves the room byte-identical.
+     SP: state.players is never set → the plain call below, __g edge memory — byte-identical. */
+  if (state.players && state.players.length) {
+    const _sp = state.player,
+      _si = state.inventory;
+    for (const pl of partyIn()) {
+      if (pl.downed) continue;
+      state.player = pl;
+      if (pl.inventory) state.inventory = pl.inventory;
+      updateFatigueFor(true);
+    }
+    state.player = _sp;
+    state.inventory = _si;
+    return;
+  }
+  updateFatigueFor(false);
+}
+// Regional music & ambience (v2.33.0): the overworld track follows the ring you stand in, flips to a
+// driving 'danger' theme when a boss or warlord is near, and quiet one-shots dress the world — birdsong
+// in the Vale by day, distant wolves at night, cold wind in the frontier and in winter.
+function musicMoodFor() {
+  if (state.map === 'dungeon') return 'dungeon';
+  const p = state.player;
+  if (state.enemies.some((e) => (e.isBoss || e.isNemesis) && rectDist(p, e) < 620)) return 'danger';
+  const df = distFactor(Math.floor((p.x + p.w / 2) / TILE), Math.floor((p.y + p.h / 2) / TILE));
+  return df < RING_SAFE ? 'overworld' : df < RING_MID ? 'marches' : 'frontier';
+}
+__g._musicCheck = 0;
+function updateMusicMood() {
+  if (state.scene !== 'play') return;
+  if (--__g._musicCheck > 0) return;
+  __g._musicCheck = 90;
+  const want = musicMoodFor();
+  if (Sound.musicName !== want) Sound.startMusic(want);
+}
+__g._ambT = 300;
+function updateAmbience() {
+  if (state.scene !== 'play' || state.map !== 'overworld' || Sound.muted) return;
+  if (--__g._ambT > 0) return;
+  __g._ambT = 360 + Math.floor(Math.random() * 540);
+  const df = distFactor(Math.floor((state.player.x + 16) / TILE), Math.floor((state.player.y + 16) / TILE));
+  if (isNight()) {
+    Sound.tone(392, 1.1, 'sine', 0.05, { slideTo: 294, attack: 0.25 });
+    Sound.tone(587, 1.0, 'sine', 0.03, { when: 0.12, slideTo: 440, attack: 0.3 });
+  } else if (isWinter() || df >= RING_MID) {
+    Sound.noise(1.6, 0.035, { filter: 'bandpass', freq: isWinter() ? 700 : 420 });
+  } else if (df < RING_SAFE) {
+    const b = 880 + Math.random() * 400;
+    Sound.tone(b, 0.09, 'sine', 0.05, { slideTo: b * 1.4 });
+    Sound.tone(b * 1.2, 0.07, 'sine', 0.04, { when: 0.14, slideTo: b * 1.5 });
+    if (Math.random() < 0.5) Sound.tone(b * 0.9, 0.08, 'sine', 0.04, { when: 0.26, slideTo: b * 1.3 });
+  } else {
+    Sound.noise(1.1, 0.025, { filter: 'bandpass', freq: 520 });
+  }
+}
+function updateWorldLine() {
+  const el = document.getElementById('world-line');
+  if (!el) return;
+  let war = '';
+  const bt = typeof besiegedTown === 'function' ? besiegedTown() : null;
+  if (bt != null && __g.townZones[bt])
+    war = ` <span style="color:#ff5050">· ⚔ ${__g.townZones[bt].name} under siege!</span>`;
+  el.innerHTML =
+    `<span style="color:#9fb0d0">${isNight() ? '🌙' : '☀'} Day ${curDay()} · ${timeLabel()} · ${SEASON_ICON[seasonIdx()]} ${curSeason()} · ${weatherLabel()}</span>` +
+    war;
+}
+
+// ---- environmental fire ----
