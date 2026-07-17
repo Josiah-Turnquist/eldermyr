@@ -518,9 +518,9 @@ class World {
 
       // YOUR recruits travel with YOUR character (connection ids change every reconnect — never key on them)
       companions: (S.companions || []).filter((c) => c.ownerId === id).map((c) => ({
-        name: c.name, cls: c.cls, level: c.level | 0, maxHp: c.maxHp, hp: c.hp, atk: c.atk, def: c.def,
+        name: c.name, cls: c.cls, tier: c.tier | 0, unpaid: c.unpaid ? 1 : 0, level: c.level | 0, maxHp: c.maxHp, hp: c.hp, atk: c.atk, def: c.def,
         alive: c.alive !== false, color: c.color || null, postedAt: (typeof c.postedAt === 'number' ? c.postedAt : null),
-        weapon: c.weapon ? safeClone(c.weapon) : null,
+        weapon: c.weapon ? safeClone(c.weapon) : null,   // #115/F2: tier (stats/upkeep) + unpaid persist across reconnect
       })),
     };
   }
@@ -559,7 +559,7 @@ class World {
         for (const sc of c.companions.slice(0, 3)) {
           if (!sc || !sc.cls) continue;
           const comp = {
-            name: sc.name || 'Companion', cls: sc.cls, level: sc.level || 1,
+            name: sc.name || 'Companion', cls: sc.cls, tier: sc.tier | 0, unpaid: sc.unpaid ? 1 : 0, level: sc.level || 1,   // #115/F2: tier + refuse-to-fight state ride the character save
             maxHp: sc.maxHp || 30, hp: (sc.hp > 0 ? sc.hp : (sc.maxHp || 30)), atk: sc.atk || 5, def: sc.def || 1,
             alive: sc.alive !== false, weapon: sc.weapon ? clone(sc.weapon) : null,
             postedAt: (typeof sc.postedAt === 'number' ? sc.postedAt : null),

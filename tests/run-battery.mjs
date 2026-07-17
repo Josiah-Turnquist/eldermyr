@@ -55,6 +55,8 @@ const SUITES = [
   // the content build seam (rebuild P3/S1): the compiled src/content chunk heads the artifact,
   // stays sloppy-safe + DOM/sim-token-free, pipes through to game fns, and survives 3k ticks unmutated
   'content-purity',
+  // #115 (F2): warband economy — tiers/hire/upkeep, per-head daily charge, unpaid-refuses-to-fight
+  'warband-econ-verify',
   // the boss-special registry (rebuild P3/S4): wind/exec/drawTele triad per special in
   // src/content/specials.ts — windup + roster read through the registry, drawTele op-counts per name
   'specials-draw-verify',

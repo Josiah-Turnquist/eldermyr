@@ -234,9 +234,10 @@ function makeWildEnemy(tx, ty, biome) {
   e.maxHp = Math.round(e.maxHp * f);
   e.hp = e.maxHp;
   e.atk = Math.round(e.atk * f);
-  const rew = CONTENT.curves.wildReward(biomeMul, df);
-  e.xp = Math.round(e.xp * rew);
-  e.gold = Math.round(e.gold * rew);
+  // P3/F1 (#113): the reward curve gained a level term — XP scales the full wild-stat slope, gold a
+  // gentler one (curves.ts). `lvl` = partyLvl() (in scope above); Math.round stays at the call site.
+  e.xp = Math.round(e.xp * CONTENT.curves.wildXp(biomeMul, df, lvl));
+  e.gold = Math.round(e.gold * CONTENT.curves.wildGold(biomeMul, df, lvl));
   if (frozen) e.frost = true;
   if (lava) e.lava = true;
   e.homeDf = df;

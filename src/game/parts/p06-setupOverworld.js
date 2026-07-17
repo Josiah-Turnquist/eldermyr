@@ -634,6 +634,8 @@ function snapshot() {
     companions: (state.companions || []).map((c) => ({
       name: c.name,
       cls: c.cls,
+      tier: c.tier | 0, // #115/F2: promotion tier persists (stats/upkeep depend on it)
+      unpaid: c.unpaid ? 1 : 0, // #115/F2: an unpaid warband stays unpaid across a save/load
       level: c.level,
       maxHp: c.maxHp,
       hp: c.hp,

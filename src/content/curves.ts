@@ -7,8 +7,9 @@
 // which spawn+level every trajectory). Content can't read state, so ascension/df/level ride in as args;
 // the RNG draws (type roll, pool pick) stay in the factories.
 //
-// This STAGES #113 (F1): the wildReward level-term change is a one-line edit to wildReward with a
-// DESIGNED re-record — not part of this hash-frozen slice. Formulas-as-data, ONE source (the
+// #113 (F1) LANDED here: the overworld reward split into wildXp/wildGold, each gaining a level term
+// (XP the full 0.26 stat slope, gold a gentler 0.10) — a DESIGNED oracle re-record (the ONE tuning
+// change this slice makes; everything else stays byte-frozen). Formulas-as-data, ONE source (the
 // rebuild-from-generator rule) — the battery evaluates these fns directly, never a mirror.
 import type { CurveRegistry } from './types';
 
@@ -29,9 +30,19 @@ export const CURVES: CurveRegistry = {
   wildStat(lvl: number, biomeMul: number, diff: number): number {
     return (1 + (lvl - 1) * 0.26) * biomeMul * diff;
   },
-  // makeWildEnemy `rew` — the #113/F1 target (today no level term).
-  wildReward(biomeMul: number, df: number): number {
-    return biomeMul * (1 + df * 1.0 + df * df * 1.3);
+  // makeWildEnemy reward factors — #113/F1 (DESIGNED re-record): the overworld reward curve gained a
+  // LEVEL term. Before, wild rewards scaled ONLY by biome+distance `biomeMul*(1+df+df²*1.3)` with NO
+  // level term, so a level-30 hero fighting a stat-scaled (spongier) Frontier foe was paid the SAME
+  // as a level-1 hero — high-level overworld play stopped rewarding. Now XP scales the FULL wild-STAT
+  // level slope (0.26, parity with wildStat above) and gold a GENTLER 0.10 slope (gold has other
+  // faucets: tribute, trade, bounties, loot-sale — so its curve stays flatter). The two slopes are
+  // owner-tunable knobs; `lvl` = partyLvl() at spawn, threaded in from makeWildEnemy. At level 1 both
+  // terms are ×1, so the L1 reward is byte-identical to the pre-F1 curve (the divergence starts at L2).
+  wildXp(biomeMul: number, df: number, lvl: number): number {
+    return biomeMul * (1 + df * 1.0 + df * df * 1.3) * (1 + (lvl - 1) * 0.26);
+  },
+  wildGold(biomeMul: number, df: number, lvl: number): number {
+    return biomeMul * (1 + df * 1.0 + df * df * 1.3) * (1 + (lvl - 1) * 0.1);
   },
   ascMul,
   // makeDungeonEnemy `f`.

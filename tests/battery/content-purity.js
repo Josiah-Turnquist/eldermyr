@@ -355,14 +355,18 @@ ok('5z3. display-only unicode survives byte-for-byte (STATUS −22% is U+2212, B
 ok('5z4. xpForLevel is VERBATIM (L1→32, L2→55, L7→481, L10→1924) and the grind/ascension knobs are shipped (xpMul 1.4, goldMul 1.25, ascMul(0)=1, ascMul(5)=2)',
   !!C && C.curves && C.curves.xpForLevel(1) === 32 && C.curves.xpForLevel(2) === 55 && C.curves.xpForLevel(7) === 481 && C.curves.xpForLevel(10) === 1924 && C.curves.dungeonXpMul === 1.4 && C.curves.dungeonGoldMul === 1.25 && C.curves.ascMul(0) === 1 && C.curves.ascMul(5) === 2,
   C && C.curves && C.curves.xpForLevel(10));
-ok('5z5. the stat/reward FACTORS are the shipped formulas (wildStat(1,1,1)=1 & (1+(lvl-1)*.26)*bm*diff; wildReward biomeMul*(1+df+df²*1.3); dungeonStat/dungeonBossStat level ramps)',
+ok('5z5. the stat/reward FACTORS are the shipped formulas (wildStat(1,1,1)=1 & (1+(lvl-1)*.26)*bm*diff; #113/F1 wildXp = base×(1+(lvl-1)*.26) FULL slope, wildGold = base×(1+(lvl-1)*.10) GENTLER, base=bm*(1+df+df²*1.3); dungeonStat/dungeonBossStat level ramps)',
   !!C && (() => {
     const near = (a, b) => Math.abs(a - b) < 1e-9;
+    const base = (bm, df) => bm * (1 + df * 1.0 + df * df * 1.3);
     return C.curves.wildStat(1, 1, 1) === 1 && near(C.curves.wildStat(5, 1.6, 2), (1 + 4 * 0.26) * 1.6 * 2)
-      && C.curves.wildReward(1, 0) === 1 && near(C.curves.wildReward(1, 1), 3.3) && near(C.curves.wildReward(1.6, 0.5), 1.6 * (1 + 0.5 + 0.25 * 1.3))
+      // F1 XP: base curve × FULL 0.26 level slope (L1 === base — no divergence; L5 === base×2.04; L30 === base×8.54)
+      && C.curves.wildXp(1, 0, 1) === 1 && near(C.curves.wildXp(1, 1, 1), 3.3) && near(C.curves.wildXp(1, 1, 5), base(1, 1) * (1 + 4 * 0.26)) && near(C.curves.wildXp(1.6, 0.5, 30), base(1.6, 0.5) * (1 + 29 * 0.26))
+      // F1 gold: SAME base × GENTLER 0.10 slope (L1 === base; L5 === base×1.40; L30 === base×3.90) — strictly below XP once lvl>1
+      && C.curves.wildGold(1, 0, 1) === 1 && near(C.curves.wildGold(1, 1, 1), 3.3) && near(C.curves.wildGold(1, 1, 5), base(1, 1) * (1 + 4 * 0.1)) && near(C.curves.wildGold(1.6, 0.5, 30), base(1.6, 0.5) * (1 + 29 * 0.1)) && C.curves.wildGold(1, 1, 5) < C.curves.wildXp(1, 1, 5)
       && C.curves.dungeonStat(1, 0) === 1 && C.curves.dungeonStat(6, 0) === 3
       && C.curves.dungeonBossStat(1, 1) === 1 && near(C.curves.dungeonBossStat(3, 1), 2.1);
-  })(), C && C.curves && String(C.curves.wildReward(1, 1)));
+  })(), C && C.curves && String(C.curves.wildXp(1, 1, 5)));
 
 // ---- §6 mutation canary: 3k ticks, then live CONTENT vs a fresh chunk re-eval ------------
 const w = new World();

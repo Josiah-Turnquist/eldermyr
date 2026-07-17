@@ -678,10 +678,14 @@ export interface AffixRegistry {
 // windows contain NO companions, so statsFor is oracle-invisible — the content-purity §5 pin is its
 // guard. Nothing mutates a class row (companion instances copy primitives off it).
 
-/** One promotion tier for a companion class (#115/F2 fills 3; S9 ships tier 0 = T1 = today). `statMul`
- * scales the multiplicative stats (maxHp/atk); tier 0 is 1. F2 extends this with hire/upkeep. */
+/** One promotion tier for a companion class (#115/F2). `statMul` scales the multiplicative stats
+ * (maxHp/atk); tier 0 (T1) is 1, so tier-0 stats are byte-identical to pre-F2 (`x*1===x`). `hire` is
+ * the recruit cost (~10× per tier); `upkeep` is the daily gold per head charged in onNewDayHero (a
+ * hero who can't pay keeps his companions but they refuse to fight). All three are owner-tunable. */
 export interface CompanionTier {
   readonly statMul: number;
+  readonly hire: number;
+  readonly upkeep: number;
 }
 
 /** One warband class (COMP_CLASSES[cls], p04): base stats + hire cost + HUD flavor. `melee` picks the
@@ -849,9 +853,12 @@ export interface CurveRegistry {
   /** Wild-enemy STAT factor: (1 + (lvl-1)*0.26) * biomeMul * diff, where diff = diffMul(df) computed
    * in makeWildEnemy (diffMul stays in-part; its result rides in). */
   wildStat(lvl: number, biomeMul: number, diff: number): number;
-  /** Wild-enemy REWARD factor: biomeMul * (1 + df + df²*1.3). The #113/F1 tuning target (today no level
-   * term — F1 adds one with a re-record). */
-  wildReward(biomeMul: number, df: number): number;
+  /** Wild-enemy XP reward factor (#113/F1): biomeMul*(1+df+df²*1.3) * (1+(lvl-1)*0.26) — the base
+   * biome/distance curve times the FULL wild-stat level slope. lvl = partyLvl() at spawn. */
+  wildXp(biomeMul: number, df: number, lvl: number): number;
+  /** Wild-enemy GOLD reward factor (#113/F1): biomeMul*(1+df+df²*1.3) * (1+(lvl-1)*0.10) — the same
+   * base times a GENTLER level slope (gold has other faucets: tribute, trade, bounties, loot-sale). */
+  wildGold(biomeMul: number, df: number, lvl: number): number;
   /** The ascension multiplier 1 + ascension*0.2 — shared by dungeon enemies (inside dungeonStat) and the
    * dungeon boss (its `asc` local, reused for atk). ONE source. */
   ascMul(ascension: number): number;

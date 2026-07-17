@@ -5,13 +5,21 @@
 // read by p04/p05/p07, COMP_NAMES by p04, COMP_CAP by p04/p05, compStatsFor by p04), so no call site
 // changes and nothing external captures these symbols (world.js only mentions COMP_CAP in a comment).
 //
-// Tiers-ready for #115 (warband economy, F2): `statsFor` takes a `tier` param (default 0) and each
-// class carries a `tiers` array whose tiers[0] is T1 = today's numbers EXACTLY (statMul 1). Byte-
-// identical at tier 0: `x * 1 === x` for every finite double, so `Math.round(baseHp * f * 1)` equals
-// the old `Math.round(baseHp * f)` to the bit. F2 adds tiers[1]/tiers[2] + hire/upkeep — one row each.
-import type { CompanionClass, CompanionRegistry, CompanionStats } from './types';
+// #115 (F2) — the warband economy. Each class now carries THREE promotion tiers (tiers[0] = T1 =
+// today's numbers EXACTLY; statMul 1 → byte-identical at tier 0, `x*1===x`). Per tier:
+//   statMul — multiplicative stat scale (maxHp/atk); ladder 1 / 2 / 4
+//   hire    — recruit cost, ~10× per tier off the class's base (owner knob)
+//   upkeep  — daily gold PER HEAD, charged per-hero in onNewDayHero (unpaid → stay but refuse to fight)
+// The stat/upkeep ladders are shared across classes; only the hire base differs (knight/ranger 200,
+// mage 240). tiers[0].hire duplicates the class's top-level `hire` (kept for external readers).
+import type { CompanionClass, CompanionRegistry, CompanionStats, CompanionTier } from './types';
 
-const T1 = [{ statMul: 1 }] as const; // the sole tier today — T1 identity (#115/F2 appends T2/T3)
+const STAT_MUL = [1, 2, 4]; // T1/T2/T3 stat scale (owner-tunable)
+const UPKEEP = [10, 60, 300]; // T1/T2/T3 gold/day per head (owner-tunable)
+// Build a class's 3 tiers: hire = base ×10^tier; stat/upkeep from the shared ladders.
+function tiersFor(hireBase: number): CompanionTier[] {
+  return [0, 1, 2].map((i) => ({ statMul: STAT_MUL[i], hire: hireBase * Math.pow(10, i), upkeep: UPKEEP[i] }));
+}
 
 const CLASSES: Record<string, CompanionClass> = {
   knight: {
@@ -26,7 +34,7 @@ const CLASSES: Record<string, CompanionClass> = {
     hire: 200,
     icon: '⚔',
     desc: 'Stalwart melee — wades in and soaks blows.',
-    tiers: T1,
+    tiers: tiersFor(200),
   },
   ranger: {
     name: 'Ranger',
@@ -40,7 +48,7 @@ const CLASSES: Record<string, CompanionClass> = {
     hire: 200,
     icon: '➶',
     desc: 'Looses arrows from range; keeps her distance.',
-    tiers: T1,
+    tiers: tiersFor(200),
   },
   mage: {
     name: 'Mage',
@@ -54,7 +62,7 @@ const CLASSES: Record<string, CompanionClass> = {
     hire: 240,
     icon: '✦',
     desc: 'Hurls piercing arcane bolts; fragile.',
-    tiers: T1,
+    tiers: tiersFor(240),
   },
 };
 

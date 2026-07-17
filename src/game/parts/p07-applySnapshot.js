@@ -123,6 +123,8 @@ function applySnapshot(s) {
   state.companions = (s.companions || []).map((c) => ({
     name: c.name,
     cls: c.cls,
+    tier: c.tier | 0, // #115/F2: restore the promotion tier (old saves lack it → 0 = T1)
+    unpaid: c.unpaid ? 1 : 0, // #115/F2: restore refuse-to-fight state
     level: c.level || 1,
     maxHp: c.maxHp,
     hp: c.hp,

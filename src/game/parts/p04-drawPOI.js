@@ -334,6 +334,37 @@ function dailyHoldingIncome() {
     updateHUD();
   }
 }
+// #115/F2 — daily warband upkeep. Runs in onNewDayHero under actAs(hero), so state.player IS the
+// acting hero: he pays for HIS companions (ownerId === his id; SP: ownerId unset AND player.id unset,
+// so undefined===undefined → all his — the party()/tribute precedent, upkeep is not positional).
+// Charge = sum of each head's per-tier upkeep. Short of the full bill → NOBODY is paid: every one of
+// his companions flips c.unpaid=1 (they stay, they follow, but they REFUSE TO FIGHT until paid — the
+// owner's exact rule). Paid in full → c.unpaid cleared, they resume. Empty roster → no-op (no RNG, no
+// log), so the golden day-tick windows (no companions) stay byte-identical.
+function companionUpkeep() {
+  const mine = (state.companions || []).filter((c) => c.ownerId === state.player.id);
+  if (!mine.length) return;
+  let due = 0;
+  for (const c of mine) {
+    const C = COMP_CLASSES[c.cls];
+    const t = C && C.tiers[c.tier | 0];
+    if (t) due += t.upkeep | 0;
+  }
+  if (due <= 0) return;
+  const p = state.player;
+  if (p.gold >= due) {
+    p.gold -= due;
+    let resumed = 0;
+    for (const c of mine) if (c.unpaid) { c.unpaid = 0; resumed++; }
+    log(`⚑ Your warband draws ${due} gold in upkeep.${resumed ? ` ${resumed} paid off and take up arms again.` : ''}`, 'lore');
+    updateHUD();
+  } else {
+    let struck = 0;
+    for (const c of mine) if (!c.unpaid) { c.unpaid = 1; struck++; }
+    log(`⚠ You can't cover your warband's ${due}g upkeep — ${struck ? `${struck} down tools and ` : ''}they refuse to fight until you pay.`, 'combat');
+    Sound.error && Sound.error();
+  }
+}
 function maybeRaidHolding() {
   const avail = ownedHoldings().filter((o) => !o.h.besieged);
   if (!avail.length || partyRep('dread') < 15 || Math.random() > 0.4) return; // P2/S11: the Legion answers the party's most-infamous hero (max over party — plan §3.2); the short-circuit still guards the RNG draw, so a gate miss burns no random
@@ -488,8 +519,8 @@ function doTravelHold(i) {
 const COMP_CLASSES = CONTENT.companions.classes;
 const COMP_NAMES = CONTENT.companions.names;
 const COMP_CAP = CONTENT.companions.cap;
-function compStatsFor(cls, level) {
-  return CONTENT.companions.statsFor(cls, level);
+function compStatsFor(cls, level, tier) {
+  return CONTENT.companions.statsFor(cls, level, tier | 0); // #115/F2: tier scales the block (T1=0=identical)
 }
 function activeCompanions() {
   return (state.companions || []).filter((c) => c.alive);
@@ -512,12 +543,14 @@ function anchorCompanion(c) {
     }
   } else placeCompanionNearPlayer(c);
 }
-function makeCompanion(cls, name) {
+function makeCompanion(cls, name, tier) {
+  tier = tier | 0; // #115/F2: promotion tier (0=T1). Rides the companion + save; scales stats & upkeep.
   const lvl = Math.max(1, state.player.level);
-  const s = compStatsFor(cls, lvl);
+  const s = compStatsFor(cls, lvl, tier);
   const c = {
     name,
     cls,
+    tier,
     level: lvl,
     alive: true,
     maxHp: s.maxHp,
@@ -542,25 +575,29 @@ function freeCompName() {
   const used = (state.companions || []).map((c) => c.name);
   return NEM_PICK(COMP_NAMES.filter((n) => !used.includes(n))) || NEM_PICK(COMP_NAMES);
 }
-function recruitCompanion(cls) {
+function recruitCompanion(cls, tier) {
   const p = state.player;
+  const C = COMP_CLASSES[cls];
+  if (!C) return; // guard: unknown class (a malformed RPC)
+  // #115/F2: `tier` (0-2) picks the promotion rung; clamp to the class's tier table.
+  tier = Math.max(0, Math.min((C.tiers.length || 1) - 1, tier | 0));
   if (!state.companions) state.companions = [];
   if (state.companions.length >= COMP_CAP) {
     Sound.error();
     log(`Your warband is full (${COMP_CAP}). Dismiss someone first.`, 'combat');
     return;
   }
-  const cost = COMP_CLASSES[cls].hire;
+  const cost = C.tiers[tier].hire;
   if (p.gold < cost) {
     Sound.error();
-    log(`Hiring a ${COMP_CLASSES[cls].name} costs ${cost} gold — you have ${p.gold}.`, 'combat');
+    log(`Hiring a Tier-${tier + 1} ${C.name} costs ${cost} gold — you have ${p.gold}.`, 'combat');
     return;
   }
   p.gold -= cost;
-  const c = makeCompanion(cls, freeCompName());
+  const c = makeCompanion(cls, freeCompName(), tier);
   state.companions.push(c);
   Sound.jingle && Sound.jingle();
-  log(`⚔ ${c.name} the ${COMP_CLASSES[cls].name} joins your warband!`, 'good');
+  log(`⚔ ${c.name} the Tier-${tier + 1} ${C.name} joins your warband (${C.tiers[tier].upkeep}g/day upkeep)!`, 'good');
   updateHUD();
   if (state.scene === 'companions') renderCompanions();
   saveGame();
@@ -594,7 +631,7 @@ function bumpCompanionLevels() {
   for (const c of state.companions || []) {
     if (c.level < state.player.level) {
       c.level = state.player.level;
-      const s = compStatsFor(c.cls, c.level);
+      const s = compStatsFor(c.cls, c.level, c.tier); // #115/F2: keep the tier scale when levelling up
       const frac = c.maxHp ? c.hp / c.maxHp : 1;
       c.maxHp = s.maxHp;
       c.hp = Math.max(1, Math.round(c.maxHp * Math.max(0.55, frac)));

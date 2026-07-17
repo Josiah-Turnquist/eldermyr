@@ -109,7 +109,9 @@ function updateCompanionsFor() {
         best = e;
       }
     }
-    if (best && bd < 360) {
+    if (best && bd < 360 && !c.unpaid) {
+      // #115/F2: an UNPAID companion (upkeep unmet) will not engage — no chase, no swing. It falls
+      // through to the follow/garrison branch below, so it STAYS and FOLLOWS but refuses to fight.
       const ecx = best.x + best.w / 2,
         ecy = best.y + best.h / 2;
       const ccx = c.x + c.w / 2,
@@ -272,15 +274,19 @@ function renderCompanions() {
       const C = COMP_CLASSES[c.cls] || {};
       const row = document.createElement('div');
       row.className = 'skill-row';
+      // #115/F2: alive shows HP + (if upkeep unmet) an "unpaid — won't fight" marker; the class line
+      // carries the promotion tier (T1/T2/T3) + this head's daily upkeep.
+      const tierN = (c.tier | 0) + 1;
+      const upk = (C.tiers && C.tiers[c.tier | 0] ? C.tiers[c.tier | 0].upkeep : 0);
       const status = c.alive
-        ? `<span style="color:#74e08a">${Math.ceil(c.hp)}/${c.maxHp} HP</span>`
+        ? `<span style="color:#74e08a">${Math.ceil(c.hp)}/${c.maxHp} HP</span>${c.unpaid ? ` <span style="color:#ff7565">✊ unpaid — won't fight</span>` : ''}`
         : `<span style="color:#ff7565">Downed — recovers on rest</span>`;
       const badges =
         (c.postedAt != null && HOLD_SITES[c.postedAt]
           ? ` <span style="color:#f0d878">⚑ ${HOLD_SITES[c.postedAt].name}</span>`
           : '') +
         (c.weapon ? ` <span style="color:#a8c8ff">🗡 ${c.weapon.name} (+${compWeaponBonus(c)}⚔)</span>` : '');
-      row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${c.name}</b> <span class="sk-desc">${C.name} · Lv ${c.level} · ⚔${c.atk + compWeaponBonus(c)} 🛡${c.def}</span><br><span class="sk-val">${status}${badges}</span></div>`;
+      row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${c.name}</b> <span class="sk-desc">${C.name} · T${tierN} · Lv ${c.level} · ⚔${c.atk + compWeaponBonus(c)} 🛡${c.def} · ${upk}g/day</span><br><span class="sk-val">${status}${badges}</span></div>`;
       const bA = document.createElement('button');
       bA.className = 'sk-btn';
       if (c.weapon) {
@@ -314,25 +320,30 @@ function renderCompanions() {
       ros.appendChild(row);
     });
   }
-  rec.innerHTML = `<div style="color:#d0b070;font-size:12px;text-align:center;margin-bottom:6px">Recruit (${list.length}/${COMP_CAP})</div>`;
+  // #115/F2: each class offers THREE tiers — stronger costs ~10× to hire AND more daily upkeep.
+  rec.innerHTML = `<div style="color:#d0b070;font-size:12px;text-align:center;margin-bottom:6px">Recruit (${list.length}/${COMP_CAP}) — higher tiers are stronger but cost more daily upkeep</div>`;
   ['knight', 'ranger', 'mage'].forEach((cls) => {
     const C = COMP_CLASSES[cls];
     const row = document.createElement('div');
     row.className = 'skill-row';
-    row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${C.name}</b> <span class="sk-desc">${C.desc}</span><br><span class="sk-val">${C.hire} gold</span></div>`;
-    const b = document.createElement('button');
-    b.className = 'sk-btn';
-    if (list.length >= COMP_CAP) {
-      b.textContent = 'Full';
-      b.disabled = true;
-    } else if (state.player.gold < C.hire) {
-      b.textContent = C.hire + 'g';
-      b.disabled = true;
-    } else {
-      b.textContent = 'Hire';
-      b.onclick = () => recruitCompanion(cls);
-    }
-    row.appendChild(b);
+    const upk = C.tiers.map((t) => t.upkeep).join('/');
+    row.innerHTML = `<div><b style="color:${C.color}">${C.icon} ${C.name}</b> <span class="sk-desc">${C.desc}</span><br><span class="sk-val">upkeep ${upk} g/day (T1/T2/T3)</span></div>`;
+    C.tiers.forEach((tr, ti) => {
+      const b = document.createElement('button');
+      b.className = 'sk-btn';
+      b.title = `Tier ${ti + 1}: hire ${tr.hire}g · upkeep ${tr.upkeep}g/day · ×${tr.statMul} stats`;
+      if (list.length >= COMP_CAP) {
+        b.textContent = 'Full';
+        b.disabled = true;
+      } else if (state.player.gold < tr.hire) {
+        b.textContent = `T${ti + 1} ${tr.hire}g`;
+        b.disabled = true;
+      } else {
+        b.textContent = `T${ti + 1} ${tr.hire}g`;
+        b.onclick = () => recruitCompanion(cls, ti);
+      }
+      row.appendChild(b);
+    });
     rec.appendChild(row);
   });
 }

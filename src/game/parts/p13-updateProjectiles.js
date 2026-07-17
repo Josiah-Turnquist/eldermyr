@@ -685,6 +685,7 @@ function onNewDayHero() {
   // hero here. party(), not partyIn(): tribute isn't positional; delvers and downed heroes
   // draw their share too.
   dailyHoldingIncome();
+  companionUpkeep(); // #115/F2: this hero pays his warband's daily upkeep (unpaid → they refuse to fight)
 }
 function onNewDayWorld() {
   // Once-per-WORLD daily effects: shared rosters, raids, revivals, respawns. Runs AFTER the
