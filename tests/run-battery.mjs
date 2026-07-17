@@ -60,6 +60,13 @@ const SUITES = [
   // the boss-special registry (rebuild P3/S4): wind/exec/drawTele triad per special in
   // src/content/specials.ts — windup + roster read through the registry, drawTele op-counts per name
   'specials-draw-verify',
+  // #123 (F3): the Mountain Kraken finale — flat ~48k HP + party scaling + respawn cycle,
+  // victory ONCE PER HERO via the personal quests.finale key (main shared), projectile-kill credit
+  'kraken-finale-verify',
+  // #121 (F4a-c): the Sunken Citadel — pinnacle drops the persistent gate, 3 flat floors + the L200
+  // Archivist (stances/phases/court/leap), per-player hidden 1% relic roll (independent per hero),
+  // relic recalc flags + Aegis cheat-death, the MP dgKind guard, wipe-persistence
+  'citadel-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

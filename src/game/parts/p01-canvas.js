@@ -50,6 +50,7 @@ const T = {
   D_DOOR: 14,
   D_TORCH: 15,
   D_DESCEND: 16,
+  CITADEL_GATE: 17, // #121 — the persistent overworld gate a slain pinnacle boss opens (walkable, [E] to enter)
 };
 const SOLID = new Set([T.TREE, T.WATER, T.MOUNTAIN, T.HOUSE, T.D_WALL, T.D_PIT]);
 const OW_W = 347,
@@ -301,6 +302,11 @@ let state = {
       frozen: { name: 'Plunder the Frozen Cache', done: false, hidden: true },
       dragon: { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true },
       legion: { started: false, stage: 'none', camps: 0, sealstones: 0, villages: 0, seatRegion: -1 },
+      // #123 — the PERSONAL finale flag: each hero wins the Mountain Kraken ONCE (own victory
+      // screen + champion's bounty). Deliberately NOT in aliasSharedQuests (main/frozen/legion) —
+      // main.done is the SHARED war outcome, finale.done is your own. A cycle re-kill fires no
+      // second victory for a hero who already has it; a hero who hasn't wins on his first kill.
+      finale: { done: false },
     },
   },
   inventory: {

@@ -45,17 +45,18 @@ const ok = (n, c, x) => {
   console.log((c ? 'PASS ' : 'FAIL ') + n + (x != null ? '  [' + x + ']' : ''));
 };
 
-const NAMES = ['slam', 'charge', 'nova', 'summon', 'pullunder', 'raiseadds'];
+// #121: the six shipped specials + the three Citadel additions (leap/castvolley/raisecourt).
+const NAMES = ['slam', 'charge', 'nova', 'summon', 'pullunder', 'raiseadds', 'leap', 'castvolley', 'raisecourt'];
 
 // ---- §1 registry shape -------------------------------------------------------------------
-ok('1a. CONTENT.specials holds exactly the six special keys, in order', !!C && JSON.stringify(Object.keys(C.specials || {})) === JSON.stringify(NAMES), C && JSON.stringify(Object.keys(C.specials || {})));
+ok('1a. CONTENT.specials holds exactly the nine special keys, in order', !!C && JSON.stringify(Object.keys(C.specials || {})) === JSON.stringify(NAMES), C && JSON.stringify(Object.keys(C.specials || {})));
 ok(
   '1b. every special carries wind:number + exec:fn + drawTele:fn (the telegraph triad)',
   !!C && NAMES.every((k) => C.specials[k] && typeof C.specials[k].wind === 'number' && typeof C.specials[k].exec === 'function' && typeof C.specials[k].drawTele === 'function'),
 );
 ok(
-  '1c. windups are the shipped values (slam46/charge32/nova34/summon40/pullunder48/raiseadds44)',
-  !!C && [46, 32, 34, 40, 48, 44].every((w, i) => C.specials[NAMES[i]].wind === w),
+  '1c. windups are the shipped values (slam46/charge32/nova34/summon40/pullunder48/raiseadds44 · leap40/castvolley30/raisecourt44)',
+  !!C && [46, 32, 34, 40, 48, 44, 40, 30, 44].every((w, i) => C.specials[NAMES[i]].wind === w),
   C && NAMES.map((k) => C.specials[k].wind).join(','),
 );
 ok(
@@ -85,7 +86,7 @@ ok('2f. bossSpecials never mutated the registry base array', C.specialRoster.bas
 // ---- §3 drawTele op-counts — forced e.tele per name, counting g2d ------------------------
 // Method-call count per telegraph (beginPath/arc/stroke/fill/moveTo/lineTo). Deterministic —
 // the telegraph chain makes no Math.random()/Date.now() call, so these are recorded exacts.
-const EXPECT = { slam: 6, charge: 4, nova: 3, summon: 3, pullunder: 24, raiseadds: 15 };
+const EXPECT = { slam: 6, charge: 4, nova: 3, summon: 3, pullunder: 24, raiseadds: 15, leap: 6, castvolley: 36, raisecourt: 15 };
 function countingG2d() {
   const acc = { ops: 0 };
   const g = new Proxy(

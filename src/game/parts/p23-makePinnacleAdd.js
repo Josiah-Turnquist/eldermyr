@@ -22,6 +22,105 @@ function makePinnacleAdd(pin, isKing, tx, ty, idx) {
   e._rezN = 0;
   return e;
 } // ordered adds: aquatic 'drowned' (King, water ring) / frozen 'flock' (Shepherd, land); normal enemies otherwise → serialize/partition free   // FLAT at PIN_LEVEL too — the court BELONGS to the encounter, so it scales with the fight (ascension/party-size/cycle still stack), not with whoever walked in
+// #121 — the Drowned Archivist's court: FLAT level-100 acolytes (§0.4: ~18k HP each — a real phase,
+// not chaff). Same three ordered-kill fields as makePinnacleAdd (_orderIdx/_pinRef/_rezN), so
+// killEnemy's resurrect honors them with ZERO new code. Party-size/ascension/cycle stack on top.
+function makeCitadelAdd(pin, tx, ty, idx) {
+  const e = makeEnemy(tx, ty, 'skeleton');
+  e.name = 'Drowned Acolyte';
+  e.color = '#5fb0a8';
+  const pnh = 1 + (partyN() - 1) * 0.4,
+    asc = 1 + (state.ascension || 0) * 0.2,
+    cyc = state.citadelCycle || 0;
+  e.maxHp = Math.round(18233 * pnh * asc * (1 + cyc * 0.4));
+  e.hp = e.maxHp;
+  e.atk = Math.round(145 * asc);
+  e.def = 29;
+  e.xp = 600;
+  e.gold = 300;
+  e.element = 'frost';
+  e.frost = true;
+  e.isCitadelMinion = true;
+  e.level = 100; // flat, drawn via the citadel Lv tag, rides packEnemy
+  e._orderIdx = idx;
+  e._pinRef = pin;
+  e._rezN = 0;
+  return e;
+}
+// #121 — the level-200 Sunken Citadel boss. FLAT (no partyLvl); party-size/ascension/cycle multiply
+// on top. Every field is a SCALAR (packScalar drops arrays/objects) — e.specials is an array, already
+// dropped on the wire on every boss, read only by the server-authoritative AI; stance/phase/arenaR/
+// level all ride packEnemy to the client for free.
+function makeCitadelBoss(tx, ty) {
+  const e = makeBoss(tx, ty);
+  const A = CONTENT.apex.archivist;
+  e.isCitadel = true;
+  e.citKey = A.key;
+  e.name = A.name;
+  e.color = A.color;
+  e.w = 62;
+  e.h = 62;
+  e.x = tx * TILE - 15;
+  e.y = ty * TILE - 15;
+  e.level = A.level; // 200 — now MEANINGFUL (§0.4) and drawn (the Lv tag)
+  const pnh = 1 + (partyN() - 1) * 0.7,
+    asc = 1 + (state.ascension || 0) * 0.2,
+    cyc = state.citadelCycle || 0;
+  e.maxHp = Math.round(A.hp * pnh * asc * (1 + cyc * 0.4)); // ~237-240k solo — a 3.6-min ceiling fight
+  e.hp = e.maxHp;
+  e.atk = Math.round(A.atk * asc * (1 + cyc * 0.15)); // atk stays gentle (§0.3, the 45% floor)
+  e.def = A.def; // 46 — off the cliff (§0.2)
+  e.xp = A.xp;
+  e.gold = A.gold;
+  e.cycle = cyc;
+  e._lairTx = tx;
+  e._lairTy = ty;
+  e.arenaR = PIN_ARENA_START;
+  e._nextKill = 0;
+  e._hazT = 0;
+  e.phase = 1;
+  e.stance = 'blade';
+  e._stanceT = 1120; // ~14s @80Hz
+  e._enrage = 0;
+  e.caster = true;
+  e.castCd = 100;
+  e.specialCd = 120;
+  e.specials = A.stances.blade; // shared registry array (read-only — the stance IS the array pointer)
+  return e;
+}
+const CITADEL_STANCE_ORDER = ['blade', 'storm', 'grave'];
+const CITADEL_STANCE_COLOR = { blade: '#e8f0f0', storm: '#7fe0d0', grave: '#4a5a6a' };
+function rotateCitadelStance(e) {
+  const A = CONTENT.apex.archivist;
+  const i = (CITADEL_STANCE_ORDER.indexOf(e.stance) + 1) % 3;
+  e.stance = CITADEL_STANCE_ORDER[i];
+  e.specials = A.stances[e.stance]; // re-point → new fighting style (updateBoss picks from it)
+  e.color = CITADEL_STANCE_COLOR[e.stance];
+}
+// #121 — stance rotation + phase transitions (thresholds on hp/maxHp — no new persisted state).
+// Phase 2 (66%): a wave of 3 lvl-100 court + faster stance churn. Phase 3 (33%): enrage + a second
+// wave. Runs at the top of updateBoss's citadel path (before the special pick).
+function citadelBossPhase(e, pcx, pcy) {
+  const ph = e.hp > e.maxHp * 0.66 ? 1 : e.hp > e.maxHp * 0.33 ? 2 : 3;
+  if (ph !== e.phase) {
+    e.phase = ph;
+    addShake(6);
+    rotateCitadelStance(e);
+    if (ph === 2) {
+      startBossSpecial(e, 'raisecourt', pcx, pcy);
+      log('★ The Drowned Archivist sheds its calm — the drowned court rises!', 'combat');
+    } else if (ph === 3) {
+      e._enrage = 1;
+      startBossSpecial(e, 'raisecourt', pcx, pcy);
+      log('★ The Archivist boils with grave-cold fury — its final gambit begins!', 'combat');
+    }
+  }
+  e._stanceT = (e._stanceT || 0) - 1;
+  if (e._stanceT <= 0) {
+    rotateCitadelStance(e);
+    e._stanceT = e._enrage ? 560 : 1120; // stance churns twice as fast when enraged
+  }
+}
 
 // ===== STAGE B REPLACEMENT POINT: replace this whole placeholder with the drop-pool logic — first kill guarantees
 // PINNACLE_BOSSES[*].drops.styleUniq matching the killer's style; re-kills (cycle) roll {styleUniq, universalUniq} +
@@ -64,6 +163,65 @@ function dropPinnacleReward(e, isFirst) {
   });
   const nm = drops.map((d) => d.name).join(' & ');
   log(`${e.name}'s hoard spills across the ground — ${nm} and ${g} gold!`, 'quest');
+}
+// #121 — open the persistent gate to the Sunken Citadel where a pinnacle boss fell. No-op once it
+// stands (never re-placed, never consumed → persists on death). World-shared, NOT persisted — a
+// reboot regenerates it by re-kill (the krakenDead class). The tile rides the overworld grid
+// (mapPayload at join); state.citadelGate rides the snapshot so already-connected clients render it.
+// #121 — pick a Citadel relic for the acting hero: the one that fits HIS style (read _lastStyle, which
+// rides `me` — NEVER a raw equippedWeapon(), the :2107 wrong-bag trap), else a universal (Aegis/Locket).
+function rollCitadelRelic() {
+  const style = state.player._lastStyle || styleOf(equippedWeapon());
+  const byStyle = { melee: 'sunderking', ranged: 'hundredfold', magic: 'chainbreaker' };
+  const universal = ['namelessaegis', 'emberheart'];
+  const key = byStyle[style] || universal[Math.floor(Math.random() * universal.length)];
+  return makeUnique(key, 200);
+}
+// Direct-to-bag (no ground pickup → no sniping): under actAs(pl) state.inventory IS the acting hero's
+// bag, so the relic + the Trophy-Wall record land on the RIGHT hero.
+function bagCitadelRelic(item) {
+  if (!item) return;
+  if (item.atk !== undefined) state.inventory.weapons.push(item);
+  else state.inventory.armor.push(item);
+  if (!state.uniquesFound) state.uniquesFound = [];
+  if (item.uniq && !state.uniquesFound.includes(item.uniq)) state.uniquesFound.push(item.uniq);
+}
+// #121 — the Archivist's spoils. PER-PLAYER hidden 1% relic (independent roll per present hero, direct
+// to his OWN bag, invisible to others; no pity, no counter — the owner's override of the spec's sigil
+// design) + a guaranteed clear reward (gold + two legendaries on the floor) for the whole party.
+function dropCitadelReward(e) {
+  const cx = e.x + e.w / 2,
+    cy = e.y + e.h / 2;
+  const tx = Math.floor(cx / TILE),
+    ty = Math.floor(cy / TILE);
+  for (const pl of partyIn())
+    actAs(pl, () => {
+      if (Math.random() < 0.01) {
+        const relic = rollCitadelRelic();
+        if (relic) {
+          bagCitadelRelic(relic);
+          log(`★ ${state.player.name || 'A hero'} pries a black-glass RELIC from the Archivist's husk — ${relic.name}!`, 'quest');
+        }
+      }
+      state.player.gold += 6000; // guaranteed clear gold, per present hero
+    });
+  const lvl = 200;
+  for (let i = 0; i < 2; i++) {
+    const rIdx = Math.max(4, rollRarity(lvl, true));
+    const inner = Math.random() < 0.5 ? genWeapon(lvl, rIdx) : genArmor(lvl, rIdx);
+    const item = inner.atk !== undefined ? { weapon: inner } : { armor: inner };
+    const o = findOpenTile(state.map, tx + (i % 2), ty + ((i / 2) | 0));
+    state.pickups.push(makePickup(o.tx, o.ty, 'loot', item));
+  }
+}
+function openCitadelGate(e) {
+  if (state.citadelGate) return;
+  const btx = Math.floor((e.x + e.w / 2) / TILE),
+    bty = Math.floor((e.y + e.h / 2) / TILE);
+  const g = findOpenTile('overworld', btx, bty);
+  state.citadelGate = { tx: g.tx, ty: g.ty };
+  if (maps.overworld && maps.overworld[g.ty]) maps.overworld[g.ty][g.tx] = T.CITADEL_GATE;
+  log('✦ Where the apex terror fell, a black-glass GATE tears open — the drowned Sunken Citadel calls. Step through [E] when you dare.', 'quest');
 }
 function pinnacleHazard(e, pcx, pcy) {
   const lx = (e._lairTx != null ? e._lairTx : Math.floor((e.x + e.w / 2) / TILE)) * TILE + 16,

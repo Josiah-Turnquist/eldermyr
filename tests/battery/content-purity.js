@@ -290,8 +290,8 @@ ok('5m. the game reads apex THROUGH the registry (CAPTURE\'d GREAT_HUNTS/PINNACL
 // S6: the gear DATA registry (rarity/shop/uniques/mastery/pattern + gen pools + affixPool). The
 // through-ness is proven LIVE by golden (loot generation stays byte-identical — genWeapon/rollAffixes
 // read these), so these pin the shape/values; the symbols are not CAPTURE'd (no namespace alias).
-ok('5n. CONTENT.gear holds the loot tables (5 rarities · 13 shop weapons · 3 shop armor · 4 uniques · 3 pattern weapons)',
-  !!C && C.gear && C.gear.rarities.length === 5 && C.gear.shopWeapons.length === 13 && C.gear.shopArmor.length === 3 && Object.keys(C.gear.uniques).length === 4 && C.gear.patternWeapons.length === 3 && C.gear.styleNames.melee.length === 4);
+ok('5n. CONTENT.gear holds the loot tables (5 rarities · 13 shop weapons · 3 shop armor · 9 uniques [4 pinnacle + 5 Citadel relics] · 3 pattern weapons)',
+  !!C && C.gear && C.gear.rarities.length === 5 && C.gear.shopWeapons.length === 13 && C.gear.shopArmor.length === 3 && Object.keys(C.gear.uniques).length === 9 && C.gear.patternWeapons.length === 3 && C.gear.styleNames.melee.length === 4);
 ok('5o. gear rows carry the shipped values (legendary mult 2.05, Steel Sword 80g, mastery [10,18,24], leviathanspine ×1.2)',
   !!C && C.gear.rarities[4].id === 'legendary' && C.gear.rarities[4].mult === 2.05 && C.gear.shopWeapons[1].name === 'Steel Sword' && C.gear.shopWeapons[1].cost === 80 && JSON.stringify(C.gear.masteryLvls) === JSON.stringify([10, 18, 24]) && C.gear.uniques.leviathanspine.atkMul === 1.2, C && C.gear.shopWeapons[1] && C.gear.shopWeapons[1].cost);
 ok('5p. affixPool is a pure rIdx-scaled helper (weapon r4 → crit +15% / lifesteal +3% / berserk; armor → evasion/lifesteal/crit)',

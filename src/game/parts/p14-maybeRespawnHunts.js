@@ -23,6 +23,27 @@ function maybeRespawnHunts() {
   );
   Sound.boss && Sound.boss();
 }
+// #123 — the finale respawn cycle (the pinnacle/hunt precedent): a few in-world days after the
+// Mountain Kraken falls it broods anew, harder & richer. Clears the (now non-permanent) krakenDead
+// world fact and bumps krakenCycle, which makeKraken reads for its HP/atk/reward scaling. In MP the
+// world regenerates each boot anyway, so cycles are per-boot exactly like the hunts.
+function maybeRespawnKraken() {
+  if (!state.krakenRespawnDay || curDay() < state.krakenRespawnDay) return;
+  if (state.map !== 'overworld') return; // can only place the sea finale on the overworld; retry next day
+  if (!state.krakenArena) {
+    state.krakenRespawnDay = null;
+    return;
+  }
+  state.krakenCycle = (state.krakenCycle || 0) + 1;
+  state.flags.krakenDead = false;
+  state.krakenRespawnDay = null;
+  if (!state.enemies.some((e) => e.isKraken)) state.enemies.push(makeKraken(state.krakenArena.tx, state.krakenArena.ty));
+  log(
+    `★ The Mountain Kraken rises from the drowned deep once more — vaster and more terrible (Kraken cycle ${state.krakenCycle}).`,
+    'quest',
+  );
+  Sound.boss && Sound.boss();
+}
 function maybeRespawnLegion() {
   if (!state.legionRespawnDay || curDay() < state.legionRespawnDay) return;
   const L = state.legion;

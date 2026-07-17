@@ -228,4 +228,13 @@ function drawEnemy(e) {
     ctx.fillText((e.isNemesis ? '☠ ' : '') + e.name.toUpperCase(), sx + e.w / 2, sy - 10);
     ctx.textAlign = 'left';
   }
+  // #121/#123 — the apex LEVEL, made visible. Gated on e.level AND an apex flag (pinnacle/citadel/
+  // kraken/citadel-minion) so NO existing enemy — and no facing-noregress probe — gains a draw op.
+  if (e.level && (e.isPinnacle || e.isCitadel || e.isFinalBoss || e.isCitadelMinion)) {
+    ctx.fillStyle = e.color;
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Lv ' + e.level, sx + e.w / 2, sy - (e.isBoss ? 22 : 11));
+    ctx.textAlign = 'left';
+  }
 }

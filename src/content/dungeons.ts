@@ -105,4 +105,22 @@ export const DUNGEONS: DungeonRegistry = {
     if (r < 0.955) return 'cursed';
     return 'vault';
   },
+  // #121 — the Sunken Citadel: drowned black-glass halls, a distinct palette from the four delve
+  // themes. setupCitadelFloor forces floorMod null (a 'swarming' floor of lvl-90 elites is a wipe).
+  citadel: {
+    key: 'citadel',
+    name: 'the Sunken Citadel',
+    floor: '#12202a',
+    floor2: '#162834',
+    wall: '#20404e',
+    wall2: '#182f3a',
+    wall3: '#2a5464',
+    pit: '#08131a',
+    pit2: '#03080c',
+    pitKind: 'void',
+    pool: ['skeleton', 'charger', 'mage', 'archer', 'healer'],
+    accent: '#7fe0d0',
+  },
+  // Index BY FLOOR: 1→60, 2→75, 3→90 (trash ramp), 4→200 (the Drowned Archivist's room). Flat levels.
+  citadelLevels: [0, 60, 75, 90, 200],
 };

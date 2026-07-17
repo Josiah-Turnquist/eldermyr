@@ -271,6 +271,137 @@ export const SPECIALS: Record<SpecialKey, Special> = {
       }
     },
   },
+  // #121 — LEAP: the Archivist blinks to the aim point (never into a wall) and detonates a radial
+  // frost burst of PROJECTILES (party-wide by construction — reaches every delver via the dungeon
+  // cross-hit loop; a direct playerTakeDamage would hit only the bucketed duelist). The telegraph
+  // marker draws at the AIM POINT, not the boss centre (the first special to need that).
+  leap: {
+    wind: 40,
+    exec(e, a) {
+      const { px: pcx, py: pcy, sfx, addShake, spawnRing, addProjectile, findOpenTile, map, TILE } = a;
+      const ax = e.tele ? e.tele.aimX : pcx,
+        ay = e.tele ? e.tele.aimY : pcy;
+      const o = findOpenTile(map, Math.floor(ax / TILE), Math.floor(ay / TILE)); // never land in a wall
+      e.x = o.tx * TILE - (e.w - TILE) / 2;
+      e.y = o.ty * TILE - (e.h - TILE) / 2;
+      const cx2 = e.x + e.w / 2,
+        cy2 = e.y + e.h / 2;
+      const col = e.color || '#7fe0d0';
+      addShake(14);
+      spawnRing(cx2, cy2, col);
+      sfx.tone(60, 0.5, 'sawtooth', 0.28, { slideTo: 34 });
+      const n = 14;
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * 6.28;
+        addProjectile(cx2, cy2, Math.cos(ang) * 3.2, Math.sin(ang) * 3.2, Math.round(e.atk * 0.6), {
+          color: col,
+          r: 8,
+          life: 200,
+          element: 'frost',
+          ownerRef: e,
+        });
+      }
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max;
+      // the marker sits at the AIM POINT (screen space), not the boss — leap is the first to need it
+      const ax = sx + (e.tele.aimX - (e.x + e.w / 2)),
+        ay = sy + (e.tele.aimY - (e.y + e.h / 2));
+      d.strokeStyle = `rgba(127,224,208,${0.4 + 0.5 * fr})`;
+      d.lineWidth = 3;
+      d.beginPath();
+      d.arc(ax, ay, 40 * fr + 8, 0, 6.28);
+      d.stroke();
+      d.fillStyle = `rgba(60,160,150,${0.16 * fr})`;
+      d.beginPath();
+      d.arc(ax, ay, 40 * fr + 8, 0, 6.28);
+      d.fill();
+    },
+  },
+  // #121 — CASTVOLLEY: a fanned wall of frost bolts (the storm stance's zoning). Projectiles → all delvers.
+  castvolley: {
+    wind: 30,
+    exec(e, a) {
+      const ecx = e.x + e.w / 2,
+        ecy = e.y + e.h / 2;
+      const { px: pcx, py: pcy, sfx, addProjectile, addShake } = a;
+      sfx.cast();
+      const base = Math.atan2(pcy - ecy, pcx - ecx);
+      const n = 9;
+      for (let k = 0; k < n; k++) {
+        const ang = base + (k - (n - 1) / 2) * 0.24;
+        addProjectile(ecx, ecy, Math.cos(ang) * 3.4, Math.sin(ang) * 3.4, Math.round(e.atk * 0.7), {
+          color: '#7fe0d0',
+          r: 7,
+          life: 260,
+          element: 'frost',
+          ownerRef: e,
+        });
+      }
+      addShake(3);
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max,
+        cx = sx + e.w / 2,
+        cy = sy + e.h / 2;
+      const base = Math.atan2(e.tele.aimY - (e.y + e.h / 2), e.tele.aimX - (e.x + e.w / 2));
+      d.strokeStyle = `rgba(127,224,208,${0.35 + 0.5 * fr})`;
+      d.lineWidth = 2;
+      for (let k = -4; k <= 4; k++) {
+        const ang = base + k * 0.24;
+        d.beginPath();
+        d.moveTo(cx, cy);
+        d.lineTo(cx + Math.cos(ang) * 160 * fr, cy + Math.sin(ang) * 160 * fr);
+        d.stroke();
+      }
+    },
+  },
+  // #121 — RAISECOURT: the ordered-kill court of level-100 acolytes (reuses killEnemy's _pinRef/
+  // _orderIdx/_rezN resurrect verbatim — boss-agnostic, no new kill code). Only raises a fresh wave
+  // when the court is clear (gated on `_pinRef===e && hp>0`), matching raiseadds.
+  raisecourt: {
+    wind: 44,
+    exec(e, a) {
+      const ecx = e.x + e.w / 2,
+        ecy = e.y + e.h / 2;
+      const { sfx, addShake, log, findOpenTile, makeCitadelAdd, spawnBurst, TILE, map, enemies } = a;
+      if (!enemies.some((x) => x._pinRef === e && x.hp > 0)) {
+        const n = 3;
+        e._nextKill = 0;
+        for (let i = 0; i < n; i++) {
+          const ang = (i / n) * 6.28 + e.wobble;
+          const o = findOpenTile(map, Math.floor((ecx + Math.cos(ang) * 72) / TILE), Math.floor((ecy + Math.sin(ang) * 72) / TILE));
+          const add = makeCitadelAdd(e, o.tx, o.ty, i);
+          enemies.push(add);
+          spawnBurst(add.x + add.w / 2, add.y + add.h / 2, 12, { color: add.color, speed: 1.9, decay: 0.045 });
+        }
+        sfx.cast && sfx.cast();
+        addShake(3);
+        log('The Archivist raises its drowned court — cut them down in the ORDER they rose, or they rise again!', 'combat');
+      }
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max,
+        cx = sx + e.w / 2,
+        cy = sy + e.h / 2;
+      d.fillStyle = `rgba(90,176,168,${0.3 * fr})`;
+      d.beginPath();
+      d.arc(cx, cy, e.w * 0.95, 0, 6.28);
+      d.fill();
+      d.strokeStyle = `rgba(127,224,208,${0.4 + 0.5 * fr})`;
+      d.lineWidth = 2;
+      for (let s = 0; s < 3; s++) {
+        const ang = (s / 3) * 6.28 + e.wobble;
+        d.beginPath();
+        d.moveTo(cx, cy);
+        d.lineTo(cx + Math.cos(ang) * e.w * 0.9 * fr, cy + Math.sin(ang) * e.w * 0.9 * fr);
+        d.stroke();
+      }
+    },
+  },
 };
 
 // bossSpecials' pick table (p17:378). The p17 wrapper slices `base` (never mutating the

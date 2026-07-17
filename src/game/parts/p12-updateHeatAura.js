@@ -174,6 +174,15 @@ function killEnemy(e) {
     cy = e.y + e.h / 2;
   if (e.afxSplit && !e._splitChild) afxSplitDeath(e);
   gainXP(e.xp);
+  /* #121 EMBERHEART LOCKET: each kill grants +25% damage for ~2s, stacking to 3 (+75%). Scalars on
+     the killer (state.player is the killer here); playerDmgMul() reads them, updateStyleResources decays. */
+  if (state.player.uLocket) {
+    state.player._surgeN = Math.min(3, (state.player._surgeN || 0) + 1);
+    state.player._surgeT = 160;
+  }
+  /* #121 THE HUNDREDFOLD QUIVER: a Marked target's death refunds your shot (the Marks-transfer rides
+     the existing Quarry kill-chain below). Turns kill-chaining into a real ranged engine. */
+  if (state.player.uQuiver && e._markN) state.player.attackCooldown = 0;
   state.player.gold += Math.round(e.gold * (e.isBoss || e.isNemesis || e.dread ? dreadLootBonus() : 1));
   if (notableEnemy(e)) log(`${e.name} defeated! +${e.xp} XP, +${e.gold} gold.`, 'good');
   tryDropLoot(e);
@@ -204,8 +213,26 @@ function killEnemy(e) {
     }
     if (e.isFinalBoss) {
       state.flags.krakenDead = true;
+      // #123 — the finale RETURNS: schedule the kraken respawn cycle (the pinnacle precedent below —
+      // curDay()+N; maybeRespawnKraken clears krakenDead + bumps krakenCycle on that day).
+      if (!state.krakenRespawnDay) state.krakenRespawnDay = curDay() + (CONTENT.apex.kraken.respawnDays || 4);
+      // Victory is PER HERO. Every hero present at the kill flips the SHARED war outcome (main.done);
+      // a hero who hasn't won gets HIS finale edge — a champion's bounty + his own victory (SP overlay /
+      // MP client banner), fired ONCE. A cycle re-kill fires no second victory for a prior victor.
+      // partyIn()/actAs is the per-hero seam; SP is [state.player] (one iteration, byte-identical).
+      for (const pl of partyIn())
+        actAs(pl, () => {
+          const q = state.player.quests;
+          const firstWin = !!(q.finale && !q.finale.done);
+          if (q.main) q.main.done = true;
+          if (firstWin) {
+            q.finale.done = true;
+            state.player.gold += 5000; // champion's bounty, per first-time victor
+            log(`★ ${state.player.name || 'A hero'} has slain the Mountain Kraken — the realm's doom is broken!`, 'quest');
+            if (!state.players) victory(); // SP overlay on this hero's edge; MP banners client-side (server DOM stubbed + scene neutralized) — no double-fire
+          }
+        });
       saveGame();
-      victory();
     } else {
       if (state.map === 'dungeon') log('The way deeper lies open. How far can you go?', 'quest');
       saveGame();
@@ -235,6 +262,20 @@ function killEnemy(e) {
     addRep('wilds', -14);
     addRep('dread', 3);
     log(`★ ${e.name} is vanquished — an apex terror falls! The realm will sing of this day.`, 'quest');
+    // #121 — a slain apex terror OPENS the persistent gate to the Sunken Citadel (the drop). Stamped
+    // once, near where it fell (findOpenTile → a walkable overworld tile); it NEVER closes (persists on
+    // death, never consumed). World-shared + NOT persisted — a reboot regenerates it by re-kill (the
+    // krakenDead class). openCitadelGate is a no-op if the gate already stands.
+    openCitadelGate(e);
+  }
+  if (e.isCitadel) {
+    // #121 — the Drowned Archivist falls. Guaranteed clear reward for everyone present PLUS the
+    // per-player HIDDEN 1% relic roll (each hero rolls independently, direct to his own bag).
+    dropCitadelReward(e);
+    addRep('vigil', 12);
+    addRep('dread', 4);
+    state.citadelSlain = (state.citadelSlain || 0) + 1;
+    log('★ The Drowned Archivist is unmade — the Sunken Citadel falls silent at last. A realm-shaking deed.', 'quest');
   }
   /* PINNACLE kill: compute _pinFirst BEFORE the dedup push (else the drop would always see the key already slain), record the slain key, schedule the cycle respawn, drop the (Stage-B) reward, and log an EPIC line ('★'/'vanquished'/'falls') the Stage-C feed broadcast will pick up. Cycle bumps in maybeRespawnPinnacle. */ if (
     e.raidTown !== undefined &&
@@ -480,6 +521,17 @@ function playerTakeDamage(amount) {
   });
   log(`You take ${dmg} damage!`, 'combat');
   updateHUD();
+  /* #121 AEGIS OF THE NAMELESS: a killing blow leaves you at 1 HP instead — once per Citadel floor
+     (p.uAegis is the recalcStats flag; p._aegisT the once-per-floor latch, reset in setupCitadelFloor).
+     Sits ABOVE the death check so it works identically in SP death and the MP downed rewrap. */
+  if (p.hp <= 0 && p.uAegis && !p._aegisT) {
+    p.hp = 1;
+    p._aegisT = 1;
+    floatDamage(p.x + p.w / 2, p.y - 10, 'THE AEGIS HOLDS', '#7fe0d0');
+    log('✦ The Aegis of the Nameless flares — death is turned aside. You stand at 1 HP.', 'quest');
+    Sound.tone && Sound.tone(300, 0.4, 'sine', 0.16, { slideTo: 620 });
+    updateHUD();
+  }
   if (p.hp <= 0) {
     p.hp = 0;
     updateHUD();

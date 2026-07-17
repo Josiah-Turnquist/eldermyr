@@ -697,6 +697,7 @@ function onNewDayWorld() {
   maybeRespawnHunts();
   maybeRespawnLegion();
   maybeRespawnPinnacle();
+  maybeRespawnKraken(); // #123 — the finale returns on its own respawn-day cycle
 }
 function onNewDay() {
   // P2/S4 (#116) — the World/Hero split. The composition preserves the old body's exact call

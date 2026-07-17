@@ -99,6 +99,9 @@ const QUEST_TEMPLATE = {
   frozen: { name: 'Plunder the Frozen Cache', done: false, hidden: true },
   dragon: { name: 'Tame the Emberwyrm (Lv 20)', done: false, hidden: true },
   legion: { started: false, stage: 'none', camps: 0, sealstones: 0, villages: 0, seatRegion: -1 },
+  // #123 — the personal finale flag. Merged OVER the row, so an old character (no finale) loads with
+  // finale:{done:false} (never won → wins on his first kraken kill), a post-#123 row keeps his own.
+  finale: { done: false },
 };
 
 function clone(o) { return structuredClone(o); }

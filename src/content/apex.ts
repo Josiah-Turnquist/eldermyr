@@ -174,6 +174,33 @@ const PINNACLES: readonly ApexPinnacle[] = [
 export const APEX: ApexRegistry = {
   hunts: HUNTS,
   pinnacles: PINNACLES,
+  // #123 — The Mountain Kraken, the TRUE finale. FLAT base HP well above the pinnacle tier
+  // (the Drowned King as actually fought ≈ 9,500; this sits at 48k), no partyLvl term — makeKraken
+  // multiplies party-size/ascension/cycle on top and stamps `level` (drawn, rides packEnemy).
+  // atk is level-90-curve gentle (the 45% damage floor makes it lethal without one-shotting).
+  // respawnDays reuses the pinnacle respawn-day/cycle pattern (killEnemy schedules, maybeRespawnKraken
+  // revives harder & richer). Retune here, retune the finale.
+  kraken: { hp: 48000, atk: 130, def: 14, xp: 12000, gold: 12000, level: 90, respawnDays: 4 },
+  // #121 — The Drowned Archivist, the level-200 Sunken Citadel boss. FLAT stats (the validated
+  // §0.4 player-power math: LVL_HP(200)≈237k, atk 260, def 46 — a ~3.6-min ceiling-player fight that
+  // deletes a careless one in ~2.3 slams). stances re-point e.specials → three fighting styles with
+  // no AI rewrite (updateBoss already picks uniformly from e.specials). Retune the fight here.
+  archivist: {
+    key: 'archivist',
+    name: 'The Drowned Archivist',
+    color: '#7fe0d0',
+    level: 200,
+    hp: 240000,
+    atk: 260,
+    def: 46,
+    xp: 24000,
+    gold: 18000,
+    stances: {
+      blade: ['charge', 'leap', 'slam'], // melee pressure — chases, closes, punishes
+      storm: ['nova', 'castvolley', 'leap'], // ranged zoning — fills the room with bolts
+      grave: ['raisecourt', 'pullunder', 'slam'], // adds + control
+    },
+  },
   // The Emberwyrm's flat rung + the ONE source of its colour (makeWildDragon + drawPlayer's
   // mounted steed both derive every tone from this — recolour here, recolour both).
   dragonLevel: 30,

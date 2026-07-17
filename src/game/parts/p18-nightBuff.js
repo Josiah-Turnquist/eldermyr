@@ -610,6 +610,28 @@ function drawTile(t, sx, sy, biome) {
       ctx.font = '12px monospace';
       ctx.fillText('▼', sx + 12, sy + 12);
       break;
+    case T.CITADEL_GATE:
+      // #121 — a black-glass gate to the Sunken Citadel: a drowned arch over teal void.
+      ctx.fillStyle = '#3a4a44';
+      ctx.fillRect(sx, sy, TILE, TILE);
+      ctx.fillStyle = '#0a1a1e';
+      ctx.beginPath();
+      ctx.moveTo(sx + 5, sy + 30);
+      ctx.lineTo(sx + 5, sy + 13);
+      ctx.arc(sx + 16, sy + 13, 11, 3.14, 0);
+      ctx.lineTo(sx + 27, sy + 30);
+      ctx.fill();
+      ctx.fillStyle = '#0e6a60';
+      ctx.beginPath();
+      ctx.moveTo(sx + 10, sy + 30);
+      ctx.lineTo(sx + 10, sy + 15);
+      ctx.arc(sx + 16, sy + 15, 6, 3.14, 0);
+      ctx.lineTo(sx + 22, sy + 30);
+      ctx.fill();
+      ctx.fillStyle = '#7fe0d0';
+      ctx.font = '12px monospace';
+      ctx.fillText('✦', sx + 12, sy + 13);
+      break;
     case T.BRIDGE:
       ctx.fillStyle = '#2a5a9a';
       ctx.fillRect(sx, sy, TILE, TILE);

@@ -573,6 +573,12 @@ function tryInteract() {
           tryEnterDungeon();
           return;
         }
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++)
+        if (getTile('overworld', tx + dx, ty + dy) === T.CITADEL_GATE) {
+          tryEnterCitadel();
+          return;
+        }
   }
   if (state.map === 'dungeon') {
     for (let dy = -1; dy <= 1; dy++)
@@ -606,8 +612,30 @@ function tryEnterDungeon() {
     log('The Elder said it was lost out in the wild lands.', 'quest');
   }
 }
+// #121 — enter the Sunken Citadel through the persistent gate a slain pinnacle boss opened. No key
+// (the gate IS the drop); the run reuses the shared dungeon instance (state.citadel discriminates it
+// from a normal delve — see world.js dgKind). Exit returns to the gate tile.
+function tryEnterCitadel() {
+  resetFishing();
+  if (state.player.dragon.mounted) {
+    state.player.dragon.mounted = false;
+    recalcStats();
+  }
+  saveOverworld();
+  state.citadel = 1;
+  state.dungeonLevel = 1;
+  const g = state.citadelGate;
+  if (g) state.dungeonEntrance = { tx: g.tx, ty: g.ty }; // the ▲ back-out on tier 1 surfaces at the gate
+  setupCitadelFloor(1);
+  Sound.descend();
+  Sound.startMusic('dungeon');
+  log('✦ You pass through the black-glass gate into the Sunken Citadel — three drowned tiers, and a hall that has waited.', 'lore');
+  log('Descend ▼ to reach the Drowned Archivist. The way below opens only when the pinnacle terrors fall.', 'quest');
+  updateHUD();
+}
 function enterDungeon() {
   resetFishing();
+  if (state.citadel) state.citadel = 0; // a NORMAL delve is never a citadel — clear a stale flag ONLY if set (never create the key: keeps the golden's normal-delve shape)
   if (state.player.dragon.mounted) {
     state.player.dragon.mounted = false;
     recalcStats();

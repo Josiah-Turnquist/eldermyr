@@ -150,13 +150,20 @@ function makeKraken(tx, ty) {
   e.x = tx * TILE - 15;
   e.y = ty * TILE - 13;
   e.color = '#5566aa';
+  // #123 — the TRUE finale. FLAT base (no partyLvl term — the flat-levels doctrine); party-size HP,
+  // ascension, and the kraken respawn CYCLE multiply on top (the pinnacle spine, reduced to the
+  // finale's own knobs). Retune the numbers in src/content/apex.ts, not here.
+  const K = CONTENT.apex.kraken;
   const asc = 1 + (state.ascension || 0) * 0.2;
-  e.maxHp = Math.round(1500 * asc);
+  const cyc = state.krakenCycle || 0;
+  const pnh = 1 + (partyN() - 1) * 0.4; // party-size HP factor (kept per the finale spec)
+  e.maxHp = Math.round(K.hp * asc * pnh * (1 + cyc * 0.4));
   e.hp = e.maxHp;
-  e.atk = Math.round(34 * asc);
-  e.def = 12;
-  e.xp = 2500;
-  e.gold = 2500;
+  e.atk = Math.round(K.atk * asc * (1 + cyc * 0.15)); // atk stays gentle (the 45% damage floor)
+  e.def = K.def + cyc;
+  e.xp = Math.round(K.xp * (1 + cyc * 0.4));
+  e.gold = Math.round(K.gold * (1 + cyc * 0.4));
+  e.level = K.level; // 90 — flat, drawn via the boss Lv tag, rides packEnemy for free
   e.caster = true;
   e.specials = ['slam', 'nova', 'summon', 'charge'];
   e.specialCd = 130;

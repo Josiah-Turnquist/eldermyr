@@ -142,6 +142,43 @@ function generateDungeon(level) {
   }
   return { W, H };
 }
+// #121 — the Sunken Citadel floor generator (sibling of generateDungeon, so no `if (state.citadel)`
+// grenade lives in the normal delve path). Floors 1-3: a trash room + a down-stair (floor 1 also
+// keeps a back-out ▲). Floor 4: ONE big arena — no obstacles, no stairs, no vault; the boss stands
+// at centre. There is no RNG that can fail to place the boss room (spec §2.3). Only reached inside a
+// live citadel run (state.citadel), which the golden never enters.
+function generateCitadel(n) {
+  const W = 22,
+    H = 18;
+  const m = [];
+  for (let y = 0; y < H; y++) {
+    const row = [];
+    for (let x = 0; x < W; x++) row.push(x === 0 || y === 0 || x === W - 1 || y === H - 1 ? T.D_WALL : T.D_FLOOR);
+    m.push(row);
+  }
+  if (n < 4) {
+    const obstacles = 12 + n * 3;
+    for (let i = 0; i < obstacles; i++) {
+      const x = 2 + Math.floor(Math.random() * (W - 4)),
+        y = 3 + Math.floor(Math.random() * (H - 5));
+      if (x <= 5 && y <= 4) continue;
+      m[y][x] = Math.random() < 0.5 ? T.D_WALL : T.D_PIT;
+    }
+    for (let y = 1; y <= 4; y++) for (let x = 1; x <= 5; x++) m[y][x] = T.D_FLOOR;
+    maps.dungeon = m;
+    const dp = findOpenTile('dungeon', W - 3, H - 3);
+    clearAround(m, dp.tx, dp.ty);
+    m[dp.ty][dp.tx] = T.D_DESCEND;
+    if (n === 1) {
+      const up = findOpenTile('dungeon', 2, H - 3);
+      clearAround(m, up.tx, up.ty);
+      m[up.ty][up.tx] = T.D_EXIT; // a way back topside before you commit to the deep
+    }
+  } else {
+    maps.dungeon = m; // floor 4: the empty arena; setupCitadelFloor places the boss at centre
+  }
+  return { W, H };
+}
 
 // ================= ENTITIES =================
 function makeEnemy(tx, ty, type) {

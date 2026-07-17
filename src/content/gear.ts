@@ -305,6 +305,46 @@ const uniques: Record<string, Unique> = {
     defMul: 1.15,
     uniqDesc: 'Stand still ~1.5s to cloak until you act.',
   },
+  // #121 — the five Sunken Citadel relics (per-player hidden 1% from the Drowned Archivist). Each is a
+  // build-CHANGING effect read from a recalcStats-derived p.u* scalar in combat — never a gear-read
+  // (the v2.56 iron rule: MP combat may not swap S.inventory, so a live equippedWeapon() could hit the
+  // wrong bag). makeUnique builds them at legendary tier with no changes.
+  sunderking: {
+    slot: 'weapon',
+    style: 'melee',
+    name: "Sunderking's Edge",
+    atkMul: 1.25,
+    cd: 22,
+    uniqDesc: 'At 5 Momentum your riposte never closes — every hit a guaranteed crit. Bleed a pip and it shuts.',
+  },
+  hundredfold: {
+    slot: 'weapon',
+    style: 'ranged',
+    name: 'The Hundredfold Quiver',
+    atkMul: 1.22,
+    cd: 24,
+    uniqDesc: "A Marked target's death hurls ALL its Marks to the nearest foe and refunds your shot.",
+  },
+  chainbreaker: {
+    slot: 'weapon',
+    style: 'magic',
+    element: 'fire',
+    name: 'Chainbreaker Coil',
+    atkMul: 1.2,
+    uniqDesc: 'Your Heat never falls below the aura threshold, and aura strikes chain to 2 more foes.',
+  },
+  namelessaegis: {
+    slot: 'armor',
+    name: 'Aegis of the Nameless',
+    defMul: 1.25,
+    uniqDesc: 'A blow that would kill you leaves you at 1 HP instead. Once per Citadel floor.',
+  },
+  emberheart: {
+    slot: 'armor',
+    name: 'Emberheart Locket',
+    defMul: 1.18,
+    uniqDesc: 'Each kill grants +25% damage for ~2s, stacking to 3 (+75%).',
+  },
 };
 
 // genWeapon's selection pools (the "gen name pools"): a style is picked from genStyles, an

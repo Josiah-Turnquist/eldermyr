@@ -242,6 +242,10 @@ export interface DungeonRegistry {
   readonly floorMods: Record<FloorModKey, FloorMod>;
   readonly vault: DungeonVault;
   pickFloorMod(r: number): FloorModKey | null;
+  /** #121 — the Sunken Citadel (pinnacle dungeon): its own theme + the flat floor-level ladder
+   * (index by floor: 1→60, 2→75, 3→90 trash; 4→the L200 boss room). No floor mods. */
+  readonly citadel: DungeonTheme;
+  readonly citadelLevels: readonly number[];
 }
 
 // ============================================================================================
@@ -262,7 +266,7 @@ export interface DungeonRegistry {
 
 /** The six boss-special keys — the execBossSpecial branch set (p17) and the p20 telegraph
  * chain. bossSpecials picks a subset onto `e.specials`; updateBoss draws one at random. */
-export type SpecialKey = 'slam' | 'charge' | 'nova' | 'summon' | 'pullunder' | 'raiseadds';
+export type SpecialKey = 'slam' | 'charge' | 'nova' | 'summon' | 'pullunder' | 'raiseadds' | 'leap' | 'castvolley' | 'raisecourt';
 
 /** The live telegraph on a winding-up boss (startBossSpecial seeds it; drawTele reads it). */
 export interface SpecialTele {
@@ -302,12 +306,13 @@ export interface SpecialSpawn {
  * write — `dash`/`_nextKill` are written (charge sets the lunge, raiseadds resets the kill
  * cursor); the rest are read. */
 export interface BossActor {
-  readonly x: number;
-  readonly y: number;
+  x: number; // writable: #121 leap teleports the boss (the first special to move e.x/e.y directly)
+  y: number;
   readonly w: number;
   readonly h: number;
   readonly atk: number;
   readonly wobble: number;
+  readonly color?: string; // #121 leap/castvolley tint their burst/telegraph by the boss's stance colour
   readonly pinKey?: string;
   readonly tele: SpecialTele | null;
   dash: { vx: number; vy: number; t: number } | null;
@@ -377,6 +382,7 @@ export interface SpecialActView {
   findOpenTile(map: string, tx: number, ty: number): { tx: number; ty: number };
   makeDungeonEnemy(tx: number, ty: number, lvl: number): SpecialSpawn;
   makePinnacleAdd(boss: BossActor, isKing: boolean, tx: number, ty: number, i: number): SpecialSpawn;
+  makeCitadelAdd(boss: BossActor, tx: number, ty: number, i: number): SpecialSpawn; // #121 raisecourt
   getTile(layer: string, tx: number, ty: number): number;
   floatDamage(x: number, y: number, text: string, color: string): void;
   log(msg: string, cls: string): void;
@@ -497,12 +503,47 @@ export interface ApexPinnacle {
   readonly drops: ApexPinnacleDrops;
 }
 
+/** The Mountain Kraken — the TRUE finale (#123). Flat base stats above the pinnacle tier;
+ * makeKraken multiplies party-size/ascension/cycle on top and stamps the flat `level`. The
+ * `respawnDays` knob drives the pinnacle-style respawn cycle (killEnemy sets krakenRespawnDay =
+ * curDay()+respawnDays; maybeRespawnKraken bumps krakenCycle and clears krakenDead). */
+export interface ApexKraken {
+  readonly hp: number;
+  readonly atk: number;
+  readonly def: number;
+  readonly xp: number;
+  readonly gold: number;
+  readonly level: number;
+  readonly respawnDays: number;
+}
+
+/** The Drowned Archivist — the level-200 Sunken Citadel boss (#121). FLAT: no partyLvl term
+ * (makeCitadelBoss multiplies party-size/ascension/cycle on top). `stances` swap `e.specials`
+ * (the existing updateBoss picks uniformly from it, so re-pointing the array IS the whole "fighting
+ * styles" mechanic). def is the §0.2 sweet spot (46 — 95% of baseline player damage, off the cliff). */
+export interface ApexArchivist {
+  readonly key: string;
+  readonly name: string;
+  readonly color: string;
+  readonly level: number;
+  readonly hp: number;
+  readonly atk: number;
+  readonly def: number;
+  readonly xp: number;
+  readonly gold: number;
+  readonly stances: { readonly blade: readonly string[]; readonly storm: readonly string[]; readonly grave: readonly string[] };
+}
+
 /** The apex registry: the two ordered tables (arrays — the aliases GREAT_HUNTS/PINNACLE_BOSSES
  * keep .find/.length/for-of semantics) plus the flat-level and arena/leash tuning constants
  * the pinnacle factory + hazard read. */
 export interface ApexRegistry {
   readonly hunts: readonly ApexHunt[];
   readonly pinnacles: readonly ApexPinnacle[];
+  /** The Mountain Kraken finale (#123) — flat stats + respawn-cycle knob (makeKraken reads). */
+  readonly kraken: ApexKraken;
+  /** The Drowned Archivist — the L200 Sunken Citadel boss (#121; makeCitadelBoss reads). */
+  readonly archivist: ApexArchivist;
   /** The Emberwyrm's flat rung + its one colour source (makeWildDragon + drawPlayer's steed). */
   readonly dragonLevel: number;
   readonly dragonColor: string;

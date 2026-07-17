@@ -441,6 +441,7 @@ function execBossSpecial(e, name, pcx, pcy) {
     findOpenTile,
     makeDungeonEnemy,
     makePinnacleAdd,
+    makeCitadelAdd,
     getTile,
     floatDamage,
     log,
@@ -449,14 +450,16 @@ function execBossSpecial(e, name, pcx, pcy) {
 function updateBoss(e, dist, pcx, pcy) {
   const ecx = e.x + e.w / 2,
     ecy = e.y + e.h / 2;
-  if (e.isPinnacle && pinnacleHazard(e, pcx, pcy))
-    return; /* arena shrink + out-of-ring drowning/dark on the acting player; returns true only when it steered the boss home (player abandoned the arena) so normal AI is skipped this tick */
+  if ((e.isPinnacle || e.isCitadel) && pinnacleHazard(e, pcx, pcy))
+    return; /* #121: the Citadel boss shares the shrinking-arena hazard; returns true only when it steered the boss home (player abandoned the arena) so normal AI is skipped this tick */
+  if (e.isCitadel) citadelBossPhase(e, pcx, pcy); /* #121: stance rotation + phase transitions (court waves, enrage) — no AI rewrite, just re-points e.specials */
   if (e.tele) {
     e.tele.t--;
     if (e.tele.t <= 0) {
       execBossSpecial(e, e.tele.name, pcx, pcy);
       e.tele = null;
       e.specialCd = 150 + Math.floor(Math.random() * 120);
+      if (e.isCitadel && e._enrage) e.specialCd = Math.round(e.specialCd * 0.6); /* #121 phase 3: relentless */
     }
     return;
   }

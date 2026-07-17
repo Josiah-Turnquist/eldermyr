@@ -43,6 +43,9 @@ function applySnapshot(s) {
   p._lastStyle = null;
   /* Pillar 1: old saves default all style resources to 0/off */ p.cloaked = false;
   p._stillT = 0;
+  p._aegisT = 0; // #121 citadel-relic transients default off on load (Aegis latch + Locket surge)
+  p._surgeT = 0;
+  p._surgeN = 0;
   /* Pillar 2 Gravewool: transient cloak state — old saves default off (u* effect flags are re-derived by recalcStats below) */ p.dir =
     'down';
   state.allies = [];
@@ -103,6 +106,8 @@ function applySnapshot(s) {
   state.pinnacleSlain = s.pinnacleSlain || [];
   state.pinnacleCycle = s.pinnacleCycle || 0;
   state.pinnacleRespawnDay = s.pinnacleRespawnDay || null;
+  state.krakenCycle = s.krakenCycle || 0; // #123 — old saves lack these → 0/null (finale never cycled)
+  state.krakenRespawnDay = s.krakenRespawnDay || null;
   state._pinCheckT = 0;
   state.uniquesFound = s.uniquesFound || [];
   /* old saves lack these → default []/0/null (Pinnacle bosses + chase-unique tracking for the Trophy Wall) */ state.legionCycle =
@@ -327,6 +332,8 @@ function startGame() {
   state.pinnacleSlain = [];
   state.pinnacleCycle = 0;
   state.pinnacleRespawnDay = null;
+  state.krakenCycle = 0; // #123 — fresh start: the finale has not yet cycled
+  state.krakenRespawnDay = null;
   state._pinCheckT = 0;
   state.uniquesFound = [];
   state.legionCycle = 0;
@@ -603,4 +610,19 @@ function recalcStats() {
   p.uFrostNova = !!(a && a.uniq === 'tidecalleraegis' && !isBroken(a));
   p.uBell = !!(w && w.uniq === 'shepherdsbell' && !isBroken(w));
   p.uCloak = !!(a && a.uniq === 'gravewoolcloak' && !isBroken(a));
+  /* #121 CITADEL RELICS — the same recalcStats-derived flag rule (never a combat-time gear read).
+     They ride `me` via safeClone (no client adoption); a broken relic loses its magic. LAZY-created
+     (set true only when the relic is equipped, cleared if it was ever set) so a hero who never holds
+     one keeps the key ABSENT — the golden windows never equip these, so the recorded state shape holds
+     byte-for-byte (plan §3: "nothing recorded reads the absent keys"). */
+  if (w && w.uniq === 'sunderking' && !isBroken(w)) p.uEdge = true;
+  else if (p.uEdge) p.uEdge = false;
+  if (w && w.uniq === 'hundredfold' && !isBroken(w)) p.uQuiver = true;
+  else if (p.uQuiver) p.uQuiver = false;
+  if (w && w.uniq === 'chainbreaker' && !isBroken(w)) p.uCoil = true;
+  else if (p.uCoil) p.uCoil = false;
+  if (a && a.uniq === 'namelessaegis' && !isBroken(a)) p.uAegis = true;
+  else if (p.uAegis) p.uAegis = false;
+  if (a && a.uniq === 'emberheart' && !isBroken(a)) p.uLocket = true;
+  else if (p.uLocket) p.uLocket = false;
 }

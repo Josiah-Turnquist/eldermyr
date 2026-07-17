@@ -763,3 +763,93 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   it UNTOUCHED (999999→999999) while present+following, then damaged it once PAID (→999776) — 0 console errors.
   typecheck clean, world self-test green. GAME_VERSION unbumped (v3.0.0 cutover). P3 backlog: F3 (#123 kraken
   finale) + F4a-c (#121 citadel) remain.
+- 2026-07-16: P3/F3 DONE — #123 THE MOUNTAIN KRAKEN FINALE (the SECOND designed re-record, per plan §3): the
+  finale is now real. NEW `apex.kraken` entry (src/content/apex.ts + ApexKraken type) = FLAT base 48,000 HP /
+  atk 130 / def 14 / xp+gold 12,000 / level 90 / respawnDays 4 — well above the pinnacle tier (Drowned King as
+  fought ≈9,500); makeKraken (p22) reads it and multiplies party-size (×(1+(partyN()-1)*0.4)) + ascension +
+  krakenCycle on top (no partyLvl term — the flat doctrine), stamps `level` (rides packEnemy → drawn). VICTORY
+  ONCE PER HERO via a NEW PERSONAL quest key `quests.finale{done}` (game literal p01 + migrate.js QUEST_TEMPLATE,
+  the drift-guard forced both in step) — deliberately NOT in aliasSharedQuests, so main.done stays the SHARED war
+  outcome while finale.done is each hero's own: killEnemy's isFinalBoss branch (p12) is now `for(pl of partyIn())
+  actAs(pl, …)` → each present hero who hasn't won flips finale.done, banks a 5,000 champion's bounty, logs the
+  ★ line (FEED_BROADCAST-picked), and in SP fires victory() on his own edge (MP: client banners, `!state.players`
+  gates the overlay — no server DOM, no double-fire); a cycle re-kill fires no second victory for a prior victor.
+  RESPAWN CYCLE (pinnacle precedent): killEnemy schedules krakenRespawnDay=curDay()+4; NEW maybeRespawnKraken
+  (p14) joins onNewDayWorld (p13) — clears the now-NON-permanent krakenDead + bumps krakenCycle + respawns
+  harder/richer. krakenCycle/krakenRespawnDay persist in SP save (p06)/load+reset (p07), lazily 0/null (pinnacle
+  shape). CAPTURE += makeKraken (test factory, like makePinnacleBoss/makeGreatBeast). DESIGNED RE-RECORD, BOTH
+  oracles: divergence evidence BEFORE re-record — (a) native check FAILs @sample 0 (the safe direction, 0/8 +
+  0/4); (b) a temp env-gated masking serializer (hide `finale` everywhere incl. inside the `_qJson` quest-payload
+  cache + the two new-at-t0 world keys krakenCycle/krakenRespawnDay, restore the kraken's pre-F3 golden stats)
+  reproduces BOTH old oracles BYTE-FOR-BYTE (8/8 + 4/4) — proving the ONLY deltas are the two DESIGNED changes;
+  (c) a structural per-sample leaf-diff (old dist vs new dist) enumerates EXACTLY: +finale on each hero's quests
+  (+ inside _qJson), the ONE undamaged kraken enemy's hp/maxHp 1500→48000 · atk 34→130 · def 12→14 · xp/gold
+  2500→12000 · +level, and krakenCycle/krakenRespawnDay at t0 — NO position/RNG/other-entity drift (risk #7
+  clear; the kraken wanders identically since the retune adds zero draws). Masking scaffolding then REMOVED,
+  both oracles re-recorded NATIVE (v2.59.2 stamp). FRESH TEETH on the new baselines: full prove + mp-prove ALL
+  GREEN — determinism, speed/damage cascade@0, and the day-boundary HUNT control still diverges EXACTLY @700
+  (maybeRespawnKraken's early-return adds zero footprint at the boundary), seed variance. Battery 48→49: NEW
+  `kraken-finale-verify` (39 asserts: flat/party/cycle-scaled HP+atk+level, level-on-wire, 2-hero both-win-once,
+  per-hero champion bounty, main shared, respawn day+cycle+HP scaling, PRIOR-VICTOR no-second-victory, ABSENT
+  hero doesn't win + wins his own first later, projectile kill credits each PRESENT hero's OWN box, ★ broadcast
+  to the other feed, migrate finale default/preserve) — the once-per-hero gate SEEN FAILING (37/39) vs a scratch
+  dist with the `firstWin` guard removed (a prior victor wrongly re-collected +5000). migrate-roundtrip drift
+  guard 158 green (finale in QUEST_TEMPLATE); full battery 49/49; typecheck + world self-test + build green.
+  LIVE SP browser smoke: the Mountain Kraken renders with a 48k boss HP bar; killEnemy → VICTORY overlay + feed
+  "★ A hero has slain the Mountain Kraken — the realm's doom is broken!" + gold +17000 (12000 kill + 5000
+  bounty) + krakenRespawnDay set. GAME_VERSION unbumped (v3.0.0 cutover). NOTE: the SP victory() overlay copy
+  still reads "Morthrax the Deathless" (pre-existing — the screen predates the kraken-as-finale; cosmetic, out
+  of this slice). P3 backlog: F4a-c (#121 citadel) remain.
+- 2026-07-16: P3/F4 DONE — #121 THE SUNKEN CITADEL (pinnacle dungeons; F4a shell + F4b Archivist + F4c relics,
+  built as ONE slice, ORACLES HELD BYTE-IDENTICAL throughout — every citadel path is dead code on the golden
+  trajectories, which never enter one). OWNER OVERRIDES applied: no LVL_HP retune of shipped bosses; the drop is
+  a persistent GATE (not a 1% key) + a per-player HIDDEN 1% unique roll on the boss; entrance PERSISTS on death.
+  F4a (shell): a slain pinnacle OPENS `state.citadelGate{tx,ty}` — a T.CITADEL_GATE tile stamped near the corpse
+  (findOpenTile) + the world-shared coord on the snapshot (mp.html adopts + stamps it into the client grid, since
+  the join-time overworld grid predates the mid-session tile flip); world-shared, NOT persisted (a reboot
+  regenerates it by re-kill — the krakenDead class); openCitadelGate is a no-op once it stands (never re-placed,
+  never consumed → persists on death). [E] on the gate → tryEnterCitadel (no key — the gate IS the drop). REUSES
+  the shared dungeon instance: `state.citadel` (0/1) → WORLD_SLOTS (§2.4 — descend() branches on it, so it MUST
+  ride the swap; the entry peel resets the OVERWORLD's flag to 0 so no phantom Citadel leaks across a world
+  swap), `this.dgKind` ('dungeon'|'citadel') on World with THREE guards (a normal-door [E] into a live Citadel is
+  refused + undone; a rift refuses to join a Citadel; dgKind clears at both dissolve sites). setupCitadelFloor/
+  generateCitadel siblings of the dungeon pair (floorMod FORCED null — a swarming lvl-90 floor is a wipe): floors
+  1-3 = flat lvl 60/75/90 trash + a down-stair (floor 1 keeps a ▲); floor 4 = the boss arena (no stairs/vault).
+  descend() reuses state.dungeonLevel 1→4 (the MP party-descend-together path works unchanged). snap.citadel →
+  Citadel HUD. F4b (the boss): `apex.archivist` entry = FLAT level 200 / 240k HP / atk 260 / def 46 (§0.4
+  validated math); makeCitadelBoss multiplies party-size(0.7)/asc/cycle on top; STANCES (blade/storm/grave) swap
+  e.specials (re-pointing the array IS the fighting-style mechanic — updateBoss already picks uniformly, zero AI
+  rewrite); PHASES on hp/maxHp thresholds raise a wave of 3 lvl-100 ordered-kill acolytes (makeCitadelAdd reuses
+  killEnemy's _pinRef/_orderIdx/_rezN resurrect VERBATIM) + enrage; THREE new specials in src/content/specials.ts
+  (leap — blinks to the aim point, never into a wall, radial frost PROJECTILE burst so it hits ALL delvers;
+  castvolley; raisecourt) each with the wind+exec+drawTele triad (a missing telegraph is a TYPE error); the
+  (isPinnacle||isCitadel) shrinking-arena hazard; the apex "Lv N" tag drawn (gated on e.level && apex flags — no
+  existing enemy or facing-noregress probe gains a draw op; facing-noregress normalizes e.level off, guards ART).
+  F4c (relics): 5 build-changing uniques in gear.ts (Sunderking's Edge/Hundredfold Quiver/Chainbreaker Coil/Aegis
+  of the Nameless/Emberheart Locket), each a recalcStats-derived p.u* FLAG (never a combat-time gear read — the
+  MP wrong-bag trap) — LAZY-created (absent until equipped, so the golden's player shape holds byte-for-byte);
+  effects at their one seam each (Aegis cheat-death → 1 HP once/floor above the death check; Locket kill-surge via
+  playerDmgMul; Edge riposte-lock at 5 Momentum; Coil heat-floor; Quiver shot-refund). PER-PLAYER HIDDEN 1% roll
+  on Archivist death: `for(pl of partyIn()) actAs(pl, () => if(rng()<0.01) bag a style-matched relic direct to
+  HIS bag)` — no ground pickup (no sniping), no pity, invisible to others; everyone present also gets a guaranteed
+  +6000 + two floor legendaries. CAPTURE += tryEnterCitadel/setupCitadelFloor/generateCitadel/openCitadelGate/
+  makeCitadelBoss/makeCitadelAdd/makeUnique/dropCitadelReward. ORACLES: golden 8/8 + mp 4/4 BYTE-IDENTICAL by
+  BOTH-RUNS IDENTITY on the F3 baselines (state.citadel/citadelGate/the u* flags stay ABSENT in the golden
+  windows; the boot leak — enterDungeon/exitDungeon setting state.citadel=0 unconditionally — was caught by the
+  golden dropping to 6/8 and fixed to `if (state.citadel)` so the key is never CREATED on a normal delve). Battery
+  49→50: NEW `citadel-verify` (55 asserts: gate drop/persistence/tile/snapshot, floors 1-4 shape + lvl + floorMod/
+  vault null, Archivist L200 flat stats + 3 stances + 3 phases + lvl-100 court + leap-in-bounds + arena shrink +
+  packScalar shape [phase/stance/arenaR/level ride, specials array drops], PER-PLAYER roll independence [id-stub:
+  A-hit-B-miss → A gets sunderking + B untouched; reverse; both → each his own style relic in his own bag], relic
+  flags flip/break-clear + Aegis cheat-death + Locket surge, MP dgKind guard [a keyed stranger refused at the
+  normal door while the Citadel stands], wipe → gate persists + instance dissolves) — the per-player INDEPENDENCE
+  SEEN FAILING vs a scratch dist with the roll made SHARED (one roll bags the whole party → B wrongly gets a
+  relic). content-purity 5n repinned (4→9 uniques); specials-draw-verify → 9 specials + leap/castvolley/raisecourt
+  op-counts (6/36/15); facing-noregress art-only (Lv tag normalized). Full battery 50/50; typecheck + world
+  self-test + build green. LIVE SP browser smoke: pinnacle kill → the black-glass gate opens; [E] → the Sunken
+  Citadel floor 1 (lvl-60 trash, floorMod null); descend → the boss room renders THE DROWNED ARCHIVIST with a
+  "Lv 200" tag + HP bar, surrounded by three "Lv 100" Drowned Acolytes (the phase-2 court), all levels shown.
+  GAME_VERSION unbumped (v3.0.0 cutover). ARCHITECTURE note (P4): WORLD_SLOTS gains `citadel`; `this.dgKind` +
+  3 guards join the instancing invariant; the party-wide hazard now covers isCitadel; the telegraph-draw chain
+  is the documented extension point (a special without drawTele is a type error). P3 BACKLOG CLEARED — F1/F2/F3/
+  F4 all shipped through the registries; only S-final (the CONTENT.md cookbook) remains before P4 cutover.

@@ -502,6 +502,45 @@ function setupDungeonFloor(level) {
   state.map = 'dungeon';
   saveGame(false);
 }
+// #121 — the Sunken Citadel floor setup (sibling of setupDungeonFloor; spec §2.3). floorMod is FORCED
+// null (no wipe-generating mods on lvl-90 elites); floors 1-3 are a flat trash ramp (lvl 60/75/90) with
+// a down-stair; floor 4 is the boss room. Only reached inside a live citadel run (state.citadel), which
+// the golden never enters — so every citadel path is dead code on the recorded trajectories.
+function setupCitadelFloor(n) {
+  state.dungeonThemeData = CONTENT.dungeons.citadel;
+  state.floorMod = null;
+  const { W, H } = generateCitadel(n);
+  const sp = findOpenTile('dungeon', 2, 2);
+  state.player.x = sp.tx * TILE;
+  state.player.y = sp.ty * TILE;
+  state.projectiles = [];
+  particles.length = 0;
+  arcs.length = 0;
+  __g.shake = 0;
+  __g.hurtFlash = 0;
+  setupCompanions();
+  state.enemies = [];
+  const lvl = CONTENT.dungeons.citadelLevels[n] || 90;
+  if (n < 4) {
+    const count = 5 + n * 2;
+    for (let i = 0; i < count; i++) {
+      const o = findOpenTile('dungeon', 2 + Math.floor(Math.random() * (W - 4)), 3 + Math.floor(Math.random() * (H - 4)));
+      if (Math.abs(o.tx - sp.tx) < 2 && Math.abs(o.ty - sp.ty) < 2) continue;
+      const e = makeDungeonEnemy(o.tx, o.ty, lvl);
+      e.isCitadelMinion = true;
+      e.level = lvl; // flat, drawn via the boss/citadel Lv tag, rides packEnemy
+      state.enemies.push(e);
+    }
+  } else {
+    const bp = findOpenTile('dungeon', Math.floor(W / 2), Math.floor(H / 2));
+    if (typeof makeCitadelBoss === 'function') state.enemies.push(makeCitadelBoss(bp.tx, bp.ty)); // F4b fills the room
+  }
+  state.pickups = [];
+  state.npcs = [];
+  state.map = 'dungeon';
+  state.player._aegisT = 0; // #121 Aegis of the Nameless: the cheat-death latch resets each Citadel floor
+  saveGame(false);
+}
 function saveOverworld() {
   state.owSave = { enemies: state.enemies, pickups: state.pickups, npcs: state.npcs, pois: state.pois };
 }
@@ -622,6 +661,8 @@ function snapshot() {
     pinnacleSlain: [...(state.pinnacleSlain || [])],
     pinnacleCycle: state.pinnacleCycle || 0,
     pinnacleRespawnDay: state.pinnacleRespawnDay || null,
+    krakenCycle: state.krakenCycle || 0, // #123 — finale respawn cycle (pinnacle precedent)
+    krakenRespawnDay: state.krakenRespawnDay || null,
     uniquesFound: [...(state.uniquesFound || [])],
     legionCycle: state.legionCycle || 0,
     legionRespawnDay: state.legionRespawnDay || null,

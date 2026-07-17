@@ -249,7 +249,7 @@ const RPC_OK = new Set([
 // singleton "world slots" that differ between the two contexts; we stash/restore them around
 // each dungeon player so N heroes can each be in a separate dungeon (or the overworld) without
 // corrupting the shared world or one another. Dungeons stay SOLO for now.
-const WORLD_SLOTS = ['map', 'enemies', 'pickups', 'npcs', 'projectiles', 'dungeonLevel', 'dungeonEntrance', 'dungeonThemeData', 'floorMod', 'vault'];   // 'vault' (the Key Vault side-room {x,y,opened}) is set per-FLOOR by generateDungeon, so it is a world slot like floorMod/dungeonThemeData — without it a dungeon's vault leaks into the shared overworld and survives every swap (setupDungeonFloor reads state.vault to place the vault chest and to log "A rune-sealed VAULT slumbers on this floor…", so a stale value misplaces loot or logs a phantom). Benign-looking today only because openKeyVault re-checks the T.D_DOOR tile before acting.
+const WORLD_SLOTS = ['map', 'enemies', 'pickups', 'npcs', 'projectiles', 'dungeonLevel', 'dungeonEntrance', 'dungeonThemeData', 'floorMod', 'vault', 'citadel'];   // 'vault' (the Key Vault side-room {x,y,opened}) is set per-FLOOR by generateDungeon, so it is a world slot like floorMod/dungeonThemeData — without it a dungeon's vault leaks into the shared overworld and survives every swap (setupDungeonFloor reads state.vault to place the vault chest and to log "A rune-sealed VAULT slumbers on this floor…", so a stale value misplaces loot or logs a phantom). Benign-looking today only because openKeyVault re-checks the T.D_DOOR tile before acting. 'citadel' (#121: 0/1 — is THIS instance the Sunken Citadel?) is the same class: descend() branches on it, so it MUST ride the swap or the overworld would think it's a citadel (or the flag vanish mid-run). Absent (never set) until a citadel is entered, so the golden — which never enters one — keeps its shape.
 function grabWorld() { const w = {}; for (const k of WORLD_SLOTS) w[k] = S[k]; w.md = G.maps.dungeon; return w; }
 function putWorld(w) { for (const k of WORLD_SLOTS) S[k] = w[k]; G.maps.dungeon = w.md; }
 function lightPlayer(p) { return { id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h, dir: p.dir, moving: !!p.moving, animFrame: p.animFrame | 0, hp: Math.round(Math.max(0, p.hp)), maxHp: Math.round(p.maxHp), level: p.level, skin: p.skin | 0, downed: !!p.downed, reviveFrac: p.downed ? (p.reviveFrac || 0) : 0, beingRevived: !!p.beingRevived, sailing: !!p.sailing, mounted: !!(p.dragon && p.dragon.mounted), auraEl: p._auraEl || 0, heat: p._auraEl ? Math.round(p.heat || 0) : 0 }; }   // auraEl = the element a heated elemental staff is radiating (else 0) → teammates can draw the glow; heat rides alongside (only while auraing) so their glow scales/pulses ∝ Heat exactly like the caster's own self-pulsate
@@ -260,6 +260,7 @@ class World {
     this.players = new Map();          // id -> player object
     this._seq = 0;
     this.sharedDg = null;              // THE party dungeon: one shared instance; first enterer creates it, others join
+    this.dgKind = null;                // #121: 'dungeon' | 'citadel' — which kind the live sharedDg is, so a normal-door [E] can't teleport a stranger into an open Citadel (and vice versa). Cleared wherever sharedDg is nulled.
     this.dgSpawn = null;               // current floor's entry point (joiners + descends spawn here)
     // quest-state version is PER-PLAYER (p._qN / p._qJson / p._qSeen, seeded in addPlayer): quests are a
     // per-player slice now, so a single room-wide counter would have stamped players[0]'s quests for everyone.
@@ -363,6 +364,7 @@ class World {
     const dx = this.rift.x - p.x, dy = this.rift.y - p.y;
     if (dx * dx + dy * dy > 80 * 80) return;                          // must be standing on it
     const joining = !!this.sharedDg;                                  // a delve already open → JOIN it (no key)
+    if (joining && this.dgKind === 'citadel') { _logbuf.push({ m: 'The rift recoils from the Sunken Citadel — you cannot breach it from here. Use the gate.', c: 'combat', id: p.id }); return; }   // #121 guard 2: a rift must never drop you into a live Citadel
     if (joining && !this.rift.party) return;                          // a solo run isn't joinable
     if (!joining && (p.inventory.keys | 0) <= 0) { _logbuf.push({ m: 'The rift will not open without a KEY — find one first.', c: 'combat', id: p.id }); return; }
     const deep = this.rift.deep, party = this.rift.party;
@@ -655,7 +657,16 @@ class World {
           let threw = false;
           try { G.tryInteract(); } catch (_e2) { threw = true; }   // a throw mid-enter must NOT skip the world restore below (same leak shape as the dungeon phase)
           if (!inDungeon && threw && S.map !== 'dungeon' && owBase) { putWorld(owBase); S.projectiles = projBefore; for (const [c, cx3, cy3] of compPos) { c.x = cx3; c.y = cy3; } }   // failed mid-enter → fully restore the overworld (no-op if nothing was swapped)
-          if (!inDungeon && S.map === 'dungeon') {           // just ENTERED the dungeon
+          if (!inDungeon && S.map === 'dungeon') {           // just ENTERED the dungeon (or the Citadel)
+            const thisKind = S.citadel ? 'citadel' : 'dungeon';   // #121: which kind did this [E] just build?
+            if (this.sharedDg && this.dgKind !== thisKind) {
+              // #121 MISMATCH GUARD: a normal-door [E] while the Citadel stands open (a stranger would be
+              // teleported into a live Citadel with no business there), or a gate [E] while a normal delve
+              // runs. Undo the entry — restore the overworld and leave the hero topside.
+              if (owBase) { putWorld(owBase); S.projectiles = projBefore; for (const [c, cx3, cy3] of compPos) { c.x = cx3; c.y = cy3; } }
+              _logbuf.push({ m: this.dgKind === 'citadel' ? 'The way below is sealed while the Sunken Citadel stands open.' : 'A delve is already underway — the Citadel gate will not open until it clears.', c: 'combat', id: p.id });
+              break;
+            }
             if (this.sharedDg) {
               // party dungeon already live → JOIN it: discard the floor the game just built
               // and drop this hero at the shared instance's floor entrance.
@@ -664,11 +675,13 @@ class World {
               // first one in → CREATE the shared instance (p stands at the floor entrance)
               this.sharedDg = grabWorld();
               this.dgSpawn = { x: p.x, y: p.y };
+              this.dgKind = thisKind;                          // #121: the instance's kind is fixed at creation
             }
             p.map = 'dungeon'; p._mapSwitchN = (p._mapSwitchN || 0) + 1;
             // peel the shared overworld back into S (saveOverworld stashed it into owSave on entry)
             if (S.owSave) { S.enemies = S.owSave.enemies; S.pickups = S.owSave.pickups; S.npcs = S.owSave.npcs; if (S.owSave.pois) S.pois = S.owSave.pois; }
             S.map = 'overworld';
+            S.citadel = owBase ? (owBase.citadel || 0) : 0;  // #121: the entry set S.citadel=1 and grabWorld captured it INTO sharedDg — the peeled overworld must carry the overworld's flag (0), or it leaks a phantom Citadel across every world swap (the WORLD_SLOTS §2.4 hazard)
             S.projectiles = projBefore;                      // the overworld keeps its REAL in-flight bullets — without this both worlds ALIAS one array and overworld shots die against the dungeon grid
             // per-owner delving: the ENTERER's own alive, un-posted warband delves WITH them (keep the setupCompanions
             // teleport, re-seat near p at the floor entrance, tag map='dungeon'); everyone else's warband stays topside.
@@ -1078,11 +1091,11 @@ class World {
           this._downedPass(stillIn);                       // downed & revive work INSIDE the dungeon too
         }
         this.sharedDg = stillIn.filter((p) => p.map === 'dungeon').length ? grabWorld() : null;   // save the evolved floor, or dissolve when empty
-        if (!this.sharedDg) this.dgSpawn = null;
+        if (!this.sharedDg) { this.dgSpawn = null; this.dgKind = null; }   // #121 guard 3: the Citadel/dungeon kind clears with the instance
       } finally {
         putWorld(owBase);                                  // ALWAYS restore the shared overworld for everyone else
       }
-    } else if (!dgAll.length && this.sharedDg) { this.sharedDg = null; this.dgSpawn = null; }   // stragglers gone (disconnects) → dissolve
+    } else if (!dgAll.length && this.sharedDg) { this.sharedDg = null; this.dgSpawn = null; this.dgKind = null; }   // stragglers gone (disconnects) → dissolve (#121: clear kind too)
 
     // SAFETY: with no live delve, no recruit may linger tagged 'dungeon' (owner bled out / left, or the instance
     // dissolved). Force any straggler topside near its owner so it can't idle invisibly in a dead world-slot.
@@ -1204,7 +1217,8 @@ class World {
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
       rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, party: !!this.rift.party, open: !!this.sharedDg, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift (party=blue co-op)
     };
-    if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; snap.floorMod = W.floorMod ? safeClone(W.floorMod) : null; }   // floor modifier (👑/🐀/☠/🏦) → client dungeon HUD tag
+    if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; snap.floorMod = W.floorMod ? safeClone(W.floorMod) : null; snap.citadel = W.citadel | 0; }   // floor modifier (👑/🐀/☠/🏦) → client dungeon HUD tag; #121 snap.citadel → the client knows this delve is the Sunken Citadel
+    if (S.citadelGate) snap.citadelGate = { tx: S.citadelGate.tx, ty: S.citadelGate.ty };   // #121: the world-shared gate a slain pinnacle opened — already-connected clients stamp+render it (the join-time overworld grid can't carry a mid-session tile flip)
     // quest state rides along only when it changed since this client last got it (shared questline)
     // event feed: your own messages + epic broadcasts you haven't seen (bottom-left log)
     if ((me._feedSeen | 0) < this.feedN) {

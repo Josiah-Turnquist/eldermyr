@@ -123,8 +123,10 @@ const CAPTURE = [
   'makeElite', 'rollEliteAffixes', 'afxHit', 'enemyStrike', 'statusDamage', 'tryDropLoot',   // elite affixes (Pillar 3): spawn/drive/verify affixed elites headlessly
   'makeGreatBeast', 'makeWildEnemy', 'distFactor',   // world-scaling tests (#2/#16)
   'maybePinnacleBosses', 'PINNACLE_BOSSES', 'makePinnacleBoss', 'dropPinnacleReward',   // Pillar 2 pinnacle bosses: the room drives maybePinnacleBosses() from the shared phase; the table/generator/reward are captured for tests + future rescale
+  'makeKraken',   // #123: the finale factory — captured for the kraken-finale battery (spawn on demand), like makePinnacleBoss/makeGreatBeast
 
   'enterDungeon', 'setupDungeonFloor',   // ephemeral deep-dungeon rifts (#14)
+  'tryEnterCitadel', 'setupCitadelFloor', 'generateCitadel', 'openCitadelGate', 'makeCitadelBoss', 'makeCitadelAdd', 'makeUnique', 'dropCitadelReward',   // #121 pinnacle dungeons: the room's enter/floor/gate seams + the L200 boss & lvl-100 court factories + the relic builder/drop (tests drive these; interact routes [E]→tryInteract)
   'loadOverworld', 'saveOverworld',   // to UNDO a dungeon entry (it flips the SHARED map + freezes everyone else)
   'curDay', 'isExhausted',   // per-player fatigue (MP rework: personal rest, no time skip)
   'distFactor', 'regionOf', 'rectDist', 'stepToward',

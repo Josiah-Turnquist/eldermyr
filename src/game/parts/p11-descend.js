@@ -1,4 +1,20 @@
 function descend() {
+  // #121 — the Sunken Citadel descends on its own ladder (reuses state.dungeonLevel 1→4, so the MP
+  // party-descend-together path works unchanged). No Delver's Insight / theme-cross lines here.
+  if (state.citadel) {
+    if (state.dungeonLevel >= 4) return; // no stairs exist on floor 4 anyway — belt & braces
+    state.dungeonLevel++;
+    setupCitadelFloor(state.dungeonLevel);
+    Sound.descend();
+    log(
+      state.dungeonLevel === 4
+        ? 'The stair ends. Ahead: a drowned hall, and something that has waited an age.'
+        : `You descend deeper into the Sunken Citadel — tier ${state.dungeonLevel}.`,
+      'lore',
+    );
+    updateHUD();
+    return;
+  }
   const prevTheme = dungeonTheme(state.dungeonLevel);
   const prevMax = state.player.maxDepth; /* P2/S12: player-carried — Delver's Insight pays each hero's OWN first visit */
   state.dungeonLevel++;
@@ -21,6 +37,7 @@ function descend() {
 }
 function exitDungeon() {
   resetFishing();
+  if (state.citadel) state.citadel = 0; // #121 — clear the citadel flag ONLY if set (never create the key on a normal-delve exit — the golden's shape holds; the overworld gate persists regardless)
   const de = state.dungeonEntrance;
   state.player.x = de.tx * TILE;
   state.player.y = (de.ty - 1) * TILE;
@@ -451,8 +468,13 @@ function doDodge() {
 }
 function playerDmgMul() {
   const p = state.player;
-  return 1 + (p.berserk > 0 ? p.berserk * (1 - p.hp / p.maxHp) : 0) + 0.03 * (p.momentum || 0);
-} // MOMENTUM folds in here: each melee pip +3% dmg (0 for ranged/magic — they never build it), so ALL player damage keeps one multiplier.
+  return (
+    1 +
+    (p.berserk > 0 ? p.berserk * (1 - p.hp / p.maxHp) : 0) +
+    0.03 * (p.momentum || 0) +
+    (p._surgeT > 0 ? 0.25 * (p._surgeN || 0) : 0)
+  );
+} // MOMENTUM folds in here: each melee pip +3% dmg (0 for ranged/magic — they never build it), so ALL player damage keeps one multiplier. #121 Emberheart Locket: +25%/kill-surge stack (all styles) folds in the SAME multiplier.
 function execMul(e) {
   const p = state.player;
   return p.exec > 0 && e && e.maxHp && e.hp / e.maxHp < 0.3 ? 1 + p.exec : 1;
@@ -492,6 +514,17 @@ function updateStyleResources() {
     p._markShowT = 0;
   } // weapon-style swap (or load) → reset the other styles' transients
   if (p.riposteT > 0) p.riposteT--;
+  /* #121 CITADEL RELIC transients (recalcStats-derived flags, no gear read):
+     · Emberheart Locket surge decays (clears the stack at 0).
+     · Sunderking's Edge: at 5 Momentum the riposte window never closes → every hit a guaranteed crit
+       (meleeSwing consumes riposteT). Bleed a pip (Momentum<5) and it shuts.
+     · Chainbreaker Coil: Heat never falls below the aura threshold (40) while a magic weapon is held. */
+  if (p._surgeT > 0) {
+    p._surgeT--;
+    if (p._surgeT <= 0) p._surgeN = 0;
+  }
+  if (p.uEdge && (p.momentum || 0) >= 5) p.riposteT = Math.max(p.riposteT || 0, 2);
+  if (p.uCoil && st === 'magic') p.heat = Math.max(p.heat || 0, 40);
   if (st === 'melee') {
     if (p.momentum > 0) {
       p._momoDecay = (p._momoDecay || 0) + 1;

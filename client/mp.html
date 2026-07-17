@@ -1028,7 +1028,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // per-player map: the shared overworld OR your own private dungeon (server sends the grid on switch)
     if (snap.dgTiles && G.maps) G.maps.dungeon = snap.dgTiles;
     if (snap.map && S.map !== snap.map) { if (snap.map !== 'dungeon' || (G.maps && G.maps.dungeon)) S.map = snap.map; }   // never flip INTO the dungeon before its grid exists — renderWorld's maps.dungeon[0] would throw (frame guard below is the backstop)
-    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; S.floorMod = snap.floorMod || null; }   // floor modifier (👑/🐀/☠/🏦) → dungeon HUD tag
+    if (snap.map === 'dungeon') { S.dungeonLevel = snap.dgLevel || 1; if (snap.dgTheme) S.dungeonThemeData = snap.dgTheme; S.floorMod = snap.floorMod || null; S.citadel = snap.citadel || 0; }   // floor modifier (👑/🐀/☠/🏦) → dungeon HUD tag; #121 S.citadel → Sunken Citadel HUD
+    // #121: the world-shared Citadel gate (a slain pinnacle opened it). Stamp it into THIS tab's overworld
+    // grid so it renders + [E]-resolves even for a client connected before the pinnacle fell (the join grid
+    // predates the tile flip). state.X field → an explicit adopt line (the LESSON that bit twice).
+    if (snap.citadelGate && G.maps && G.maps.overworld) { S.citadelGate = snap.citadelGate; const gr = G.maps.overworld[snap.citadelGate.ty]; if (gr) gr[snap.citadelGate.tx] = G.T.CITADEL_GATE; }
     S.enemies = snap.enemies || [];
     S.pickups = snap.pickups || [];
     S.projectiles = snap.proj || [];

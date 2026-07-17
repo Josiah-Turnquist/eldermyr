@@ -124,6 +124,7 @@ const FACTORY = { dragon: () => G.makeWildDragon(20, 20), kraken: () => G.makeKr
 for (const type of ['slime', 'bat', 'skeleton', 'mage', 'charger', 'archer', 'healer', 'serpent', 'dragon', 'kraken', 'boss']) {
   const e = FACTORY[type] ? FACTORY[type]() : G.makeEnemy(20, 20, type);
   e.x = S.camera.x + 200; e.y = S.camera.y + 200; e.hitFlash = 0; e.tele = null; e.wobble = 1; e.hp = e.maxHp;
+  e.level = 0;   // #121/#123: this suite guards creature ART, not the apex "Lv N" HUD tag (a draw-op the kraken now carries via makeKraken's level:90). Normalize it off both sides so the comparison stays art-only.
   if (type === 'charger') { e.chargeState = 2; e.dvx = 3; }   // dvx>0 = running RIGHT: the shipped case the smear fix must not disturb
   e._faceL = 0;
   out[type] = grab(() => G.drawEnemy(e));
