@@ -90,7 +90,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'renderLegion'];   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'renderLegion', 'weaponCd'];   // 'weaponCd' (v3.1.2) → the EXACT melee attack cadence (haste/prof/custom-cd) so the predicted swing arc re-fires at the weapon's real rate — the game's own fn, not a client-side formula mirror (equippedWeapon is already a CAPTURE symbol)   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   // Dual-path (P1d): the rebuilt artifact (dist/eldermyr.html) ends by defining
@@ -798,6 +798,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // in server-ticks; predDodgeGuardUntil = perf.now() past which the >64 px hard-snap re-arms (the
   // lunge + a short grace — a big err during the lunge is the lunge's own broadcast lag, not a desync).
   const predDodge = { t: 0, vx: 0, vy: 0 }; let predDodgeGuardUntil = 0;
+  // v3.1.2 — PREDICTED MELEE SWING: the swing ARC (drawPlayer, gated on p.attacking>0) is PURELY
+  // COSMETIC — the hitbox is 100% server-side (meleeSwing in tryAttack), and state.player on the client
+  // is only the RENDER copy, so a client-set attacking moves only the drawn arc, never damage. We mirror
+  // tryAttack's `attacking = 12` locally so the arc flashes on frame 1 (was ~one round-trip late), decays
+  // over the same 12 ticks, and re-fires at the weapon's real weaponCd cadence while attack is held. We
+  // then OWN the local arc from this mirror (ignoring the delayed snap.me.attacking) so there is never a
+  // second, server-driven arc. LOCAL player only — remotes keep server-driven rendering. predAtkCd = the
+  // local cooldown mirror; predAtkDir = the aimed direction captured at swing start.
+  let predAttacking = 0, predAtkCd = 0, predAtkDir = null;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
   let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
   // client-side TIMELINE INTERPOLATION (v3.0.1): remote entities only get new positions at the
@@ -1061,6 +1070,11 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
       }
     }
+    // v3.1.2 — decay the PREDICTED MELEE SWING clocks each frame, in the SAME ticks-per-frame units the
+    // walk/dodge use (_step), so the arc animates over the server's 12-tick swing and the re-fire cadence
+    // tracks weaponCd. (The trigger + the arc drive live in the adopt block below, where state.player is fresh.)
+    if (predAttacking > 0) predAttacking = Math.max(0, predAttacking - _step);
+    if (predAtkCd > 0) predAtkCd = Math.max(0, predAtkCd - _step);
     // adopt authoritative state, but render MY player at the predicted position
     let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
     try {   // guard adopt + remote-entity smoothing: one malformed snapshot field must not permanently kill the frame loop (parallels the reconcile try/catch above)
@@ -1068,6 +1082,18 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     const _pq = S.player.quests;   // P2/S13: same carry for the QUESTLINE — it lives ON the player but never rides `me` (safeClone skips it; it arrives via the version-gated quest payload / welcome seed), so the wholesale adopt below would blank the quest box every frame
     S.player = snap.me;
     S.player.x = pred.x; S.player.y = pred.y;
+    // v3.1.2 — drive the LOCAL melee swing arc from the predicted mirror (cosmetic only — damage is
+    // server-side in meleeSwing). Melee only (ranged/magic render a projectile, handled by v3.1.1 _tproj).
+    if (snap.me._lastStyle === 'melee') {   // server-authoritative style, on the wire
+      if (held._atk && predAtkCd <= 0 && G.state.scene === 'play' && !(snap.me.downed || snap.me.camping)) {   // would-attack this frame AND the local cooldown mirror is ready → start a predicted swing
+        predAttacking = 12;                                                    // tryAttack (p11): melee p.attacking = 12
+        try { predAtkCd = (G.weaponCd && (G.weaponCd(G.equippedWeapon && G.equippedWeapon()) || 0)) || 22; } catch (_e) { predAtkCd = 22; }   // the weapon's REAL cadence (haste/prof/custom cd) via the game's own weaponCd — reads the adopted state.player/inventory; base-22 fallback
+        let _d = snap.me.dir; if (held.w) _d = 'up'; else if (held.s) _d = 'down'; if (held.a) _d = 'left'; else if (held.d) _d = 'right';   // aim from held keys (a/d over w/s, server order), else facing
+        predAtkDir = _d;
+      }
+      S.player.attacking = predAttacking;                                      // arc is driven ONLY by the mirror; snap.me.attacking (delayed) is overwritten here → no second, server-driven arc a round-trip later
+      if (predAttacking > 0 && predAtkDir) S.player.dir = predAtkDir;          // point the arc where you aimed, from frame 1 (drawPlayer reads state.player.dir, UNCHANGED)
+    }
     S.player.wayfind = localWayfind;   // P2/S6: wayfind lives ON the player, so this wholesale adopt would stomp the [O] pref with the server's save-default every snapshot — re-stamp the tab-local value (drawWayfinder/minimap read state.player.wayfind)
     if (localShop) { S.player.activeShopTown = localShop.town; S.player.activeShopName = localShop.name; S.player.activeStock = localShop.stock; }   // P2/S9: same inversion for the shop session — activeStock never rides `me` (safeClone skips it), so the adopt above would blank the open panel's stock; re-stamp the shopData copy (town/name ride `me` too, but the local session is authoritative on this tab)
     S.player.bounty = _pb || null;   // P2/S12: re-stamp the last adopted contract (adoptQuests stamps it in ws.onmessage — the S6 wayfind inversion, carried across the adopt instead of a second local). maxDepth needs no line: it rides `me` (~15 B), so the wholesale adopt above IS its adoption — the old explicit S.maxDepth root adopt died with the move (risk #7), and the gated copy still repaints the box on the FIRST snapshot via adoptQuests.

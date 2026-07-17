@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v3.1.2',
+    date: '2026-07-17',
+    title: 'Blade swings now flash the instant you attack, tracking your body as you move',
+    notes: [
+      'Your melee swing appears the moment you press attack, instead of a fraction of a second later. The arc now flashes on the first frame — pointed where you aimed — and follows your hero as you move, so fighting on the run feels connected.',
+      'The hit itself still lands on the server exactly as before — this changes only how quickly the swing is drawn on your screen, never what it does. Damage, reach and timing are unchanged.',
+      'While you hold attack, swings keep pace with your weapon’s real speed, so faster blades flash faster and nothing strobes or double-flashes.',
+      'This completes the set from the last update: your dodge, your shots and now your swings are all drawn the instant you act, while everyone else stays smooth.',
+    ],
+  },
+  {
     version: 'v3.1.1',
     date: '2026-07-17',
     title: 'Your own moves feel instant again — dodges, shots and swings no longer lag behind you',
