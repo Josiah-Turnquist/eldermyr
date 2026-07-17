@@ -625,15 +625,9 @@ function dreadLootBonus() {
 function buyPrice(c) {
   return Math.max(1, Math.round(c * (1 - vigilDiscount())));
 }
-const NEMESIS_NAMES = [
-  'Grukk the Render',
-  'Sythe Blackmaw',
-  'Karzul Ironjaw',
-  'Vexa the Cruel',
-  'Mordrek Skullsplitter',
-  'Threx Gravecaller',
-];
-const NEMESIS_TITLES = ['the Hunter', 'the Relentless', 'the Vengeful', 'the Terror', 'Bane of Eldermyr'];
+// P3/S10: nemesis names + titles live in src/content/tables.ts (CONTENT.tables.nemesis); positional aliases.
+const NEMESIS_NAMES = CONTENT.tables.nemesis.names;
+const NEMESIS_TITLES = CONTENT.tables.nemesis.titles;
 
 // ---- time / day-night ----
 function curDay() {

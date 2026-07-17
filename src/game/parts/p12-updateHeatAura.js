@@ -367,10 +367,9 @@ function floatDamage(x, y, amount, color) {
 }
 // Slower early leveling: a front-loaded surcharge (up to +45% at L1) fades to 0 by L7+, so the early game is a
 // deliberate ramp while the mid/late curve is unchanged (the base geometric curve matches the old one from L7 on).
+// P3/S11: the XP curve lives in src/content/curves.ts (CONTENT.curves.xpForLevel); positional-alias wrapper.
 function xpForLevel(L) {
-  let base = 22;
-  for (let i = 2; i <= L; i++) base = Math.floor(base * 1.58) + 6;
-  return Math.round(base * (1 + Math.max(0, (0.45 * (7 - L)) / 6)));
+  return CONTENT.curves.xpForLevel(L);
 }
 function gainXP(amount) {
   const p = state.player;

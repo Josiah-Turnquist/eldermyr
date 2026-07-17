@@ -88,67 +88,12 @@ function clearAround(m, tx, ty) {
       if (y > 0 && x > 0 && y < m.length - 1 && x < m[0].length - 1) m[y][x] = T.D_FLOOR;
     }
 }
-// Dungeon 2.0 — themed floor sets cycle by depth, each with its own palette, enemy pool, and hazard flavor.
-const DUNGEON_THEMES = [
-  {
-    key: 'catacombs',
-    name: 'The Catacombs',
-    floor: '#2a2832',
-    floor2: '#322f3c',
-    wall: '#4a4452',
-    wall2: '#3a3542',
-    wall3: '#544e5e',
-    pit: '#1a1820',
-    pit2: '#0a080e',
-    pitKind: 'pit',
-    pool: ['skeleton', 'skeleton', 'bat', 'slime', 'archer'],
-    accent: '#9a90b0',
-  },
-  {
-    key: 'caverns',
-    name: 'Sunken Caverns',
-    floor: '#2c2a22',
-    floor2: '#37322a',
-    wall: '#52483a',
-    wall2: '#3e3528',
-    wall3: '#60543e',
-    pit: '#15120b',
-    pit2: '#080603',
-    pitKind: 'pit',
-    pool: ['charger', 'slime', 'bat', 'charger', 'skeleton'],
-    accent: '#c0a060',
-  },
-  {
-    key: 'inferno',
-    name: 'The Inferno',
-    floor: '#3a201a',
-    floor2: '#46241a',
-    wall: '#5a3024',
-    wall2: '#42201a',
-    wall3: '#6e382a',
-    pit: '#7a2210',
-    pit2: '#ff5a14',
-    pitKind: 'lava',
-    pool: ['charger', 'skeleton', 'mage', 'charger', 'charger'],
-    accent: '#ff7838',
-  },
-  {
-    key: 'abyss',
-    name: 'The Abyss',
-    floor: '#1e1a2e',
-    floor2: '#262038',
-    wall: '#3a2e54',
-    wall2: '#2a2240',
-    wall3: '#463a64',
-    pit: '#0a0814',
-    pit2: '#000000',
-    pitKind: 'void',
-    pool: ['mage', 'archer', 'mage', 'skeleton', 'healer'],
-    accent: '#b070ff',
-  },
-];
+// Dungeon 2.0 — themed floor sets cycle by depth, each with its own palette, enemy pool, and hazard
+// flavor. P3/S8: the theme table + the depth index live in src/content/dungeons.ts (CONTENT.dungeons);
+// p03 keeps positional aliases — p18 (drawDungeon) reads DUNGEON_THEMES[0], p10/p11 read dungeonTheme().
+const DUNGEON_THEMES = CONTENT.dungeons.themes;
 function dungeonTheme(level) {
-  return DUNGEON_THEMES[Math.floor((level - 1) / 3) % DUNGEON_THEMES.length];
+  return CONTENT.dungeons.theme(level);
 }
 function generateDungeon(level) {
   const theme = state.dungeonThemeData || dungeonTheme(level);
@@ -173,8 +118,9 @@ function generateDungeon(level) {
   }
   for (let y = 1; y <= 4; y++) for (let x = 1; x <= 5; x++) m[y][x] = T.D_FLOOR;
   // Key Vault — a sealed 5×5 side-room with a rune door; a Dungeon Key opens it (v2.31.0)
+  // P3/S8: minLevel/odds are registry knobs (CONTENT.dungeons.vault); the draw stays here.
   state.vault = null;
-  if (level >= 2 && Math.random() < 0.4) {
+  if (level >= CONTENT.dungeons.vault.minLevel && Math.random() < CONTENT.dungeons.vault.odds) {
     const vx = 7 + Math.floor(Math.random() * (W - 14)),
       vy = 6 + Math.floor(Math.random() * (H - 12));
     for (let y = vy - 2; y <= vy + 2; y++)
@@ -283,11 +229,12 @@ function makeWildEnemy(tx, ty, biome) {
   const e = makeEnemy(tx, ty, type);
   const biomeMul = frozen ? 1.3 : lava ? 1.6 : 1;
   // Distance→difficulty via diffMul(df): easier CORE (~0.71×) → fast climb → gentle mid plateau → STEEP Frontier ramp (~4× at the edge).
-  const f = (1 + (lvl - 1) * 0.26) * biomeMul * diffMul(df);
+  // P3/S11: the stat/reward FACTORS are curves.ts fns (wildStat/wildReward); Math.round + the biomeMul/diffMul draws stay here.
+  const f = CONTENT.curves.wildStat(lvl, biomeMul, diffMul(df));
   e.maxHp = Math.round(e.maxHp * f);
   e.hp = e.maxHp;
   e.atk = Math.round(e.atk * f);
-  const rew = biomeMul * (1 + df * 1.0 + df * df * 1.3);
+  const rew = CONTENT.curves.wildReward(biomeMul, df);
   e.xp = Math.round(e.xp * rew);
   e.gold = Math.round(e.gold * rew);
   if (frozen) e.frost = true;
@@ -303,12 +250,13 @@ function makeDungeonEnemy(tx, ty, level) {
   for (const g of CONTENT.dungeons.poolGrowth) if (level >= g.minLevel) pool = pool.concat([g.add]);
   const type = pool[Math.floor(Math.random() * pool.length)];
   const e = makeEnemy(tx, ty, type);
-  const f = (1 + (level - 1) * 0.4) * (1 + (state.ascension || 0) * 0.2);
+  // P3/S11: dungeon stat factor + the grind-premium multipliers are curves.ts (dungeonStat/dungeonXpMul/dungeonGoldMul).
+  const f = CONTENT.curves.dungeonStat(level, state.ascension || 0);
   e.maxHp = Math.round(e.maxHp * f);
   e.hp = e.maxHp;
   e.atk = Math.round(e.atk * f);
-  e.xp = Math.round(e.xp * f * 1.4);
-  e.gold = Math.round(e.gold * f * 1.25);
+  e.xp = Math.round(e.xp * f * CONTENT.curves.dungeonXpMul);
+  e.gold = Math.round(e.gold * f * CONTENT.curves.dungeonGoldMul);
   if (theme && theme.key === 'inferno') e.lava = true;
   return e;
 } // dungeon pays a grind premium: +40% XP, +25% gold over the surface
@@ -324,8 +272,10 @@ function makeDungeonBoss(tx, ty, level) {
   ];
   const name = level <= names.length ? names[level - 1] : 'Abyssal Horror +' + (level - names.length);
   const b = makeBoss(tx, ty);
-  const asc = 1 + (state.ascension || 0) * 0.2;
-  const f = (1 + (level - 1) * 0.55) * asc;
+  // P3/S11: the ascension multiplier + boss level factor are curves.ts (ascMul/dungeonBossStat); `asc`
+  // stays a local (reused for atk); the base stat literals (90/12+level*2.2/4+level/100/200) stay here.
+  const asc = CONTENT.curves.ascMul(state.ascension || 0);
+  const f = CONTENT.curves.dungeonBossStat(level, asc);
   b.maxHp = Math.round(90 * f);
   b.hp = b.maxHp;
   b.atk = Math.round((12 + level * 2.2) * asc);
@@ -361,11 +311,8 @@ function makePickup(tx, ty, kind, value) {
 // ================= POINTS OF INTEREST — frontier content =================
 // Optional objectives seeded across the Marches & Frontier rings: clear the guardians to claim the spoils.
 // Each fills the bigger map with a reason to venture out. (Phase-2 questline hooks in via onPoiCleared.)
-const POI_KINDS = {
-  camp: { name: 'Legion War-Camp', mark: '#ff5040' },
-  keep: { name: 'Ruined Keep', mark: '#c8b8ff' },
-  village: { name: 'Razed Village', mark: '#f0c060' },
-};
+// P3/S10: POI kinds live in src/content/tables.ts (CONTENT.tables.poi); positional alias (read by p03/p04/p05/p21).
+const POI_KINDS = CONTENT.tables.poi;
 __g.poiSeq = 0;
 function findWildTileInBand(lo, hi) {
   for (let i = 0; i < 240; i++) {

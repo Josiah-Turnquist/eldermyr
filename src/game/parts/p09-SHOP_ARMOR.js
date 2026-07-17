@@ -410,13 +410,9 @@ function doTravel(i) {
   saveGame();
 }
 // ================= DYNAMIC ECONOMY — trade goods, regional prices =================
-const TRADE_GOODS = {
-  furs: { name: 'Furs', base: 40, icon: '🦊' },
-  grain: { name: 'Grain', base: 14, icon: '🌾' },
-  spice: { name: 'Spice', base: 60, icon: '🧂' },
-  ore: { name: 'Ore', base: 34, icon: '⛏' },
-};
-const FORAGE_VALUE = { herb: 8, berry: 7, mushroom: 9, fish: 12 };
+// P3/S10: trade goods + forage sell prices live in src/content/tables.ts; positional aliases.
+const TRADE_GOODS = CONTENT.tables.trade;
+const FORAGE_VALUE = CONTENT.tables.foods.forageValue;
 function townEcon(i) {
   const E = [
     { ex: 'grain', dm: 'spice' },

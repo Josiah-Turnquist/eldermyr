@@ -341,28 +341,9 @@ function renderCompanions() {
 // Crossing one of the 9 named regions fades in a banner; a subtle screen tint eases between the rings'
 // moods (warm Vale / windswept Marches / ash Frontier); and one Realm-stone per region holds a line of
 // lore — reading a new one pays +40 XP and counts toward "Realm-stones discovered" (persisted loreFound).
-const REGION_SUBS = [
-  'wolf-haunted hills where the realm frays',
-  'frozen barrens — the cold keeps its dead',
-  'storm-scoured peaks of the far north',
-  'contested marches west of the Vale',
-  'the green heart of the realm — safe hearths',
-  'wild woods where the roads grow thin',
-  'mists and black water — few return',
-  'open steppes ruled by fang and claw',
-  "ash and ember — the Legion's cradle",
-];
-const LORE_TEXTS = [
-  'Beyond the western peaks a drowned god stirs. Only wings may cross; only fools may knock.',
-  "The Frost Titan's heart never thawed. The snows are its slow breathing.",
-  'The Storm Roc nests where lightning is born, not where it strikes.',
-  'Hawthorn, Iron, Moss — three banners fell in one night. Raise them again.',
-  'Eldermyr stands because the Vale forgets slowly and forgives slower.',
-  'The wilds keep tally. Every beast slain is a debt the forest remembers.',
-  'The Sundered Sea did not sunder itself. Ask the Leviathan what it fled.',
-  'Sealstones sleep in ruined keeps — wards of an older war, waiting.',
-  'The Emberwyrm is not the fire’s master. It is the fire’s prisoner.',
-];
+// P3/S10: region subtitles + lore live in src/content/tables.ts (CONTENT.tables.regions); positional aliases.
+const REGION_SUBS = CONTENT.tables.regions.subs;
+const LORE_TEXTS = CONTENT.tables.regions.lore;
 __g._bannerTimer = null;
 __g._bannerUntil = 0;
 function showRegionBanner(title, sub) {

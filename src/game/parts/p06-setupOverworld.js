@@ -366,21 +366,14 @@ function setupOverworld() {
   }
   state.map = 'overworld';
 }
-// Floor modifiers — each descent past depth 1 may roll a twist, so the grind stays fresh (v2.29.0)
-const FLOOR_MODS = {
-  gilded: { icon: '👑', name: 'Gilded Floor', desc: 'the very walls glitter — riches abound' },
-  swarming: { icon: '🐀', name: 'Swarming Floor', desc: 'a horde stirs — many foes, but frail' },
-  cursed: { icon: '☠', name: 'Cursed Floor', desc: 'mighty foes guard a richer prize' },
-  vault: { icon: '🏦', name: 'Treasure Vault', desc: 'a hoard beyond counting' },
-};
+// Floor modifiers — each descent past depth 1 may roll a twist, so the grind stays fresh (v2.29.0).
+// P3/S8: FLOOR_MODS + the weight ladder live in src/content/dungeons.ts; p06 keeps a positional alias
+// (p22 HUD + the log below read FLOOR_MODS[fm]). The `level < 2` guard + the single draw stay HERE —
+// pickFloorMod maps the ALREADY-DRAWN r, so the RNG count/order is byte-identical.
+const FLOOR_MODS = CONTENT.dungeons.floorMods;
 function rollFloorMod(level) {
   if (level < 2) return null;
-  const r = Math.random();
-  if (r < 0.55) return null;
-  if (r < 0.685) return 'gilded';
-  if (r < 0.82) return 'swarming';
-  if (r < 0.955) return 'cursed';
-  return 'vault';
+  return CONTENT.dungeons.pickFloorMod(Math.random());
 }
 function setupDungeonFloor(level) {
   state.dungeonThemeData = dungeonTheme(level);

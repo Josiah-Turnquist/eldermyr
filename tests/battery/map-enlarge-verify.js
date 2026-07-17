@@ -13,11 +13,10 @@ let pass = 0, fail = 0; const fails = [];
 function ok(name, cond, extra) { if (cond) { pass++; } else { fail++; fails.push(name + (extra != null ? '  [' + extra + ']' : '')); }
   console.log((cond ? 'PASS ' : 'FAIL ') + name + (extra != null ? '   [' + extra + ']' : '')); }
 
-// ---- HOLD_SITES is a lexical const not in CAPTURE — extract it from source (verifies the real values) ----
-const html = fs.readFileSync(require(REPO + '/tests/battery/game-file.js').gameFilePath(), 'utf8');
-const holdSrc = html.match(/const HOLD_SITES = \[[^\]]*\];/)[0];
-// eslint-disable-next-line no-new-func
-const HOLD_SITES = (new Function('return ' + holdSrc.replace(/^const HOLD_SITES = /, '').replace(/;$/, '')))();
+// ---- HOLD_SITES moved to the content registry in P3/S10 (CONTENT.tables.holds); the game's p04 alias
+// reads it. Read the REAL values from the registry the artifact eval populated (globalThis.CONTENT) —
+// content-purity §5z2 pins these same values against the shipped coords. ----
+const HOLD_SITES = globalThis.CONTENT.tables.holds;
 
 // ---- boot the SP game ----
 let bootErr = null; try { G.startGame(); } catch (e) { bootErr = String(e && e.stack || e); }

@@ -108,11 +108,9 @@ function drawPOI(poi) {
 // ================= HOLDINGS — reclaim & hold frontier outposts =================
 // Fixed Marches sites you can liberate from the Legion and rebuild into your own outposts (fast-travel +
 // a Quartermaster vendor + daily tribute), then defend from sieges. Ownership persists in state.holdings.
-const HOLD_SITES = [
-  { tx: 106, ty: 84, name: 'Hawthorn Vale' },
-  { tx: 269, ty: 112, name: 'Ironford' },
-  { tx: 154, ty: 246, name: 'Mossbridge' },
-];
+// P3/S10: the fixed outpost sites live in src/content/tables.ts (CONTENT.tables.holds); positional alias.
+// initHoldings .map()s to FRESH state objects — the rows are never assigned into state (no entanglement).
+const HOLD_SITES = CONTENT.tables.holds;
 function initHoldings() {
   state.holdings = HOLD_SITES.map(() => ({ liberated: false, built: false, level: 1, besieged: false }));
 }
@@ -483,74 +481,15 @@ function doTravelHold(i) {
 }
 
 // ================= COMPANIONS — a recruited warband that fights, levels, and can fall =================
-const COMP_CLASSES = {
-  knight: {
-    name: 'Knight',
-    color: '#cdd0e6',
-    baseHp: 120,
-    baseAtk: 11,
-    baseDef: 6,
-    range: 42,
-    melee: true,
-    speed: 1.5,
-    hire: 200,
-    icon: '⚔',
-    desc: 'Stalwart melee — wades in and soaks blows.',
-  },
-  ranger: {
-    name: 'Ranger',
-    color: '#9bd56a',
-    baseHp: 78,
-    baseAtk: 10,
-    baseDef: 2,
-    range: 250,
-    melee: false,
-    speed: 1.6,
-    hire: 200,
-    icon: '➶',
-    desc: 'Looses arrows from range; keeps her distance.',
-  },
-  mage: {
-    name: 'Mage',
-    color: '#b886ff',
-    baseHp: 64,
-    baseAtk: 13,
-    baseDef: 1,
-    range: 220,
-    melee: false,
-    speed: 1.4,
-    hire: 240,
-    icon: '✦',
-    desc: 'Hurls piercing arcane bolts; fragile.',
-  },
-};
-const COMP_NAMES = [
-  'Sera',
-  'Brom',
-  'Kael',
-  'Lyra',
-  'Dorn',
-  'Wren',
-  'Talia',
-  'Garrick',
-  'Mira',
-  'Osric',
-  'Fenn',
-  'Isolde',
-  'Rurik',
-  'Esme',
-  'Joss',
-  'Nadia',
-];
-const COMP_CAP = 3;
+// P3/S9: the warband class data, name pool, roster cap, and the level-scaling formula live in
+// src/content/companions.ts (CONTENT.companions). p04 keeps positional aliases at the old decl lines —
+// COMP_CLASSES is read by p04/p05/p07, COMP_NAMES by p04, COMP_CAP by p04/p05, compStatsFor by p04.
+// statsFor is tiers-ready (tier defaults to 0 = today's numbers EXACTLY); the wrapper passes cls/level.
+const COMP_CLASSES = CONTENT.companions.classes;
+const COMP_NAMES = CONTENT.companions.names;
+const COMP_CAP = CONTENT.companions.cap;
 function compStatsFor(cls, level) {
-  const C = COMP_CLASSES[cls] || COMP_CLASSES.knight;
-  const f = 1 + (level - 1) * 0.14;
-  return {
-    maxHp: Math.round(C.baseHp * f),
-    atk: Math.round(C.baseAtk * f),
-    def: Math.round(C.baseDef + (level - 1) * 0.4),
-  };
+  return CONTENT.companions.statsFor(cls, level);
 }
 function activeCompanions() {
   return (state.companions || []).filter((c) => c.alive);

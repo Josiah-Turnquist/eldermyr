@@ -186,6 +186,64 @@ export interface DungeonPoolGrowth {
   readonly add: EnemyKindKey;
 }
 
+// Dungeon themes / floor mods / vault knobs (P3/S8) — the "Dungeon 2.0" content (DUNGEON_THEMES
+// + dungeonTheme p03; FLOOR_MODS + rollFloorMod weights p06; vault odds p03). All PURE DATA +
+// two RNG-free helpers: `theme(level)` is the depth→theme index (formula VERBATIM), `pickFloorMod(r)`
+// maps an ALREADY-DRAWN r through the weight ladder (the Math.random() draw + the `level < 2` guard
+// stay in-part in rollFloorMod, so the draw count/order is byte-identical — the S2 pick(r,table)
+// discipline). state.dungeonThemeData holds a theme row by reference; nothing mutates it (drawDungeon
+// p18 + generateDungeon read theme.key/.pool/.floor only), so serialize-by-value hashes it identically.
+
+/** The kind of pit tile a theme's void hazard renders as (generateDungeon/drawDungeon read it). */
+export type PitKind = 'pit' | 'lava' | 'void';
+
+/** The four floor-modifier keys (rollFloorMod returns one or null; the HUD/log read FLOOR_MODS[key]). */
+export type FloorModKey = 'gilded' | 'swarming' | 'cursed' | 'vault';
+
+/** One dungeon theme (DUNGEON_THEMES[n], p03): palette + enemy pool + hazard flavor. Colors are
+ * read by drawDungeon; `pool` seeds makeDungeonEnemy's trash pool; `key` gates inferno lava / cavern
+ * obstacle density. Migrated VERBATIM — the row is assigned into state.dungeonThemeData unchanged. */
+export interface DungeonTheme {
+  readonly key: string;
+  readonly name: string;
+  readonly floor: string;
+  readonly floor2: string;
+  readonly wall: string;
+  readonly wall2: string;
+  readonly wall3: string;
+  readonly pit: string;
+  readonly pit2: string;
+  readonly pitKind: PitKind;
+  readonly pool: readonly EnemyKindKey[];
+  readonly accent: string;
+}
+
+/** One floor modifier (FLOOR_MODS[key], p06): the HUD icon, name, and log flavor line. */
+export interface FloorMod {
+  readonly icon: string;
+  readonly name: string;
+  readonly desc: string;
+}
+
+/** Key-Vault spawn knobs (p03): the minimum depth a vault side-room can appear and its per-floor
+ * odds. The Math.random() draw stays in generateDungeon; only the gate/odds are registry data. */
+export interface DungeonVault {
+  readonly minLevel: number;
+  readonly odds: number;
+}
+
+/** The dungeon registry (dungeons.ts): pool-growth knobs (S2) + themes/floor-mods/vault (S8). The
+ * two helpers are RNG-FREE — `theme` closes over the theme table (depth index), `pickFloorMod` maps
+ * a caller-drawn r through the weight ladder (so rollFloorMod keeps its single draw + level guard). */
+export interface DungeonRegistry {
+  readonly poolGrowth: readonly DungeonPoolGrowth[];
+  readonly themes: readonly DungeonTheme[];
+  theme(level: number): DungeonTheme;
+  readonly floorMods: Record<FloorModKey, FloorMod>;
+  readonly vault: DungeonVault;
+  pickFloorMod(r: number): FloorModKey | null;
+}
+
 // ============================================================================================
 // Boss specials (P3/S4). One entry per special in specials.ts carries all three of the
 // telegraph triad the DESIGN doc's silent-failure #1 warned about: `wind` (the windup
@@ -608,4 +666,201 @@ export interface EliteAffix {
 export interface AffixRegistry {
   readonly defs: Record<string, EliteAffix>;
   readonly keys: readonly string[];
+}
+
+// ============================================================================================
+// Companions (P3/S9) — the 3-class warband (COMP_CLASSES/COMP_NAMES/COMP_CAP/compStatsFor, p04).
+// Migrated as DATA + the level-scaling formula. `statsFor` gains a `tier` param (default 0) so the
+// warband-economy feature (#115, F2) can add promotion tiers as ONE row per class — `tiers[0]` is
+// today's numbers EXACTLY (statMul 1). Byte-identical at tier 0 by construction: `x * 1 === x` for
+// every finite double, so `Math.round(baseHp * f * 1)` equals the old `Math.round(baseHp * f)` to the
+// bit. Class rows keep their top-level `hire` field (p04 reads COMP_CLASSES[cls].hire); the golden
+// windows contain NO companions, so statsFor is oracle-invisible — the content-purity §5 pin is its
+// guard. Nothing mutates a class row (companion instances copy primitives off it).
+
+/** One promotion tier for a companion class (#115/F2 fills 3; S9 ships tier 0 = T1 = today). `statMul`
+ * scales the multiplicative stats (maxHp/atk); tier 0 is 1. F2 extends this with hire/upkeep. */
+export interface CompanionTier {
+  readonly statMul: number;
+}
+
+/** One warband class (COMP_CLASSES[cls], p04): base stats + hire cost + HUD flavor. `melee` picks the
+ * attack path; `range`/`speed` drive AI; `tiers[0]` is the T1 identity (S9). Migrated VERBATIM. */
+export interface CompanionClass {
+  readonly name: string;
+  readonly color: string;
+  readonly baseHp: number;
+  readonly baseAtk: number;
+  readonly baseDef: number;
+  readonly range: number;
+  readonly melee: boolean;
+  readonly speed: number;
+  readonly hire: number;
+  readonly icon: string;
+  readonly desc: string;
+  readonly tiers: readonly CompanionTier[];
+}
+
+/** The level-scaled stat block compStatsFor returns (companion instances read maxHp/atk/def). */
+export interface CompanionStats {
+  readonly maxHp: number;
+  readonly atk: number;
+  readonly def: number;
+}
+
+/** The companion registry (companions.ts): the class map + the random-name pool + the roster cap +
+ * the scaling formula. `statsFor(cls, level, tier=0)` is RNG-FREE and VERBATIM at tier 0. */
+export interface CompanionRegistry {
+  readonly classes: Record<string, CompanionClass>;
+  readonly names: readonly string[];
+  readonly cap: number;
+  statsFor(cls: string, level: number, tier?: number): CompanionStats;
+}
+
+// ============================================================================================
+// Small-tables sweep (P3/S10) — the display/flavor DATA tables scattered across p03/p04/p05/p08/
+// p09/p10/p11/p13/p14/p15. All PURE DATA (no hooks, no RNG, no state), read by UI/log/minimap/AI
+// naming code. Each keeps a positional alias in its part; none is captured by server/client. The
+// steed's DATA (DRAGON_COLOR/DRAGON_LEVEL) already lives in apex.ts (S5) — ONE colour source — so
+// no steed row here; the drawPlayer mounted-steed HOOK is the S5-style H-half, deferred (facing-
+// noregress guards it op-for-op when it lands). The warlord STAT curve + strength EFFECTS stay in
+// makeWarlordEnemy (the migration-table's own note); only the warlord NAMING/label tables move.
+
+/** Season display arrays (SEASONS/SEASON_TINT/SEASON_ICON, p14) — parallel by season index 0-3.
+ * SEASON_LEN (the season-length formula knob) stays in-part with seasonIdx. */
+export interface SeasonTables {
+  readonly names: readonly string[];
+  readonly tint: readonly string[];
+  readonly icon: readonly string[];
+}
+
+/** A forage ingredient (INGR[k], p14): display name/color/icon. */
+export interface Ingredient {
+  readonly name: string;
+  readonly color: string;
+  readonly icon: string;
+}
+
+/** A cook recipe (FOODS[k], p14): name, ingredient cost, the buff it grants, duration, blurb. */
+export interface FoodRecipe {
+  readonly name: string;
+  readonly need: Record<string, number>;
+  readonly buff: string;
+  readonly dur: number;
+  readonly desc: string;
+}
+
+/** The quiet-life food tables (p14 ingredients/recipes/labels + p09's FORAGE_VALUE sell prices). */
+export interface FoodTables {
+  readonly ingredients: Record<string, Ingredient>;
+  readonly recipes: Record<string, FoodRecipe>;
+  readonly labels: Record<string, string>;
+  readonly forageValue: Record<string, number>;
+}
+
+/** A shrine blessing (BLESS[k], p10): name/color/desc. */
+export interface Blessing {
+  readonly name: string;
+  readonly color: string;
+  readonly desc: string;
+}
+
+/** A trade good (TRADE_GOODS[k], p09): name, base price, icon. */
+export interface TradeGood {
+  readonly name: string;
+  readonly base: number;
+  readonly icon: string;
+}
+
+/** A frontier POI kind (POI_KINDS[k], p03): display name + minimap mark color. */
+export interface PoiKind {
+  readonly name: string;
+  readonly mark: string;
+}
+
+/** A fixed outpost site (HOLD_SITES[n], p04): tile coords + name. state.holdings is BUILT from this
+ * (initHoldings .map()s to FRESH objects — the row is never assigned into state), so it is pure data. */
+export interface HoldSite {
+  readonly tx: number;
+  readonly ty: number;
+  readonly name: string;
+}
+
+/** Warlord/nemesis NAMING + label tables (p15): given names, epithets, rank names, and the strength/
+ * weakness DESCRIPTION strings (the combat effects live in makeWarlordEnemy, in-part). */
+export interface WarlordTables {
+  readonly first: readonly string[];
+  readonly epithet: readonly string[];
+  readonly ranks: readonly string[];
+  readonly strengths: Record<string, string>;
+  readonly weakness: Record<string, string>;
+}
+
+/** Nemesis roster names + titles (p13). */
+export interface NemesisTables {
+  readonly names: readonly string[];
+  readonly titles: readonly string[];
+}
+
+/** Region flavor (p15 REGION_NAMES + p05 REGION_SUBS/LORE_TEXTS) — parallel by region index 0-8. */
+export interface RegionTables {
+  readonly names: readonly string[];
+  readonly subs: readonly string[];
+  readonly lore: readonly string[];
+}
+
+/** Ability knobs (p08 ABILITY_RMAX rank caps + p11 heat-aura threshold/throttle). Pure numeric knobs. */
+export interface AbilityTables {
+  readonly rankMax: Record<string, number>;
+  readonly heatAuraMin: number;
+  readonly heatAuraTicks: number;
+}
+
+/** The small-tables registry (tables.ts): one key per table cluster. */
+export interface TablesRegistry {
+  readonly seasons: SeasonTables;
+  readonly foods: FoodTables;
+  readonly bless: Record<string, Blessing>;
+  readonly trade: Record<string, TradeGood>;
+  readonly status: Record<string, string>;
+  readonly regions: RegionTables;
+  readonly poi: Record<string, PoiKind>;
+  readonly holds: readonly HoldSite[];
+  readonly warlord: WarlordTables;
+  readonly nemesis: NemesisTables;
+  readonly abilities: AbilityTables;
+}
+
+// ============================================================================================
+// Curves (P3/S11) — the level/distance SCALING FORMULAS extracted from xpForLevel (p12) and the
+// makeWildEnemy/makeDungeonEnemy/makeDungeonBoss stat+reward factors (p03). EXTRACTION ONLY: identical
+// math, identical operator order, identical rounding. Math.round stays at each CALL SITE (the factory);
+// only the raw FACTOR expression moves here, so the float result — and both oracles — are byte-untouched.
+// Content can't read state, so ascension/df/level ride in as arguments; the RNG draws (the type roll,
+// the pool pick) stay in the factories. This STAGES #113 (F1): the wildReward level-term change is a
+// one-line edit to a named registry fn with a designed re-record — NOT part of this hash-frozen slice.
+
+/** The scaling-curve registry (curves.ts). Every member is a PURE function of its args (or a numeric
+ * knob) — no state, no RNG. Extracted VERBATIM; F1 re-tunes wildReward with a designed re-record. */
+export interface CurveRegistry {
+  /** xpForLevel(L) — the geometric level curve (base ×1.58 +6 per level) with the early front-load
+   * surcharge (+45% at L1 fading to 0 by L7+). VERBATIM from p12. */
+  xpForLevel(L: number): number;
+  /** Wild-enemy STAT factor: (1 + (lvl-1)*0.26) * biomeMul * diff, where diff = diffMul(df) computed
+   * in makeWildEnemy (diffMul stays in-part; its result rides in). */
+  wildStat(lvl: number, biomeMul: number, diff: number): number;
+  /** Wild-enemy REWARD factor: biomeMul * (1 + df + df²*1.3). The #113/F1 tuning target (today no level
+   * term — F1 adds one with a re-record). */
+  wildReward(biomeMul: number, df: number): number;
+  /** The ascension multiplier 1 + ascension*0.2 — shared by dungeon enemies (inside dungeonStat) and the
+   * dungeon boss (its `asc` local, reused for atk). ONE source. */
+  ascMul(ascension: number): number;
+  /** Dungeon-enemy STAT factor: (1 + (level-1)*0.4) * ascMul(ascension). */
+  dungeonStat(level: number, ascension: number): number;
+  /** The dungeon grind premium (+40% XP / +25% gold over the surface). */
+  readonly dungeonXpMul: number;
+  readonly dungeonGoldMul: number;
+  /** Dungeon-BOSS level factor: (1 + (level-1)*0.55) * asc, where asc = ascMul(ascension) is computed in
+   * makeDungeonBoss (reused for its atk). Base stat literals (90hp/atk/def/xp/gold) stay in the factory. */
+  dungeonBossStat(level: number, asc: number): number;
 }

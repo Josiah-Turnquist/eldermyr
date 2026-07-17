@@ -261,7 +261,8 @@ function spendPoint(id) {
   saveGame();
   log(`Skill improved: ${id.charAt(0).toUpperCase() + id.slice(1)}.`, 'good');
 }
-const ABILITY_RMAX = { whirlwind: 5, focus: 5, ultimate: 5, summon: 4, dominate: 1 };
+// P3/S10: ability rank caps live in src/content/tables.ts (CONTENT.tables.abilities.rankMax); positional alias.
+const ABILITY_RMAX = CONTENT.tables.abilities.rankMax;
 function abRank(id) {
   const p = state.player,
     r = p.abilityRank;

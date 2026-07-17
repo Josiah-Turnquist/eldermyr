@@ -313,6 +313,56 @@ ok('5t. shielded.apply seeds a 25%-maxHp shield pool; warded.apply arms the ward
     const w = {}; C.affixes.defs.warded.apply(w);
     return e.shieldMax === 100 && e.shieldHp === 100 && e.shieldRegenT === 0 && w.wardT === 0 && w.wardCd === 180 && !C.affixes.defs.vampiric.apply && !C.affixes.defs.splitting.apply;
   })());
+// S8: the dungeon registry gains DUNGEON_THEMES + the depth index, FLOOR_MODS + the weight ladder,
+// and the Key-Vault knobs. The p03/p06/p18/p22 aliases read these; the RNG draws stay in-part, so
+// pickFloorMod/theme are RNG-free and pinnable here (the golden windows exercise them only when a
+// scenario descends — these are the shape/value + helper-math guards).
+ok('5u. CONTENT.dungeons holds 4 themes + 4 floor mods + the vault knobs',
+  !!C && C.dungeons && C.dungeons.themes.length === 4 && JSON.stringify(Object.keys(C.dungeons.floorMods)) === JSON.stringify(['gilded', 'swarming', 'cursed', 'vault']) && C.dungeons.vault.minLevel === 2 && C.dungeons.vault.odds === 0.4);
+ok('5v. theme rows carry the shipped values (catacombs first, inferno lava pool, abyss void pit) and theme(level) indexes by depth VERBATIM',
+  !!C && C.dungeons.themes[0].key === 'catacombs' && C.dungeons.themes[2].key === 'inferno' && C.dungeons.themes[2].pitKind === 'lava' && C.dungeons.themes[3].pitKind === 'void' && JSON.stringify(C.dungeons.themes[0].pool) === JSON.stringify(['skeleton', 'skeleton', 'bat', 'slime', 'archer'])
+  && C.dungeons.theme(1).key === 'catacombs' && C.dungeons.theme(3).key === 'catacombs' && C.dungeons.theme(4).key === 'caverns' && C.dungeons.theme(10).key === 'abyss' && C.dungeons.theme(13).key === 'catacombs', C && C.dungeons.themes[0].key);
+ok('5w. floor mods carry the shipped icons/names; pickFloorMod maps the weight ladder with strict `<` (0.54→null, 0.55→gilded, 0.685→swarming, 0.82→cursed, 0.955→vault)',
+  !!C && C.dungeons.floorMods.gilded.icon === '👑' && C.dungeons.floorMods.vault.name === 'Treasure Vault'
+  && C.dungeons.pickFloorMod(0.0) === null && C.dungeons.pickFloorMod(0.54) === null && C.dungeons.pickFloorMod(0.55) === 'gilded' && C.dungeons.pickFloorMod(0.684) === 'gilded' && C.dungeons.pickFloorMod(0.685) === 'swarming' && C.dungeons.pickFloorMod(0.82) === 'cursed' && C.dungeons.pickFloorMod(0.955) === 'vault' && C.dungeons.pickFloorMod(0.999) === 'vault',
+  C && String(C.dungeons.pickFloorMod(0.55)));
+// S9: the warband registry (COMP_CLASSES/COMP_NAMES/COMP_CAP/compStatsFor). Golden windows contain NO
+// companions, so statsFor is oracle-invisible — these §5 pins are the formula's guard. statsFor is
+// tiers-ready (tier default 0 = today, statMul 1); the byte-identity is `x*1===x`.
+ok('5x. CONTENT.companions holds 3 classes + 16 names + cap 3; class rows carry shipped values (knight 120hp/200g, mage 13atk/240g); tiers[0].statMul === 1',
+  !!C && C.companions && JSON.stringify(Object.keys(C.companions.classes)) === JSON.stringify(['knight', 'ranger', 'mage']) && C.companions.names.length === 16 && C.companions.cap === 3
+  && C.companions.classes.knight.baseHp === 120 && C.companions.classes.knight.hire === 200 && C.companions.classes.mage.baseAtk === 13 && C.companions.classes.mage.hire === 240 && C.companions.classes.knight.tiers[0].statMul === 1, C && C.companions.classes.knight.hire);
+ok('5y. statsFor(cls, level) is the VERBATIM level-scaling formula at tier 0 (knight L1→120/11/6, L5→187/17/8, L10→271/25/10; mage L1→64/13/1)',
+  !!C && (() => {
+    const k1 = C.companions.statsFor('knight', 1), k5 = C.companions.statsFor('knight', 5), k10 = C.companions.statsFor('knight', 10), m1 = C.companions.statsFor('mage', 1);
+    return k1.maxHp === 120 && k1.atk === 11 && k1.def === 6 && k5.maxHp === 187 && k5.atk === 17 && k5.def === 8 && k10.maxHp === 271 && k10.atk === 25 && k10.def === 10 && m1.maxHp === 64 && m1.atk === 13 && m1.def === 1;
+  })(), C && JSON.stringify(C.companions.statsFor('knight', 10)));
+// S10: the small-tables sweep (seasons/foods/bless/trade/status/regions/poi/holds/warlord/nemesis/
+// abilities). The oracle-REACHING tables (WL names → e.name, TRADE.base/FORAGE → gold, HOLDS coords,
+// ABILITY_RMAX → ranks, HEAT_AURA → aura state) are proven byte-identical by golden/mp; these §5 pins
+// are the guard for the DISPLAY-ONLY tables golden can't see, incl. the unicode (−, —, curly quotes).
+ok('5z1. CONTENT.tables holds all 11 clusters with the shipped shapes/counts',
+  !!C && C.tables && Object.keys(C.tables.foods.recipes).length === 4 && Object.keys(C.tables.bless).length === 4 && Object.keys(C.tables.trade).length === 4 && C.tables.regions.names.length === 9 && C.tables.regions.subs.length === 9 && C.tables.regions.lore.length === 9 && C.tables.holds.length === 3 && C.tables.warlord.first.length === 18 && C.tables.warlord.epithet.length === 15 && C.tables.nemesis.names.length === 6 && C.tables.seasons.names.length === 4 && Object.keys(C.tables.poi).length === 3);
+ok('5z2. oracle-reaching values are the shipped ones (TRADE furs base 40, FORAGE herb 8, HOLD Ironford 269/112, ABILITY summon 4, heatAura 40/16, WL_FIRST[0] Grukk, POI camp #ff5040)',
+  !!C && C.tables.trade.furs.base === 40 && C.tables.foods.forageValue.herb === 8 && C.tables.holds[1].tx === 269 && C.tables.holds[1].ty === 112 && C.tables.holds[1].name === 'Ironford' && C.tables.abilities.rankMax.summon === 4 && C.tables.abilities.heatAuraMin === 40 && C.tables.abilities.heatAuraTicks === 16 && C.tables.warlord.first[0] === 'Grukk' && C.tables.poi.camp.mark === '#ff5040');
+ok('5z3. display-only unicode survives byte-for-byte (STATUS −22% is U+2212, BLESS.ward −40%, lore[8] Emberwyrm curly apostrophe, SEASON_TINT[3] winter rgba)',
+  !!C && C.tables.status.Exhausted.includes('−22%') && C.tables.bless.ward.desc === '−40% damage taken' && C.tables.regions.lore[8] === 'The Emberwyrm is not the fire’s master. It is the fire’s prisoner.' && C.tables.seasons.tint[3] === 'rgba(180,212,255,0.14)' && C.tables.foods.recipes.roast.name === "Forager's Roast",
+  C && C.tables.bless.ward.desc);
+// S11: the scaling curves. Golden/mp PROVE float-identity live (every spawn+levelup evaluates these
+// through the p03/p12 aliases → both oracles byte-untouched); these §5 pins evaluate the extracted fns
+// at sample points so a curve edit that slips past golden's windows still fails here. Math.round stays
+// at the call sites — these check the raw factors + the xpForLevel integer curve.
+ok('5z4. xpForLevel is VERBATIM (L1→32, L2→55, L7→481, L10→1924) and the grind/ascension knobs are shipped (xpMul 1.4, goldMul 1.25, ascMul(0)=1, ascMul(5)=2)',
+  !!C && C.curves && C.curves.xpForLevel(1) === 32 && C.curves.xpForLevel(2) === 55 && C.curves.xpForLevel(7) === 481 && C.curves.xpForLevel(10) === 1924 && C.curves.dungeonXpMul === 1.4 && C.curves.dungeonGoldMul === 1.25 && C.curves.ascMul(0) === 1 && C.curves.ascMul(5) === 2,
+  C && C.curves && C.curves.xpForLevel(10));
+ok('5z5. the stat/reward FACTORS are the shipped formulas (wildStat(1,1,1)=1 & (1+(lvl-1)*.26)*bm*diff; wildReward biomeMul*(1+df+df²*1.3); dungeonStat/dungeonBossStat level ramps)',
+  !!C && (() => {
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    return C.curves.wildStat(1, 1, 1) === 1 && near(C.curves.wildStat(5, 1.6, 2), (1 + 4 * 0.26) * 1.6 * 2)
+      && C.curves.wildReward(1, 0) === 1 && near(C.curves.wildReward(1, 1), 3.3) && near(C.curves.wildReward(1.6, 0.5), 1.6 * (1 + 0.5 + 0.25 * 1.3))
+      && C.curves.dungeonStat(1, 0) === 1 && C.curves.dungeonStat(6, 0) === 3
+      && C.curves.dungeonBossStat(1, 1) === 1 && near(C.curves.dungeonBossStat(3, 1), 2.1);
+  })(), C && C.curves && String(C.curves.wildReward(1, 1)));
 
 // ---- §6 mutation canary: 3k ticks, then live CONTENT vs a fresh chunk re-eval ------------
 const w = new World();

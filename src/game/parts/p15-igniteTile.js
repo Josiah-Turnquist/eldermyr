@@ -21,12 +21,8 @@ function chCanUse(a) {
   if (a.st && p.stamina < a.st) return false;
   return true;
 }
-const STATUS_DESC = {
-  Exhausted:
-    'Worn out from too long without rest \u2014 \u221222% attack and half move speed. Sleep in a town or make camp [C] to recover.',
-  Chilled: 'Struck by frost \u2014 your movement is slowed for a few seconds.',
-  Flying: 'Riding your dragon \u2014 faster, tougher, and able to soar over mountains and water.',
-};
+// P3/S10: status hover blurbs live in src/content/tables.ts (CONTENT.tables.status); positional alias.
+const STATUS_DESC = CONTENT.tables.status;
 function chStatusPill(s) {
   const d = (s.desc || STATUS_DESC[s.label] || s.label).replace(/"/g, '&quot;');
   return `<span class="ch-st" title="${d}" style="color:${s.color};border-color:${s.color}55;cursor:help">${s.ic} ${s.label}${s.t > 0 ? ' ' + Math.ceil(s.t / 60) + 's' : ''}</span>`;
@@ -551,70 +547,16 @@ function updateFactionWar() {
 
 // ---- nemesis ----
 // ================= THE DREAD LEGION — emergent nemesis hierarchy =================
-const WL_FIRST = [
-  'Grukk',
-  'Sythe',
-  'Karzul',
-  'Vexa',
-  'Mordrek',
-  'Threx',
-  'Bral',
-  'Ghorza',
-  'Uzgar',
-  'Nazru',
-  'Skarn',
-  'Yrra',
-  'Drog',
-  'Hexa',
-  'Volk',
-  'Murg',
-  'Zradd',
-  'Olga',
-];
-const WL_EPITHET = [
-  'the Render',
-  'Blackmaw',
-  'Ironjaw',
-  'the Cruel',
-  'Skullsplitter',
-  'Gravecaller',
-  'the Flayer',
-  'Bonechewer',
-  'the Vile',
-  'Doomspeaker',
-  'the Wretched',
-  'Ashtongue',
-  'the Maimer',
-  'Grimscar',
-  'the Defiler',
-];
-const RANK_NAMES = ['Grunt', 'Captain', 'Warlord', 'Overlord'];
-const WL_STRENGTHS = {
-  ironhide: 'Ironhide — shrugs off blows',
-  fireborn: 'Fireborn — immune to fire',
-  frostbound: 'Frostbound — cannot be frozen',
-  frenzied: 'Frenzied — fast and ferocious',
-  regenerator: 'Regenerator — wounds knit shut',
-  swarmlord: 'Swarmlord — fights with a retinue',
-};
-const WL_WEAKNESS = {
-  poison: 'Dreads poison',
-  ranged: 'Fears the bow',
-  crit: 'Bleeds easily (crits hit hard)',
-  stagger: 'Loses nerve when staggered',
-  fire: 'Flammable',
-};
-const REGION_NAMES = [
-  'the Northwest Reaches',
-  'the Northern Wastes',
-  'the Northeast Range',
-  'the Western Marches',
-  'the Heartlands',
-  'the Eastern Wilds',
-  'the Southern Bogs',
-  'the Southlands',
-  'the Emberwaste Frontier',
-];
+// P3/S10: warlord NAMING + label tables live in src/content/tables.ts (CONTENT.tables.warlord); positional
+// aliases. The strength/weakness EFFECTS (what ironhide/frostbound DO) stay in makeWarlordEnemy — these are
+// only the description strings the nemesis card reads.
+const WL_FIRST = CONTENT.tables.warlord.first;
+const WL_EPITHET = CONTENT.tables.warlord.epithet;
+const RANK_NAMES = CONTENT.tables.warlord.ranks;
+const WL_STRENGTHS = CONTENT.tables.warlord.strengths;
+const WL_WEAKNESS = CONTENT.tables.warlord.weakness;
+// P3/S10: region names live in src/content/tables.ts (CONTENT.tables.regions.names); positional alias.
+const REGION_NAMES = CONTENT.tables.regions.names;
 function NEM_PICK(a) {
   return a[Math.floor(Math.random() * a.length)];
 }

@@ -194,15 +194,12 @@ function weatherLabel() {
   return state.weather === 'snow' ? '❄ snow' : state.weather === 'rain' ? '🌧 rain' : '☀ clear';
 }
 // ================= SEASONS =================
-const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
+// P3/S10: the season display arrays live in src/content/tables.ts (CONTENT.tables.seasons); p14 keeps
+// positional aliases. SEASON_LEN (the season-length formula knob) stays in-part with seasonIdx.
+const SEASONS = CONTENT.tables.seasons.names;
 const SEASON_LEN = 3;
-const SEASON_ICON = ['🌱', '☀', '🍂', '❄'];
-const SEASON_TINT = [
-  'rgba(130,205,130,0.06)',
-  'rgba(255,224,130,0.05)',
-  'rgba(222,140,48,0.12)',
-  'rgba(180,212,255,0.14)',
-];
+const SEASON_ICON = CONTENT.tables.seasons.icon;
+const SEASON_TINT = CONTENT.tables.seasons.tint;
 function seasonIdx() {
   return Math.floor((curDay() - 1) / SEASON_LEN) % 4;
 }
@@ -218,37 +215,10 @@ function drawSeasonTint() {
   ctx.fillRect(0, 0, __g.VIEW_W, __g.VIEW_H);
 }
 // ================= QUIET LIFE — foraging, fishing, cooking =================
-const INGR = {
-  herb: { name: 'Herb', color: '#7ad06a', icon: '🌿' },
-  berry: { name: 'Berries', color: '#d04a6a', icon: '🫐' },
-  mushroom: { name: 'Mushroom', color: '#c89a6a', icon: '🍄' },
-  fish: { name: 'Fish', color: '#8ac0e0', icon: '🐟' },
-};
-const FOODS = {
-  stew: {
-    name: 'Hearty Stew',
-    need: { fish: 1, herb: 1 },
-    buff: 'hearty',
-    dur: 10800,
-    desc: 'steady health regen',
-  },
-  tart: { name: 'Berry Tart', need: { berry: 2 }, buff: 'energized', dur: 10800, desc: 'faster energy' },
-  roast: {
-    name: "Forager's Roast",
-    need: { mushroom: 1, herb: 1 },
-    buff: 'swift',
-    dur: 10800,
-    desc: 'fleeter of foot',
-  },
-  feast: {
-    name: "Traveler's Feast",
-    need: { fish: 1, berry: 1, mushroom: 1, herb: 1 },
-    buff: 'wellfed',
-    dur: 14400,
-    desc: '+power, +defense & regen',
-  },
-};
-const FOOD_LABEL = { hearty: 'Hearty', energized: 'Energized', swift: 'Swift', wellfed: 'Well Fed' };
+// P3/S10: the quiet-life food data lives in src/content/tables.ts (CONTENT.tables.foods); positional aliases.
+const INGR = CONTENT.tables.foods.ingredients;
+const FOODS = CONTENT.tables.foods.recipes;
+const FOOD_LABEL = CONTENT.tables.foods.labels;
 function gainIngredient(k, n) {
   if (!state.player.ingredients) state.player.ingredients = { herb: 0, berry: 0, mushroom: 0, fish: 0 };
   state.player.ingredients[k] = (state.player.ingredients[k] || 0) + (n || 1);

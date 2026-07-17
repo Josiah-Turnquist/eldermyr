@@ -471,8 +471,9 @@ function heatAmp() {
   const p = state.player;
   return styleOf(equippedWeapon()) === 'magic' ? Math.max(0, Math.min(1, (p.heat || 0) / 100)) : 0;
 }
-const HEAT_AURA_MIN = 40,
-  HEAT_AURA_TICKS = 16; // an elemental staff radiates its aura past 40 Heat; the nearby-foe scan is throttled to every 16 frames
+// P3/S10: the heat-aura threshold + throttle are ability knobs in src/content/tables.ts; positional aliases.
+const HEAT_AURA_MIN = CONTENT.tables.abilities.heatAuraMin,
+  HEAT_AURA_TICKS = CONTENT.tables.abilities.heatAuraTicks; // an elemental staff radiates its aura past 40 Heat; the nearby-foe scan is throttled to every 16 frames
 // Per-frame per-player style bookkeeping — runs INSIDE updatePlayer so the MP server inherits it. O(1) except the THROTTLED+GATED aura scan.
 function updateStyleResources() {
   const p = state.player;

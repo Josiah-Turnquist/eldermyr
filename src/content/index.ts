@@ -19,6 +19,9 @@ import { BOSS_ROSTER, SPECIALS } from './specials';
 import { APEX } from './apex';
 import { GEAR } from './gear';
 import { AFFIXES } from './affixes';
+import { COMPANIONS } from './companions';
+import { TABLES } from './tables';
+import { CURVES } from './curves';
 
 const CONTENT = {
   elements: ELEMENTS,
@@ -48,6 +51,16 @@ const CONTENT = {
   // positional aliases; rollEliteAffixes calls defs[key].apply(e) for the per-key seeding,
   // afxHit (the hot path) stays in-part.
   affixes: AFFIXES,
+  // P3/S9: the warband DATA + the level-scaling formula (COMP_CLASSES/COMP_NAMES/COMP_CAP/
+  // compStatsFor, p04). p04 keeps positional aliases; statsFor is tiers-ready (tier 0 = today).
+  companions: COMPANIONS,
+  // P3/S10: the small-tables sweep — seasons/foods/bless/trade/status/regions/poi/holds/warlord/
+  // nemesis/ability-knobs (p03/p04/p05/p08/p09/p10/p11/p13/p14/p15). Pure display DATA; each part
+  // keeps a positional alias. The steed's colour/level are in apex (S5); the drawSteed hook is deferred.
+  tables: TABLES,
+  // P3/S11: the level/distance SCALING FORMULAS (xpForLevel p12 + wild/dungeon stat+reward factors p03).
+  // Extraction only — Math.round stays at the factory call sites; F1 re-tunes wildReward (#113) later.
+  curves: CURVES,
 };
 
 export type Content = typeof CONTENT;

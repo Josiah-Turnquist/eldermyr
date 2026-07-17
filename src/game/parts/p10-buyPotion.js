@@ -380,12 +380,8 @@ function drinkPotion() {
 
 // ================= INTERACT =================
 // --- Shrines of blessing ---
-const BLESS = {
-  might: { name: 'Might', color: '#ff8050', desc: '+40% damage' },
-  ward: { name: 'Ward', color: '#70b0ff', desc: '−40% damage taken' },
-  haste: { name: 'Haste', color: '#90e060', desc: 'faster attacks & movement' },
-  renewal: { name: 'Renewal', color: '#90ffb0', desc: 'regenerate health' },
-};
+// P3/S10: shrine blessings live in src/content/tables.ts (CONTENT.tables.bless); positional alias.
+const BLESS = CONTENT.tables.bless;
 const BLESS_DUR = 1800,
   SHRINE_CD = 2700;
 function activateShrine(s) {
