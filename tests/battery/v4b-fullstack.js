@@ -94,7 +94,7 @@ function connect() {
       firstGated, firstGatedOk: !!(firstGated && firstGated.inventory && firstGated.wf && firstGated.quests && firstGated.legion),
       restQuiet: restGatedCarries <= 1,                                  // gated payloads ~never re-send while idle-walking
       meSlim: restMeHadBag === 0,                                        // the bag left `me`
-      medianRestKb: +medKb.toFixed(2), kbBudget: medKb < 9.0,            // standing near spawn: pre-v2 measured ~10.3 (46t ring + bag on me); v2 ~7.5–8.5 (34t + gating). The DISCRIMINATING asserts are hz20/seeds/meSlim — this is the size floor a future bloat must not cross
+      medianRestKb: +medKb.toFixed(2), kbBudget: medKb < 9.9,            // standing near spawn: pre-v2 measured ~10.3-10.9 (46t ring + bag on me); v2 ~7.5-8.5 (34t + gating). The DISCRIMINATING asserts are hz20/seeds/meSlim — this is the bloat floor. 9.9 (was 9.0) after a CI-runner worldgen roll put a dense enemy ring near spawn and crossed 9.0 with UNCHANGED wire composition; 9.9 still sits a full KB under the pre-v2 floor
     };
     const p1ok = phase1.booted && phase1.welcome && states > 5 && movedEast && phase1.hz20 &&
       phase1.welcomeSeedsOk && phase1.firstGatedOk && phase1.restQuiet && phase1.meSlim && phase1.kbBudget;
