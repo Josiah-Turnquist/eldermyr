@@ -34,7 +34,10 @@ function arg(name) {
 }
 const sha12 = (s) => createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 12);
 
-const URL = process.env.DATABASE_URL || '';
+// Prefer the PUBLIC url: this tool runs OUTSIDE Railway's private network by definition
+// (an operator's machine via `railway run`, which injects both), and the plain
+// DATABASE_URL points at *.railway.internal, unresolvable from outside.
+const URL = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL || '';
 if (!URL) {
   console.error('db-dump: DATABASE_URL is not set — nothing to dump.');
   console.error('This script is designed to be run by the project owner against the Railway DB;');
