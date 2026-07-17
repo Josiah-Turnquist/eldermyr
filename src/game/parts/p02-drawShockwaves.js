@@ -304,25 +304,9 @@ function distFactor(tx, ty) {
     cy = OW_H / 2;
   return Math.min(1, Math.hypot(tx - cx, ty - cy) / Math.hypot(cx, cy));
 }
-// Distance→DIFFICULTY multiplier — steep→flat→steep: a small gentle CORE (df<0.10 → 0.71×, i.e. 1.4× easier for brand-new
-// players), a FAST climb to ~1.0× baseline by df~0.20, a GENTLE mid plateau (1.0→1.6× across df 0.2–0.7), then a STEEP frontier
-// ramp to ~4.0× at the very edge. Smootherstep segments (C¹-continuous, cheap — spawn-rate, never per-frame). NOTE: distFactor
-// itself stays a raw LINEAR 0→1 geometry value (rings/POI bands/town tiers read it); ONLY this scalar reshapes wild-enemy power.
-function diffMul(df) {
-  const ss = (a, b, t) => {
-    if (t <= a) return 0;
-    if (t >= b) return 1;
-    const u = (t - a) / (b - a);
-    return u * u * u * (u * (u * 6 - 15) + 10);
-  };
-  return df < 0.1
-    ? 0.71
-    : df < 0.2
-      ? 0.71 + ss(0.1, 0.2, df) * 0.29
-      : df < 0.7
-        ? 1.0 + ss(0.2, 0.7, df) * 0.6
-        : 1.6 + ss(0.7, 1.0, df) * 2.4;
-}
+// v3.1.0: the old diffMul(df) distance→power multiplier is DELETED — distance→difficulty now flows
+// through the enemy LEVEL (CONTENT.curves.owLevel(df) in makeWildEnemy), the ONE source. distFactor
+// itself stays a raw LINEAR 0→1 geometry value (rings/POI bands/town tiers still read it).
 function townTier(cx, cy) {
   const d = distFactor(cx, cy);
   return d < 0.3 ? 0 : d < 0.55 ? 1 : 2;

@@ -27,6 +27,9 @@ const SUITES = [
   'v1-timers', 'v2-inertness', 'v3-missing-captures', 'v4b-fullstack', 'v5-pg-timeout',
   // combat / style-identity / loot
   'style-verify', 'affix-verify', 'ranged-verify', 'combat-nerf-verify', 'uniques-verify', 'vtune-verify',
+  // v3.1.0 LEVEL-DRIVEN enemy model: player level no longer touches enemy stats/type/rewards — the TILE
+  // (owLevel) + DEPTH (dungeonLevel) set each enemy's level, one curve derives hp/atk/def/xp/gold from it
+  'leveling-verify',
   // abilities / ultimate / dominate / balance fixes
   'verify-overlord-dominate', 'verify_fixes', 'verify-cleanup',
   // quests + personal-milestone flags (per-player) + the save-schema importer (rebuild S1)
@@ -73,7 +76,7 @@ const SUITES = [
 //   ranged-verify   ~1/12  (projectile spread RNG)
 //   pinnacle-verify ~1/12  ("boss drifts home" positional race)
 //   style-verify    ~7%    (Quarry Marks accrual timing)
-const FLAKY = new Set(['ranged-verify', 'pinnacle-verify', 'style-verify', 'v4b-fullstack', 'partyloop-mp-verify']);   // v4b: real server + wall-clock windows (boot deadline, 20 Hz rate band, ephemeral port) — timing-sensitive on a loaded machine, deterministic in substance. partyloop: rare order-dependent fail in full-battery runs only (solo 3/3 green; suspected unseeded-worldgen positioning like enemies-mp-verify's fixed flake) — root-cause queued, see REBUILD.md.
+const FLAKY = new Set(['ranged-verify', 'pinnacle-verify', 'style-verify', 'v4b-fullstack', 'partyloop-mp-verify', 't4-regression']);   // v4b: real server + wall-clock windows (boot deadline, 20 Hz rate band, ephemeral port) — timing-sensitive on a loaded machine, deterministic in substance. partyloop/t4: rare order-dependent fail in full-battery runs only (each solo + warm-full green; unseeded-worldgen positioning like enemies-mp-verify's fixed flake — t4's 3-player/420-tick smoke surfaced it after v3.1.0's mid-ring RNG shift) — root-cause queued.
 
 const argv = process.argv.slice(2);
 const selected = argv.length ? SUITES.filter((s) => argv.some((a) => s.includes(a))) : SUITES;

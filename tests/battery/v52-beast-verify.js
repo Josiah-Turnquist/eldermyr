@@ -47,19 +47,23 @@ out.push('--- 2. idempotency ---');
   ok('twice at L25 -> identical atk/hp/xp/gold', a1 === a2 && h1 === h2 && x1 === x2 && g1 === g2, 'atk ' + a1 + '==' + a2 + ', hp ' + h1 + '==' + h2);
 }
 
-// ===== 3. LEVEL-UP CATCHUP: boot-weak beast (L1 solo) -> rescale to L25/5p adopts the CURRENT html curve =====
-out.push('--- 3. boot-weak beast catches up to the live curve ---');
+// ===== 3. RESCALE ADOPTS THE LIVE CURVE (the "no formula mirror" guard). v3.1.0: hunts are FLAT-leveled,
+//         so a rescale is driven by PARTY SIZE + cycle, never player LEVEL (here 1p→5p, not L1→L25). =====
+out.push('--- 3. rescale adopts the live curve (party SIZE + cycle, never player level) ---');
 {
   setCtx(1, 1, 0);
-  const b = G.makeGreatBeast(h, tx, ty);                      // baked weak at boot
-  const weakAtk = b.atk, weakHp = b.maxHp;
-  setCtx(25, 5, 0);                                           // party leveled + grew
-  const want = G.makeGreatBeast(h, tx, ty);                   // what a FRESH spawn would be now
+  const b = G.makeGreatBeast(h, tx, ty);                      // spawned when the room held ONE hero
+  const soloAtk = b.atk, soloHp = b.maxHp;
+  setCtx(25, 5, 0);                                           // player level 25 is now IRRELEVANT; the PARTY grew to 5
+  const want = G.makeGreatBeast(h, tx, ty);                   // what a FRESH spawn would be now (5 players)
   S.enemies = [b];
   w._rescaleThreats(25);
-  out.push('  boot(L1,1p): atk=' + weakAtk + ' hp=' + weakHp + '  ->  rescaled(L25,5p): atk=' + b.atk + ' hp=' + b.maxHp + '  (fresh-now: atk=' + want.atk + ' hp=' + want.maxHp + ')');
-  ok('rescaled == what the generator makes NOW (curve inherited)', b.atk === want.atk && b.maxHp === want.maxHp, 'atk ' + b.atk + '==' + want.atk + ', hp ' + b.maxHp + '==' + want.maxHp);
-  ok('meaningfully above boot stats', b.atk > weakAtk * 2 && b.maxHp > weakHp * 2);
+  out.push('  solo(1p): atk=' + soloAtk + ' hp=' + soloHp + '  ->  rescaled(5p): atk=' + b.atk + ' hp=' + b.maxHp + '  (fresh-now: atk=' + want.atk + ' hp=' + want.maxHp + ')');
+  ok('rescaled == what the generator makes NOW (no formula mirror)', b.atk === want.atk && b.maxHp === want.maxHp, 'atk ' + b.atk + '==' + want.atk + ', hp ' + b.maxHp + '==' + want.maxHp);
+  ok('grows with PARTY SIZE 1p→5p (hp ~×2.4 via pnh, atk ~×1.6 via pn)', b.maxHp > soloHp * 2 && b.atk > soloAtk * 1.4, 'hp ' + soloHp + '→' + b.maxHp + ', atk ' + soloAtk + '→' + b.atk);
+  // v3.1.0 proof: player LEVEL alone (same 1 player, L1 vs L25) does NOTHING to a flat-leveled beast
+  setCtx(1, 1, 0); const bl1 = G.makeGreatBeast(h, tx, ty); setCtx(25, 1, 0); const bl25 = G.makeGreatBeast(h, tx, ty);
+  ok('player level alone (L1 vs L25, 1p) leaves the beast IDENTICAL', bl1.maxHp === bl25.maxHp && bl1.atk === bl25.atk, 'L1 ' + bl1.maxHp + ' vs L25 ' + bl25.maxHp);
 }
 
 // ===== 4. huntCycle>0 respected =====

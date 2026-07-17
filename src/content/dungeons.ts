@@ -121,6 +121,6 @@ export const DUNGEONS: DungeonRegistry = {
     pool: ['skeleton', 'charger', 'mage', 'archer', 'healer'],
     accent: '#7fe0d0',
   },
-  // Index BY FLOOR: 1→60, 2→75, 3→90 (trash ramp), 4→200 (the Drowned Archivist's room). Flat levels.
-  citadelLevels: [0, 60, 75, 90, 200],
+  // v3.1.0: the old flat 60/75/90 floor-level ladder is GONE — setupCitadelFloor now stamps every guard
+  // with the Archivist's own level (apex.archivist.level = 200) through the unified curve.
 };

@@ -22,6 +22,18 @@
 
 module.exports = [
   {
+    version: 'v3.1.0',
+    date: '2026-07-17',
+    title: 'Every foe now wears its level — and the map, not your XP bar, sets the danger',
+    notes: [
+      'Every enemy now shows its level, so you can read the danger at a glance before you commit to a fight.',
+      'A foe’s strength no longer chases your XP bar. It is set by WHERE the foe stands — how far from home in the wilds, or how deep in a dungeon or rift — and never by your own level. So home stays safe forever, and the frontier stays frightening whether you are level 1 or level 60.',
+      'Defense finally matters. Well-armored foes shrug off weak hits now, so a heavier weapon earns its keep against the tough ones — but there is always a floor, so nothing is ever truly unkillable.',
+      'The Sunken Citadel’s guards have stopped holding back: every floor’s trash now matches their master, the Drowned Archivist, at Level 200. It is brutal. That is the point.',
+      'The Great Hunts join the pinnacle lords in standing at a fixed, terrible strength — the Frost Titan, Storm Roc, Emberhorn and Tide Leviathan no longer scale down to whoever shows up, so a low-level hero now meets the hunt’s true might instead of a pushover. The Emberwyrm, the Mountain Kraken, the pinnacle lords and the Drowned Archivist keep their own hand-set strength, unchanged.',
+    ],
+  },
+  {
     version: 'v3.0.1',
     date: '2026-07-17',
     title: 'Motion is glassy-smooth again',

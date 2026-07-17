@@ -101,6 +101,7 @@ function makeWarlordEnemy(w, tx, ty) {
   e.warlordRef = w;
   e.dread = true;
   e.name = w.name;
+  e.level = w.level; // v3.1.0: the nemesis wears its own (Legion-tracked) level on the nameplate, not makeEnemy's Lv1 default
   e.w = 24 + w.rank * 4;
   e.h = 24 + w.rank * 4;
   e.maxHp = Math.round((45 + w.rank * 40) * f * pnh * cycHp);

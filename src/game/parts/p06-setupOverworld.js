@@ -520,15 +520,21 @@ function setupCitadelFloor(n) {
   __g.hurtFlash = 0;
   setupCompanions();
   state.enemies = [];
-  const lvl = CONTENT.dungeons.citadelLevels[n] || 90;
+  // #121/v3.1.0: every Citadel guard matches its MASTER — the Drowned Archivist's level (200) through
+  // the unified curve, OVERRIDING the shipped 60/75/90 floor levels (owner-confirmed; it is brutal, and
+  // that is the point). makeDungeonEnemy picks the type from the citadel theme pool (n = floor for the
+  // pool/theme), then scaleEnemyToLevel re-stamps every stat to L200 (per-kind base × the L200 factor —
+  // squishy kinds stay comparatively squishy). ascension/premium ride as for any dungeon minion.
+  const L = CONTENT.apex.archivist.level;
   if (n < 4) {
     const count = 5 + n * 2;
+    const asc = CONTENT.curves.ascMul(state.ascension || 0);
     for (let i = 0; i < count; i++) {
       const o = findOpenTile('dungeon', 2 + Math.floor(Math.random() * (W - 4)), 3 + Math.floor(Math.random() * (H - 4)));
       if (Math.abs(o.tx - sp.tx) < 2 && Math.abs(o.ty - sp.ty) < 2) continue;
-      const e = makeDungeonEnemy(o.tx, o.ty, lvl);
+      const e = makeDungeonEnemy(o.tx, o.ty, n);
+      scaleEnemyToLevel(e, L, { asc, dungeon: true });
       e.isCitadelMinion = true;
-      e.level = lvl; // flat, drawn via the boss/citadel Lv tag, rides packEnemy
       state.enemies.push(e);
     }
   } else {

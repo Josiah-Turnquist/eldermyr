@@ -231,12 +231,17 @@ function makeGreatBeast(h, tx, ty) {
     cycAtk = 1 + cyc * 0.25,
     cycRew = 1 + cyc * 0.4;
   const asc = 1 + (state.ascension || 0) * 0.2;
-  const lf = 1 + Math.max(0, partyLvl() - 5) * 0.11;
+  // v3.1.0: the Great Hunts are FLAT-leveled — the beast's OWN h.level (apex.ts, 55–70) drives the level
+  // factor `lf` and the atk term, NOT partyLvl(). This is the last player-LEVEL dependence, removed: an
+  // apex terror no longer bows to whoever shows up (parity with the pinnacles/dragon/kraken). At the levels
+  // they were balanced for (~55–70) the numbers land where they used to for an end-game party; a low hero
+  // now faces the hunt's true, terrible strength. partyN/distFactor/cycle/ascension still stack on top.
+  const lf = 1 + Math.max(0, h.level - 5) * 0.11;
   const dcf = 1 + distFactor(tx, ty) * 0.7;
   e.maxHp = Math.round(h.hp * asc * lf * dcf * pnh * cycHp);
   e.hp = e.maxHp;
   e.atk = Math.round(
-    h.atk * asc * (1 + distFactor(tx, ty) * 0.3) * (1 + Math.max(0, partyLvl() - 5) * 0.09) * pn * cycAtk,
+    h.atk * asc * (1 + distFactor(tx, ty) * 0.3) * (1 + Math.max(0, h.level - 5) * 0.09) * pn * cycAtk,
   );
   e.def = h.def + cyc;
   e.xp = Math.round(h.xp * lf * dcf * cycRew);
@@ -246,9 +251,9 @@ function makeGreatBeast(h, tx, ty) {
   e.castCd = 120;
   e.specials = h.specials;
   e.specialCd = 140;
-  e.level = partyLvl();
+  e.level = h.level;
   return e;
-} // #2: hunt LEVEL tracks party 1:1 — the hp/atk/xp/gold curves above stay as tuning ON TOP of that level (no level offset was ever added to a beast; this just makes the 1:1 explicit)   // #1: damage-vs-level steepened 0.05→0.09 (L1 unchanged, L25 ~2.8× vs old 2.0×) + per-extra-player factor; #2: huntCycle scales hp/atk/rewards, e.cycle stamps the drop tier
+} // #2: huntCycle scales hp/atk/rewards, e.cycle stamps the drop tier; per-extra-player factor multiplies too
 function dropGreatBeastReward(e) {
   const h = GREAT_HUNTS.find((x) => x.key === e.huntKey);
   if (!h) return;

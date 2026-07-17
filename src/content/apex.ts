@@ -26,6 +26,7 @@ import type { ApexHunt, ApexPinnacle, ApexRegistry } from './types';
 const HUNTS: readonly ApexHunt[] = [
   {
     key: 'frosttitan',
+    level: 60,
     name: 'The Frost Titan',
     color: '#bfe9ff',
     element: 'frost',
@@ -54,6 +55,7 @@ const HUNTS: readonly ApexHunt[] = [
   },
   {
     key: 'stormroc',
+    level: 55,
     name: 'The Storm Roc',
     color: '#ffe24a',
     element: 'shock',
@@ -82,6 +84,7 @@ const HUNTS: readonly ApexHunt[] = [
   },
   {
     key: 'emberhorn',
+    level: 65,
     name: 'Emberhorn the Scorched',
     color: '#ff7838',
     element: 'fire',
@@ -107,6 +110,7 @@ const HUNTS: readonly ApexHunt[] = [
   },
   {
     key: 'leviathan',
+    level: 70,
     name: 'The Tide Leviathan',
     color: '#2ad0c0',
     element: 'frost',

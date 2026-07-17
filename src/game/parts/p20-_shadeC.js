@@ -228,13 +228,15 @@ function drawEnemy(e) {
     ctx.fillText((e.isNemesis ? '☠ ' : '') + e.name.toUpperCase(), sx + e.w / 2, sy - 10);
     ctx.textAlign = 'left';
   }
-  // #121/#123 — the apex LEVEL, made visible. Gated on e.level AND an apex flag (pinnacle/citadel/
-  // kraken/citadel-minion) so NO existing enemy — and no facing-noregress probe — gains a draw op.
-  if (e.level && (e.isPinnacle || e.isCitadel || e.isFinalBoss || e.isCitadelMinion)) {
+  // v3.1.0 — EVERY foe wears its level, so players read danger straight off the map (was apex-only in
+  // #121/#123). Gated on e.level truthiness only. facing-noregress NORMALIZES e.level=0 before drawing
+  // (its probe stays art-only), and the golden hashes {state,maps}, never draw ops — so this broadening
+  // touches neither gate. Sits ABOVE the boss/nemesis name (sy-22) or just over a plain foe (sy-11).
+  if (e.level) {
     ctx.fillStyle = e.color;
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Lv ' + e.level, sx + e.w / 2, sy - (e.isBoss ? 22 : 11));
+    ctx.fillText('Lv ' + e.level, sx + e.w / 2, sy - (e.isBoss || e.isNemesis ? 22 : 11));
     ctx.textAlign = 'left';
   }
 }

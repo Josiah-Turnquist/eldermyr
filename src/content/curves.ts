@@ -1,20 +1,24 @@
-// src/content/curves.ts — the scaling-curve registry (P3/S11).
+// src/content/curves.ts — the scaling-curve registry (P3/S11; v3.1.0 level-driven rebuild).
 //
-// The level/distance FORMULAS from xpForLevel (p12) and the makeWildEnemy/makeDungeonEnemy/
-// makeDungeonBoss stat+reward factors (p03). EXTRACTION ONLY — identical math, identical operator
-// order, identical rounding. Math.round stays at the CALL SITE (the factory); only the raw FACTOR
-// expression lives here, so the float result and both oracles are BYTE-UNTOUCHED (proven by golden/mp,
-// which spawn+level every trajectory). Content can't read state, so ascension/df/level ride in as args;
-// the RNG draws (type roll, pool pick) stay in the factories.
+// v3.1.0 — THE MAP SETS THE DANGER, NOT YOUR XP BAR. Rank-and-file enemies (wild overworld,
+// regular dungeon minions + floor bosses, Citadel guards) now carry a real integer `level` and
+// derive hp/atk/def from it through ONE curve — player level no longer touches enemy stats,
+// type selection, or rewards. Two level SOURCES: owLevel(distFactor) for the overworld (danger
+// rises with distance from home) and dungeonLevel(depth) underground (danger rises with depth);
+// rifts reuse dungeonLevel (rift depth IS dungeon depth). The unified stat curve takes each
+// kind's BASE stat (enemies.ts) and the level, and returns the final value — Math.round lives
+// INSIDE these fns now (the value is the whole point; nothing downstream re-rounds a factor).
+// Rewards ride the ENEMY's level (frontier still pays — now tile-driven, not player-driven).
+// The old player-scaled wildStat/wildXp/wildGold/dungeonStat/dungeonBossStat are DELETED, and
+// with them the biome ×1.3/×1.6 stat bump (biome still selects TYPE + applies frost/lava on-hit).
+// ascMul stays: ascension (a NG+ knob, not player level) multiplies the final dungeon hp/atk.
 //
-// #113 (F1) LANDED here: the overworld reward split into wildXp/wildGold, each gaining a level term
-// (XP the full 0.26 stat slope, gold a gentler 0.10) — a DESIGNED oracle re-record (the ONE tuning
-// change this slice makes; everything else stays byte-frozen). Formulas-as-data, ONE source (the
-// rebuild-from-generator rule) — the battery evaluates these fns directly, never a mirror.
+// Content can't read state, so ascension/df/level/base arrive as args. Pure fns, ONE source —
+// the battery evaluates these directly (content-purity 5z4/5z5), golden/mp prove them live.
 import type { CurveRegistry } from './types';
 
-// The ascension multiplier — shared by dungeon enemies (inside dungeonStat) and the dungeon boss's
-// `asc` local. ONE source: CURVES.ascMul below is this same function reference.
+// The ascension multiplier — the dungeon NG+ knob (NOT player level). Multiplies the final
+// dungeon-enemy hp/atk (applied at the factory call site). ONE source: CURVES.ascMul below.
 function ascMul(ascension: number): number {
   return 1 + ascension * 0.2;
 }
@@ -26,35 +30,39 @@ export const CURVES: CurveRegistry = {
     for (let i = 2; i <= L; i++) base = Math.floor(base * 1.58) + 6;
     return Math.round(base * (1 + Math.max(0, (0.45 * (7 - L)) / 6)));
   },
-  // makeWildEnemy `f` — the diffMul(df) result rides in as `diff` (diffMul stays in-part).
-  wildStat(lvl: number, biomeMul: number, diff: number): number {
-    return (1 + (lvl - 1) * 0.26) * biomeMul * diff;
+  // ── LEVEL SOURCES ────────────────────────────────────────────────────────────────────────
+  // Overworld enemy level from distFactor (linear 0..1). Home (df 0) is L1 and STAYS L1 forever;
+  // the deep frontier is L~75. Anchors: .10→L3, .30→L13, .58→L34, .90→L64, 1.0→L75.
+  owLevel(df: number): number {
+    return 1 + Math.round(Math.pow(df, 1.5) * 74);
   },
-  // makeWildEnemy reward factors — #113/F1 (DESIGNED re-record): the overworld reward curve gained a
-  // LEVEL term. Before, wild rewards scaled ONLY by biome+distance `biomeMul*(1+df+df²*1.3)` with NO
-  // level term, so a level-30 hero fighting a stat-scaled (spongier) Frontier foe was paid the SAME
-  // as a level-1 hero — high-level overworld play stopped rewarding. Now XP scales the FULL wild-STAT
-  // level slope (0.26, parity with wildStat above) and gold a GENTLER 0.10 slope (gold has other
-  // faucets: tribute, trade, bounties, loot-sale — so its curve stays flatter). The two slopes are
-  // owner-tunable knobs; `lvl` = partyLvl() at spawn, threaded in from makeWildEnemy. At level 1 both
-  // terms are ×1, so the L1 reward is byte-identical to the pre-F1 curve (the divergence starts at L2).
-  wildXp(biomeMul: number, df: number, lvl: number): number {
-    return biomeMul * (1 + df * 1.0 + df * df * 1.3) * (1 + (lvl - 1) * 0.26);
+  // Dungeon (and rift) enemy level from depth. floor1→L5, 10→L32, 20→L62.
+  dungeonLevel(depth: number): number {
+    return 2 + depth * 3;
   },
-  wildGold(biomeMul: number, df: number, lvl: number): number {
-    return biomeMul * (1 + df * 1.0 + df * df * 1.3) * (1 + (lvl - 1) * 0.1);
+  // ── THE UNIFIED RANK-AND-FILE STAT CURVE ─────────────────────────────────────────────────
+  // Each takes the KIND's base stat + the enemy's level, returns the final (rounded) value.
+  // def is additive (a flat pool grows slowly with level — the damage path is atk−def with a
+  // hard Math.max(1,…) floor, so def never makes a foe unkillable, it just makes armor matter).
+  hpForLevel(base: number, L: number): number {
+    return Math.round(base * (1 + (L - 1) * 0.35));
+  },
+  atkForLevel(base: number, L: number): number {
+    return Math.round(base * (1 + (L - 1) * 0.18));
+  },
+  defForLevel(base: number, L: number): number {
+    return base + Math.round((L - 1) * 0.22);
+  },
+  // Rewards ride the ENEMY's level: XP the full 0.26 slope, gold a gentler 0.10 (gold has other
+  // faucets — tribute, trade, bounties, loot-sale). Dungeon layers dungeonXpMul/dungeonGoldMul ON TOP.
+  xpForEnemyLevel(baseXp: number, L: number): number {
+    return Math.round(baseXp * (1 + (L - 1) * 0.26));
+  },
+  goldForEnemyLevel(baseGold: number, L: number): number {
+    return Math.round(baseGold * (1 + (L - 1) * 0.1));
   },
   ascMul,
-  // makeDungeonEnemy `f`.
-  dungeonStat(level: number, ascension: number): number {
-    return (1 + (level - 1) * 0.4) * ascMul(ascension);
-  },
-  // The dungeon grind premium (+40% XP / +25% gold).
+  // The dungeon grind premium (+40% XP / +25% gold over the surface).
   dungeonXpMul: 1.4,
   dungeonGoldMul: 1.25,
-  // makeDungeonBoss `f` — `asc` = ascMul(ascension) is computed in-part (reused for its atk); base stat
-  // literals (90/12+level*2.2/4+level/100/200) stay in the factory.
-  dungeonBossStat(level: number, asc: number): number {
-    return (1 + (level - 1) * 0.55) * asc;
-  },
 };

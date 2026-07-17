@@ -2,6 +2,7 @@ function makePinnacleAdd(pin, isKing, tx, ty, idx) {
   const e = makeEnemy(tx, ty, 'skeleton');
   e.name = isKing ? 'Drowned Dead' : 'Pale Flock';
   e.color = isKing ? '#3f7794' : '#cdddec';
+  e.level = PIN_LEVEL; // v3.1.0: the court wears the fight's level (75), not makeEnemy's Lv1 default
   const lf =
     (1 + Math.max(0, PIN_LEVEL - 5) * 0.13) *
     (1 + (state.ascension || 0) * 0.18) *
@@ -41,7 +42,10 @@ function makeCitadelAdd(pin, tx, ty, idx) {
   e.element = 'frost';
   e.frost = true;
   e.isCitadelMinion = true;
-  e.level = 100; // flat, drawn via the citadel Lv tag, rides packEnemy
+  // v3.1.0: the court wears its MASTER's level (200, was 100) for display + the "match the master" intent,
+  // but its STATS stay BESPOKE/hand-tuned — the court is a real phase (~18k HP each), like the Archivist
+  // himself, NOT rank-and-file, so it is deliberately OFF the shared level curve (owner-confirmed).
+  e.level = CONTENT.apex.archivist.level;
   e._orderIdx = idx;
   e._pinRef = pin;
   e._rezN = 0;

@@ -1,7 +1,8 @@
 'use strict';
 const __RR = require('path').resolve(__dirname, '..', '..');
-// Balance/tuning pass verification: (#1) diffMul distance curve, (#2) hunt/legion 1:1 levels + rescale idempotency,
-// (#3) rollRarity legendary-rate cut. Pure fns (diffMul/rollRarity) are eval'd straight from the shipped file text.
+// Balance/tuning pass verification: (#1) owLevel/dungeonLevel level curves (v3.1.0 level-driven model),
+// (#2) legion 1:1 levels + FLAT hunt levels (v3.1.0) + rescale idempotency, (#3) rollRarity cut. rollRarity is
+// eval'd from the shipped file text; the level curves are read off the built artifact's global CONTENT.
 const REPO = '' + __RR + '';
 process.chdir(REPO);
 const fs = require('fs');
@@ -16,39 +17,38 @@ const ok = (n, c, x) => { (c ? pass++ : fail++); out.push((c ? 'PASS ' : 'FAIL '
 // at column 0 and end at the first column-0 `}`, so extraction is line-anchored.)
 const html = fs.readFileSync(require(REPO + '/tests/battery/game-file.js').gameFilePath(), 'utf8');
 const grab = (re, name) => { const m = html.match(re); if (!m) throw new Error('extract failed: ' + name); return m[0]; };
-const diffMul = (new Function(grab(/^function diffMul\(df\) \{[\s\S]*?\n\}/m, 'diffMul') + '; return diffMul;'))();
 const rollRarity = (new Function(grab(/^function rollRarity\(level, boss\) \{[\s\S]*?\n\}/m, 'rollRarity') + '; return rollRarity;'))();
-const oldDiffMul = df => (1.18 + df * 1.05 + df * df * 1.5);
 const oldRollRarity = (level, boss) => { let r = Math.random(); const shift = (boss ? 0.18 : 0) + Math.min(0.10, level * 0.006); r = Math.max(0, r - shift); if (r > 0.42) return 0; if (r > 0.15) return 1; if (r > 0.045) return 2; if (r > 0.010) return 3; return 4; };
+// v3.1.0: distance/depth → difficulty now flows through the enemy LEVEL (CONTENT.curves.owLevel /
+// dungeonLevel), read straight off the built artifact's global CONTENT (the old diffMul is deleted).
+const cu = globalThis.CONTENT.curves;
 
-// ==================== #1 diffMul curve ====================
-out.push('\n=== #1 diffMul(df): steep→flat→steep (df → difficulty multiplier) ===');
-out.push('  df   |  NEW  |  OLD  | new/old');
-const pts = [0, 0.05, 0.10, 0.20, 0.35, 0.50, 0.70, 0.85, 1.0];
-let prev = -1, mono = true;
-for (const df of pts) { const n = diffMul(df), o = oldDiffMul(df); if (n < prev - 1e-9) mono = false; prev = n; out.push('  ' + df.toFixed(2) + ' | ' + n.toFixed(3) + ' | ' + o.toFixed(3) + ' | ' + (n / o).toFixed(3)); }
-ok('monotonic non-decreasing', mono);
-ok('CORE ~0.71 across df<0.10 (1.4x easier)', [0, 0.05, 0.099].every(d => Math.abs(diffMul(d) - 0.71) < 1e-9), 'df0=' + diffMul(0).toFixed(3));
-ok('~1.0 baseline by df=0.20', Math.abs(diffMul(0.20) - 1.0) < 1e-9, diffMul(0.20).toFixed(3));
-ok('gentle mid plateau (df0.5 in 1.0..1.6, df0.7=1.6)', diffMul(0.5) > 1.0 && diffMul(0.5) < 1.6 && Math.abs(diffMul(0.70) - 1.6) < 1e-9, 'df0.5=' + diffMul(0.5).toFixed(3) + ' df0.7=' + diffMul(0.7).toFixed(3));
-ok('~4.0 at the very edge', Math.abs(diffMul(1.0) - 4.0) < 1e-9, diffMul(1.0).toFixed(3));
-ok('near-center EASIER than today (df0.05)', diffMul(0.05) < oldDiffMul(0.05), diffMul(0.05).toFixed(3) + ' < ' + oldDiffMul(0.05).toFixed(3));
-ok('far-edge much HARDER than today (df1.0)', diffMul(1.0) > oldDiffMul(1.0), diffMul(1.0).toFixed(3) + ' > ' + oldDiffMul(1.0).toFixed(3));
+// ==================== #1 owLevel / dungeonLevel: the MAP sets the danger ====================
+out.push('\n=== #1 owLevel(df) / dungeonLevel(depth): distance & depth → enemy level (v3.1.0) ===');
+out.push('  df   | owLevel');
+let prevL = -1, monoOw = true;
+for (const df of [0, 0.05, 0.10, 0.30, 0.58, 0.70, 0.90, 1.0]) { const L = cu.owLevel(df); if (L < prevL) monoOw = false; prevL = L; out.push('  ' + df.toFixed(2) + ' | ' + L); }
+ok('owLevel monotonic non-decreasing', monoOw);
+ok('owLevel anchors (.10→3, .30→13, .58→34, .90→64, 1.0→75)', cu.owLevel(0.10) === 3 && cu.owLevel(0.30) === 13 && cu.owLevel(0.58) === 34 && cu.owLevel(0.90) === 64 && cu.owLevel(1.0) === 75, [0.1, 0.3, 0.58, 0.9, 1.0].map((d) => cu.owLevel(d)).join(','));
+ok('home (df 0) is L1 and STAYS L1 — the Vale never gets scarier', cu.owLevel(0) === 1, 'owLevel(0)=' + cu.owLevel(0));
+ok('dungeonLevel = 2+depth*3 (floor1→5, 10→32, 20→62)', cu.dungeonLevel(1) === 5 && cu.dungeonLevel(10) === 32 && cu.dungeonLevel(20) === 62, [1, 10, 20].map((d) => cu.dungeonLevel(d)).join(','));
 
-// #1b end-to-end: at partyLvl=1 non-biome, makeWildEnemy's f == diffMul(df) exactly (level term=1, biomeMul=1)
-out.push('\n=== #1b makeWildEnemy applies the SAME curve (SP: partyLvl unset → player level) ===');
+// #1b end-to-end: makeWildEnemy scales by the TILE's owLevel and NOT by the player level (the v3.1.0 point).
+out.push('\n=== #1b makeWildEnemy is tile-driven, never player-driven ===');
 G.startGame(); S.player.level = 1; S._partyLevel = 0; S._partyN = 1;
 const cx = Math.round(G.OW_W / 2), cy = Math.round(G.OW_H / 2);
 const meanHp = (tx, ty, n) => { let s = 0; for (let i = 0; i < n; i++) s += G.makeWildEnemy(tx, ty, 0).maxHp; return s / n; };
 const dfC = G.distFactor(cx, cy), dfE = G.distFactor(2, 2);
-out.push('  center tile df=' + dfC.toFixed(3) + ' (diffMul ' + diffMul(dfC).toFixed(3) + ') | corner tile df=' + dfE.toFixed(3) + ' (diffMul ' + diffMul(dfE).toFixed(3) + ')');
+out.push('  center tile df=' + dfC.toFixed(3) + ' (owLevel ' + cu.owLevel(dfC) + ') | corner tile df=' + dfE.toFixed(3) + ' (owLevel ' + cu.owLevel(dfE) + ')');
 const mC = meanHp(cx, cy, 5000), mE = meanHp(2, 2, 5000);
 out.push('  mean wild maxHp: center=' + mC.toFixed(1) + '  corner=' + mE.toFixed(1));
-ok('center diffMul<1 (mobs EASIER than base) while old was >1', diffMul(dfC) < 1 && oldDiffMul(dfC) > 1, 'new=' + diffMul(dfC).toFixed(3) + ' old=' + oldDiffMul(dfC).toFixed(3));
+ok('center owLevel < corner owLevel (home stays gentle)', cu.owLevel(dfC) < cu.owLevel(dfE), 'center L' + cu.owLevel(dfC) + ' corner L' + cu.owLevel(dfE));
 ok('far-edge wild mobs dramatically tougher than center', mE > mC * 2, 'center=' + mC.toFixed(1) + ' edge=' + mE.toFixed(1));
+const _rr = Math.random, fixedSpawn = (lv) => { S.player.level = lv; Math.random = () => 0.5; const e = G.makeWildEnemy(2, 2, 0); Math.random = _rr; return e.maxHp + '/' + e.atk + '/' + e.def + '/L' + e.level; };
+ok('a fixed-tile spawn is player-level-INDEPENDENT (L1 === L50)', fixedSpawn(1) === fixedSpawn(50), 'L1=' + fixedSpawn(1) + ' L50=' + fixedSpawn(50));
 
-// ==================== #2 hunt/legion levels track party 1:1 ====================
-out.push('\n=== #2 hunt/legion LEVEL === partyLvl() (no offset) ===');
+// ============ #2 legion tracks party 1:1; Great Hunts are FLAT-leveled (v3.1.0) ============
+out.push('\n=== #2 legion LEVEL === partyLvl(); Great Hunts are FLAT (player-level-independent) ===');
 for (const N of [1, 8, 20]) {
   S.player.level = N; S._partyLevel = 0;              // SP: partyLvl() = player level
   G.genLegion();
@@ -56,12 +56,16 @@ for (const N of [1, 8, 20]) {
   ok(`L${N}: all 5 warlords report level === ${N}`, wls.length === 5 && wls.every(w => w.level === N), 'levels=' + wls.map(w => w.level).join(','));
   ok(`L${N}: overlord reports level === ${N} (was N+5)`, ov.level === N, 'ov.level=' + ov.level);
   const b = G.makeGreatBeast(G.GREAT_HUNTS[0], cx + 3, cy + 3);
-  ok(`L${N}: fresh great beast reports level === ${N}`, b.level === N, 'beast.level=' + b.level);
+  ok(`L${N}: great beast level is FLAT (${G.GREAT_HUNTS[0].level}), NOT the player level`, b.level === G.GREAT_HUNTS[0].level, 'beast.level=' + b.level);
 }
-// stats still scale sensibly on top of the 1:1 level (curve preserved): a high-level beast is far tougher than a low one
+// v3.1.0: a Great Beast's stats are PLAYER-LEVEL-INDEPENDENT now (parity with the rank-and-file proof) —
+// only its own flat h.level, party size, distance, cycle and ascension move them.
 S.player.level = 1; S._partyLevel = 0; const b1 = G.makeGreatBeast(G.GREAT_HUNTS[0], cx + 3, cy + 3);
 S.player.level = 25; S._partyLevel = 0; const b25 = G.makeGreatBeast(G.GREAT_HUNTS[0], cx + 3, cy + 3);
-ok('beast HP/atk still climb with level (curve kept as tuning on top)', b25.maxHp > b1.maxHp * 1.5 && b25.atk > b1.atk * 1.3, `L1 hp=${b1.maxHp}/atk=${b1.atk} → L25 hp=${b25.maxHp}/atk=${b25.atk}`);
+ok('beast HP/atk are IDENTICAL at player L1 vs L25 (no more scaling to whoever shows up)', b1.maxHp === b25.maxHp && b1.atk === b25.atk, `L1 hp=${b1.maxHp}/atk=${b1.atk} vs L25 hp=${b25.maxHp}/atk=${b25.atk}`);
+// beasts still differ BY BEAST — a bigger hunt carries a higher flat level + more HP
+const _roc = G.makeGreatBeast(G.GREAT_HUNTS.find(h => h.key === 'stormroc'), cx + 3, cy + 3), _levi = G.makeGreatBeast(G.GREAT_HUNTS.find(h => h.key === 'leviathan'), cx + 3, cy + 3);
+ok('a bigger beast carries a higher flat level + more HP (Leviathan > Storm Roc)', _levi.level > _roc.level && _levi.maxHp > _roc.maxHp, `Roc L${_roc.level}/${_roc.maxHp} vs Leviathan L${_levi.level}/${_levi.maxHp}`);
 
 // #2b MP path: _rescaleThreats roster leveling is 1:1 and idempotent (rescale twice → identical)
 out.push('\n=== #2b MP _rescaleThreats: roster level 1:1 + idempotent ===');

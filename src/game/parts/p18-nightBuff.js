@@ -109,6 +109,7 @@ function afxSplitDeath(e) {
       w: Math.max(14, Math.round(e.w * 0.7)),
       h: Math.max(14, Math.round(e.h * 0.7)),
       type: e.type,
+      level: e.level || 1, // v3.1.0: a split copy inherits its parent's level for the nameplate
       hp,
       maxHp: hp,
       atk: Math.max(1, Math.round(e.atk * 0.45)),

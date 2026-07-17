@@ -195,6 +195,7 @@ function makeEnemy(tx, ty, type) {
     w: base.size,
     h: base.size,
     type,
+    level: 1, // v3.1.0: every enemy carries a real level (rank-and-file overrides via scaleEnemyToLevel; nemesis/apex stamp their own). Rides packEnemy for free (packScalar copies scalars) → the client draws the "Lv N" nameplate.
     hp: base.hp,
     maxHp: base.hp,
     atk: base.atk,
@@ -212,6 +213,24 @@ function makeEnemy(tx, ty, type) {
     wobble: Math.random() * 6.28,
   };
   if (base.init) base.init(e);
+  return e;
+}
+// v3.1.0: THE rank-and-file level→stat stamp. Reads the enemy's KIND base (enemies.ts) and derives
+// hp/atk/def/xp/gold from the ONE unified curve (curves.ts) at level L. asc (ascMul) multiplies the
+// FINAL dungeon hp/atk (ascension is a NG+ knob, never player level; overworld passes asc=1);
+// dungeon minions also take the +40%/+25% grind premium (opts.dungeon). Player level is nowhere here.
+function scaleEnemyToLevel(e, L, opts) {
+  opts = opts || {};
+  const asc = opts.asc || 1,
+    C = CONTENT.curves,
+    b = CONTENT.enemies[e.type]; // per-kind base stats (unscaled) — the ONE source
+  e.level = L;
+  e.maxHp = Math.round(C.hpForLevel(b.hp, L) * asc);
+  e.hp = e.maxHp;
+  e.atk = Math.round(C.atkForLevel(b.atk, L) * asc);
+  e.def = C.defForLevel(b.def, L);
+  e.xp = Math.round(C.xpForEnemyLevel(b.xp, L) * (opts.dungeon ? C.dungeonXpMul : 1));
+  e.gold = Math.round(C.goldForEnemyLevel(b.gold, L) * (opts.dungeon ? C.dungeonGoldMul : 1));
   return e;
 }
 function makeBoss(tx, ty) {
@@ -243,16 +262,22 @@ function makeBoss(tx, ty) {
   };
 }
 function makeWildEnemy(tx, ty, biome) {
-  const lvl = partyLvl();
+  // v3.1.0: the TILE's own owLevel(distFactor) sets the enemy's level and, through the unified curve,
+  // its stats + rewards — player level no longer touches ANY of it (home stays safe forever, the
+  // frontier stays frightening at any level). RNG order is byte-preserved: `r` (the type roll) is the
+  // FIRST draw, then makeEnemy's wobble/init — same count, same order as the old body (the removed
+  // `partyLvl()` read consumed no RNG).
   const r = Math.random();
   const df = distFactor(tx, ty);
+  const L = CONTENT.curves.owLevel(df);
   const frozen = biome === 1,
     lava = biome === 2;
   let type;
-  // Enemy TYPE is gated by ring, not just player level: the Vale stays gentle even for veterans, the Frontier is brutal at any level.
-  // P3/S2: the threshold tables live in src/content/enemies.ts (CONTENT.wildSpawn); the
-  // ring/level BRANCHING is game logic and stays here. pick() walks `r < t` rows exactly
-  // like the old ternary chains — same constants, same order, same single r drawn above.
+  // Enemy TYPE is gated by ring + biome (distance/biome, never player level): the Vale stays gentle
+  // even for veterans, the Frontier is brutal at any level. The mid-ring roster now widens with the
+  // TILE's own owLevel (was partyLvl <3/<6/6+) so variety survives with zero player-level dependence.
+  // P3/S2: the threshold tables live in src/content/enemies.ts (CONTENT.wildSpawn); pick() walks
+  // `r < t` rows exactly like the old ternary chains — same constants, same order, same single r.
   const WS = CONTENT.wildSpawn;
   if (lava) type = WS.pick(r, WS.tables.lava);
   else if (frozen) type = WS.pick(r, WS.tables.frozen);
@@ -260,41 +285,33 @@ function makeWildEnemy(tx, ty, biome) {
     type = WS.pick(r, WS.tables.vale); // Vale — easy lowland, no chargers
   else if (df >= RING_MID)
     type = WS.pick(r, WS.tables.frontier); // Frontier — hardest, widest variety (ranged archers + healers appear here)
-  else if (lvl < 3) type = WS.pick(r, WS.tables.midEarly);
-  else if (lvl < 6) type = WS.pick(r, WS.tables.midCore);
+  else if (L < 15) type = WS.pick(r, WS.tables.midEarly);
+  else if (L < 30) type = WS.pick(r, WS.tables.midCore);
   else type = WS.pick(r, WS.tables.midLate);
   const e = makeEnemy(tx, ty, type);
-  const biomeMul = frozen ? 1.3 : lava ? 1.6 : 1;
-  // Distance→difficulty via diffMul(df): easier CORE (~0.71×) → fast climb → gentle mid plateau → STEEP Frontier ramp (~4× at the edge).
-  // P3/S11: the stat/reward FACTORS are curves.ts fns (wildStat/wildReward); Math.round + the biomeMul/diffMul draws stay here.
-  const f = CONTENT.curves.wildStat(lvl, biomeMul, diffMul(df));
-  e.maxHp = Math.round(e.maxHp * f);
-  e.hp = e.maxHp;
-  e.atk = Math.round(e.atk * f);
-  // P3/F1 (#113): the reward curve gained a level term — XP scales the full wild-stat slope, gold a
-  // gentler one (curves.ts). `lvl` = partyLvl() (in scope above); Math.round stays at the call site.
-  e.xp = Math.round(e.xp * CONTENT.curves.wildXp(biomeMul, df, lvl));
-  e.gold = Math.round(e.gold * CONTENT.curves.wildGold(biomeMul, df, lvl));
+  // hp/atk/def/xp/gold all derive from L through the ONE curve (biome no longer bumps power — it still
+  // selects TYPE above and applies frost/lava on-hit below). Overworld takes no ascension multiplier.
+  scaleEnemyToLevel(e, L);
   if (frozen) e.frost = true;
   if (lava) e.lava = true;
   e.homeDf = df;
   return e;
 }
-function makeDungeonEnemy(tx, ty, level) {
-  const theme = state.dungeonThemeData || dungeonTheme(level);
+function makeDungeonEnemy(tx, ty, depth) {
+  // `depth` is the floor number (1,2,3…; rifts pass their deep floor). Theme + pool still cycle by
+  // DEPTH; the STATS come from the unified curve at dungeonLevel(depth) — v3.1.0, no player level.
+  const theme = state.dungeonThemeData || dungeonTheme(depth);
   let pool = theme && theme.pool ? theme.pool.slice() : ['slime', 'bat', 'skeleton', 'skeleton'];
-  // P3/S2: level-gated pool growth (archer@3 / healer@4) is a registry knob —
+  // P3/S2: depth-gated pool growth (archer@3 / healer@4) is a registry knob —
   // src/content/dungeons.ts. Row order = the old if-order, so the pool is identical.
-  for (const g of CONTENT.dungeons.poolGrowth) if (level >= g.minLevel) pool = pool.concat([g.add]);
+  for (const g of CONTENT.dungeons.poolGrowth) if (depth >= g.minLevel) pool = pool.concat([g.add]);
   const type = pool[Math.floor(Math.random() * pool.length)];
   const e = makeEnemy(tx, ty, type);
-  // P3/S11: dungeon stat factor + the grind-premium multipliers are curves.ts (dungeonStat/dungeonXpMul/dungeonGoldMul).
-  const f = CONTENT.curves.dungeonStat(level, state.ascension || 0);
-  e.maxHp = Math.round(e.maxHp * f);
-  e.hp = e.maxHp;
-  e.atk = Math.round(e.atk * f);
-  e.xp = Math.round(e.xp * f * CONTENT.curves.dungeonXpMul);
-  e.gold = Math.round(e.gold * f * CONTENT.curves.dungeonGoldMul);
+  // ascension (the NG+ knob) multiplies the final hp/atk; the +40%/+25% grind premium rides the reward.
+  scaleEnemyToLevel(e, CONTENT.curves.dungeonLevel(depth), {
+    asc: CONTENT.curves.ascMul(state.ascension || 0),
+    dungeon: true,
+  });
   if (theme && theme.key === 'inferno') e.lava = true;
   return e;
 } // dungeon pays a grind premium: +40% XP, +25% gold over the surface
@@ -310,16 +327,19 @@ function makeDungeonBoss(tx, ty, level) {
   ];
   const name = level <= names.length ? names[level - 1] : 'Abyssal Horror +' + (level - names.length);
   const b = makeBoss(tx, ty);
-  // P3/S11: the ascension multiplier + boss level factor are curves.ts (ascMul/dungeonBossStat); `asc`
-  // stays a local (reused for atk); the base stat literals (90/12+level*2.2/4+level/100/200) stay here.
+  // v3.1.0: `level` here is the floor DEPTH. The floor boss's own level is dungeonLevel(depth)+2 (a small
+  // capstone bump over its floor's minions); hp/atk/def derive from makeBoss's base (90/12/4) through the
+  // unified curve (tankiness comes from the 90 base). ascension (NG+) multiplies the final hp/atk; the
+  // reward rides the boss level with NO grind premium (a capstone, not a farmed minion). No player level.
+  const L = CONTENT.curves.dungeonLevel(level) + 2;
   const asc = CONTENT.curves.ascMul(state.ascension || 0);
-  const f = CONTENT.curves.dungeonBossStat(level, asc);
-  b.maxHp = Math.round(90 * f);
+  b.level = L;
+  b.maxHp = Math.round(CONTENT.curves.hpForLevel(90, L) * asc);
   b.hp = b.maxHp;
-  b.atk = Math.round((12 + level * 2.2) * asc);
-  b.def = Math.round(4 + level);
-  b.xp = Math.round(100 * f);
-  b.gold = Math.round(200 * f);
+  b.atk = Math.round(CONTENT.curves.atkForLevel(12, L) * asc);
+  b.def = CONTENT.curves.defForLevel(4, L);
+  b.xp = CONTENT.curves.xpForEnemyLevel(100, L);
+  b.gold = CONTENT.curves.goldForEnemyLevel(200, L);
   b.name = name;
   b.color = level % 2 === 0 ? '#ff6060' : '#c080ff';
   b.caster = level >= 2;

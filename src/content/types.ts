@@ -242,10 +242,10 @@ export interface DungeonRegistry {
   readonly floorMods: Record<FloorModKey, FloorMod>;
   readonly vault: DungeonVault;
   pickFloorMod(r: number): FloorModKey | null;
-  /** #121 — the Sunken Citadel (pinnacle dungeon): its own theme + the flat floor-level ladder
-   * (index by floor: 1→60, 2→75, 3→90 trash; 4→the L200 boss room). No floor mods. */
+  /** #121 — the Sunken Citadel (pinnacle dungeon): its own theme. No floor mods. v3.1.0: the floor-level
+   * ladder is gone — every Citadel guard now takes the boss's own level (apex.archivist.level) via the
+   * unified curve (setupCitadelFloor), so there is no separate 60/75/90 table to keep in sync. */
   readonly citadel: DungeonTheme;
-  readonly citadelLevels: readonly number[];
 }
 
 // ============================================================================================
@@ -463,6 +463,9 @@ export interface ApexReward {
  * Hunt Master read name/where. */
 export interface ApexHunt {
   readonly key: string;
+  /** v3.1.0: the FLAT display+scaling level (player-level-independent; ascends with base hp). makeGreatBeast
+   * reads h.level for its `lf`/atk terms and stamps e.level — the last player-LEVEL dependence, removed. */
+  readonly level: number;
   readonly name: string;
   readonly color: string;
   readonly element: string;
@@ -886,29 +889,31 @@ export interface TablesRegistry {
 // one-line edit to a named registry fn with a designed re-record — NOT part of this hash-frozen slice.
 
 /** The scaling-curve registry (curves.ts). Every member is a PURE function of its args (or a numeric
- * knob) — no state, no RNG. Extracted VERBATIM; F1 re-tunes wildReward with a designed re-record. */
+ * knob) — no state, no RNG. v3.1.0: the rank-and-file model is LEVEL-DRIVEN (owLevel/dungeonLevel are
+ * the level sources; hp/atk/def/xp/goldForLevel derive stats from a kind's base + the level). */
 export interface CurveRegistry {
   /** xpForLevel(L) — the geometric level curve (base ×1.58 +6 per level) with the early front-load
    * surcharge (+45% at L1 fading to 0 by L7+). VERBATIM from p12. */
   xpForLevel(L: number): number;
-  /** Wild-enemy STAT factor: (1 + (lvl-1)*0.26) * biomeMul * diff, where diff = diffMul(df) computed
-   * in makeWildEnemy (diffMul stays in-part; its result rides in). */
-  wildStat(lvl: number, biomeMul: number, diff: number): number;
-  /** Wild-enemy XP reward factor (#113/F1): biomeMul*(1+df+df²*1.3) * (1+(lvl-1)*0.26) — the base
-   * biome/distance curve times the FULL wild-stat level slope. lvl = partyLvl() at spawn. */
-  wildXp(biomeMul: number, df: number, lvl: number): number;
-  /** Wild-enemy GOLD reward factor (#113/F1): biomeMul*(1+df+df²*1.3) * (1+(lvl-1)*0.10) — the same
-   * base times a GENTLER level slope (gold has other faucets: tribute, trade, bounties, loot-sale). */
-  wildGold(biomeMul: number, df: number, lvl: number): number;
-  /** The ascension multiplier 1 + ascension*0.2 — shared by dungeon enemies (inside dungeonStat) and the
-   * dungeon boss (its `asc` local, reused for atk). ONE source. */
+  /** Overworld enemy level from distFactor (linear 0..1): 1 + round(df^1.5 * 74). Home stays L1. */
+  owLevel(df: number): number;
+  /** Dungeon (and rift) enemy level from depth: 2 + depth*3. floor1→L5, 20→L62. */
+  dungeonLevel(depth: number): number;
+  /** Unified rank-and-file HP from a kind's base + level: round(base * (1 + (L-1)*0.35)). */
+  hpForLevel(base: number, L: number): number;
+  /** Unified rank-and-file ATK from base + level: round(base * (1 + (L-1)*0.18)). */
+  atkForLevel(base: number, L: number): number;
+  /** Unified rank-and-file DEF from base + level: base + round((L-1)*0.22) (additive; the damage
+   * path floors at Math.max(1,…), so def matters but never makes a foe unkillable). */
+  defForLevel(base: number, L: number): number;
+  /** Enemy XP reward from base + level: round(baseXp * (1 + (L-1)*0.26)) — the full slope. */
+  xpForEnemyLevel(baseXp: number, L: number): number;
+  /** Enemy GOLD reward from base + level: round(baseGold * (1 + (L-1)*0.10)) — a gentler slope. */
+  goldForEnemyLevel(baseGold: number, L: number): number;
+  /** The ascension multiplier 1 + ascension*0.2 — the dungeon NG+ knob (NOT player level); multiplies
+   * the final dungeon-enemy hp/atk at the factory call site. ONE source. */
   ascMul(ascension: number): number;
-  /** Dungeon-enemy STAT factor: (1 + (level-1)*0.4) * ascMul(ascension). */
-  dungeonStat(level: number, ascension: number): number;
   /** The dungeon grind premium (+40% XP / +25% gold over the surface). */
   readonly dungeonXpMul: number;
   readonly dungeonGoldMul: number;
-  /** Dungeon-BOSS level factor: (1 + (level-1)*0.55) * asc, where asc = ascMul(ascension) is computed in
-   * makeDungeonBoss (reused for its atk). Base stat literals (90hp/atk/def/xp/gold) stay in the factory. */
-  dungeonBossStat(level: number, asc: number): number;
 }

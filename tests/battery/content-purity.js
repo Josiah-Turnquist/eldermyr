@@ -348,25 +348,30 @@ ok('5z2. oracle-reaching values are the shipped ones (TRADE furs base 40, FORAGE
 ok('5z3. display-only unicode survives byte-for-byte (STATUS −22% is U+2212, BLESS.ward −40%, lore[8] Emberwyrm curly apostrophe, SEASON_TINT[3] winter rgba)',
   !!C && C.tables.status.Exhausted.includes('−22%') && C.tables.bless.ward.desc === '−40% damage taken' && C.tables.regions.lore[8] === 'The Emberwyrm is not the fire’s master. It is the fire’s prisoner.' && C.tables.seasons.tint[3] === 'rgba(180,212,255,0.14)' && C.tables.foods.recipes.roast.name === "Forager's Roast",
   C && C.tables.bless.ward.desc);
-// S11: the scaling curves. Golden/mp PROVE float-identity live (every spawn+levelup evaluates these
-// through the p03/p12 aliases → both oracles byte-untouched); these §5 pins evaluate the extracted fns
-// at sample points so a curve edit that slips past golden's windows still fails here. Math.round stays
-// at the call sites — these check the raw factors + the xpForLevel integer curve.
+// The scaling curves. Golden/mp PROVE these live (every spawn+levelup evaluates them through the p03
+// aliases → the oracles move consciously with a real change); these §5 pins evaluate the fns at sample
+// points so a curve edit that slips past golden's windows still fails here. v3.1.0: the rank-and-file
+// model is LEVEL-DRIVEN — owLevel/dungeonLevel are the level sources and hp/atk/def/xp/goldForLevel
+// return the FINAL (rounded) stat from a kind's base + the level (Math.round now lives in the fns).
 ok('5z4. xpForLevel is VERBATIM (L1→32, L2→55, L7→481, L10→1924) and the grind/ascension knobs are shipped (xpMul 1.4, goldMul 1.25, ascMul(0)=1, ascMul(5)=2)',
   !!C && C.curves && C.curves.xpForLevel(1) === 32 && C.curves.xpForLevel(2) === 55 && C.curves.xpForLevel(7) === 481 && C.curves.xpForLevel(10) === 1924 && C.curves.dungeonXpMul === 1.4 && C.curves.dungeonGoldMul === 1.25 && C.curves.ascMul(0) === 1 && C.curves.ascMul(5) === 2,
   C && C.curves && C.curves.xpForLevel(10));
-ok('5z5. the stat/reward FACTORS are the shipped formulas (wildStat(1,1,1)=1 & (1+(lvl-1)*.26)*bm*diff; #113/F1 wildXp = base×(1+(lvl-1)*.26) FULL slope, wildGold = base×(1+(lvl-1)*.10) GENTLER, base=bm*(1+df+df²*1.3); dungeonStat/dungeonBossStat level ramps)',
+ok('5z5. v3.1.0 LEVEL-DRIVEN curves are the shipped formulas — owLevel/dungeonLevel level sources + the unified hp/atk/def/xp/gold-forLevel ramps (home/L1 === base; gold slope 0.10 < xp slope 0.26)',
   !!C && (() => {
-    const near = (a, b) => Math.abs(a - b) < 1e-9;
-    const base = (bm, df) => bm * (1 + df * 1.0 + df * df * 1.3);
-    return C.curves.wildStat(1, 1, 1) === 1 && near(C.curves.wildStat(5, 1.6, 2), (1 + 4 * 0.26) * 1.6 * 2)
-      // F1 XP: base curve × FULL 0.26 level slope (L1 === base — no divergence; L5 === base×2.04; L30 === base×8.54)
-      && C.curves.wildXp(1, 0, 1) === 1 && near(C.curves.wildXp(1, 1, 1), 3.3) && near(C.curves.wildXp(1, 1, 5), base(1, 1) * (1 + 4 * 0.26)) && near(C.curves.wildXp(1.6, 0.5, 30), base(1.6, 0.5) * (1 + 29 * 0.26))
-      // F1 gold: SAME base × GENTLER 0.10 slope (L1 === base; L5 === base×1.40; L30 === base×3.90) — strictly below XP once lvl>1
-      && C.curves.wildGold(1, 0, 1) === 1 && near(C.curves.wildGold(1, 1, 1), 3.3) && near(C.curves.wildGold(1, 1, 5), base(1, 1) * (1 + 4 * 0.1)) && near(C.curves.wildGold(1.6, 0.5, 30), base(1.6, 0.5) * (1 + 29 * 0.1)) && C.curves.wildGold(1, 1, 5) < C.curves.wildXp(1, 1, 5)
-      && C.curves.dungeonStat(1, 0) === 1 && C.curves.dungeonStat(6, 0) === 3
-      && C.curves.dungeonBossStat(1, 1) === 1 && near(C.curves.dungeonBossStat(3, 1), 2.1);
-  })(), C && C.curves && String(C.curves.wildXp(1, 1, 5)));
+    const cu = C.curves;
+    // level SOURCES — the anchors the model is tuned to
+    const sources = cu.owLevel(0.10) === 3 && cu.owLevel(0.30) === 13 && cu.owLevel(0.58) === 34 && cu.owLevel(0.90) === 64 && cu.owLevel(1.0) === 75
+      && cu.dungeonLevel(1) === 5 && cu.dungeonLevel(10) === 32 && cu.dungeonLevel(20) === 62;
+    // the unified stat curve: L1 (home) === the kind's base for hp/atk/def, and each ramps up at L50
+    const stats = cu.hpForLevel(20, 1) === 20 && cu.hpForLevel(20, 50) === 363
+      && cu.atkForLevel(20, 1) === 20 && cu.atkForLevel(20, 50) === 196
+      && cu.defForLevel(2, 1) === 2 && cu.defForLevel(2, 50) === 13;
+    // rewards ride the enemy level: XP the full 0.26 slope, gold the gentler 0.10 (base at L1, gold < xp for L>1)
+    const rewards = cu.xpForEnemyLevel(10, 1) === 10 && cu.xpForEnemyLevel(10, 50) === 137
+      && cu.goldForEnemyLevel(6, 1) === 6 && cu.goldForEnemyLevel(6, 50) === 35
+      && cu.goldForEnemyLevel(10, 50) < cu.xpForEnemyLevel(10, 50);
+    return sources && stats && rewards;
+  })(), C && C.curves && String(C.curves.owLevel(1.0)));
 
 // ---- §6 mutation canary: 3k ticks, then live CONTENT vs a fresh chunk re-eval ------------
 const w = new World();

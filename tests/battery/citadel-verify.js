@@ -1,10 +1,12 @@
 const __RR = require('path').resolve(__dirname, '..', '..');
 // Headless verification for #121 — the Sunken Citadel (pinnacle dungeons), F4a/b/c.
 // Guards: a slain pinnacle DROPS the persistent gate (tile + state.citadelGate; never re-placed);
-// entering builds the Citadel (state.citadel=1); floors 1-3 are a flat trash ramp (lvl 60/75/90) with
-// a down-stair + floorMod/vault null; floor 4 is the boss room (no stairs). The Drowned Archivist is
-// level 200 (flat 240k HP / atk 260 / def 46), cycles stances+phases, raises a lvl-100 ordered-kill
-// court, and leaps only onto legal tiles; packEnemy carries phase/stance/arenaR/level and NO object.
+// entering builds the Citadel (state.citadel=1); floors 1-3 are a trash ramp whose guards ALL wear the
+// boss's own level (v3.1.0: L200 through the unified curve, was 60/75/90) with a down-stair +
+// floorMod/vault null; floor 4 is the boss room (no stairs). The Drowned Archivist is level 200 (flat
+// 240k HP / atk 260 / def 46), cycles stances+phases, raises an ordered-kill court that wears its master's
+// level (200) but keeps BESPOKE ~18k HP (off the rank-and-file curve, like the Archivist himself), and
+// leaps only onto legal tiles; packEnemy carries phase/stance/arenaR/level.
 // PER-PLAYER hidden 1% relic roll: each present hero rolls independently, direct to his OWN bag —
 // hero A's success NEVER grants B. The 5 relics are recalcStats flags (equip→set, break→clear) and
 // Aegis cheat-death works. MP: a stranger at the normal dungeon door is REFUSED while the Citadel
@@ -47,7 +49,7 @@ for (const n of [1, 2, 3, 4]) {
   G.setupCitadelFloor(n);
   const lvls = [...new Set(S.enemies.map((e) => e.level))];
   if (n < 4) {
-    A1(`2_floor${n}_lvl`, lvls.length === 1 && lvls[0] === [0, 60, 75, 90][n], `levels=${JSON.stringify(lvls)}`);
+    A1(`2_floor${n}_lvl`, lvls.length === 1 && lvls[0] === globalThis.CONTENT.apex.archivist.level, `every guard === the boss level (200); got ${JSON.stringify(lvls)}`);
     A1(`2_floor${n}_descend`, hasTile(T.D_DESCEND));
     A1(`2_floor${n}_minions_tagged`, S.enemies.every((e) => e.isCitadelMinion));
   } else {
@@ -79,7 +81,7 @@ for (let t = 0; t < 8000; t++) {
 }
 A1('3_all_three_stances', seenStance.size === 3, [...seenStance].join(','));
 A1('3_all_three_phases', seenPhase.has(1) && seenPhase.has(2) && seenPhase.has(3), [...seenPhase].sort().join(','));
-A1('3_court_lvl100', (() => { const c = S.enemies.find((e) => e._pinRef === boss && e.isCitadelMinion); return c && c.level === 100 && c.maxHp === Math.round(18233 * 1.4) && c._orderIdx !== undefined && c._rezN !== undefined; })(), 'ordered-kill court (party-scaled)');
+A1('3_court_lvl200_bespoke', (() => { const c = S.enemies.find((e) => e._pinRef === boss && e.isCitadelMinion); return c && c.level === 200 && c.maxHp === Math.round(18233 * 1.4) && c._orderIdx !== undefined && c._rezN !== undefined; })(), 'v3.1.0: ordered-kill court is BESPOKE (~18k, party-scaled ×1.4 for 2 players) but wears its master\'s level (200, was 100)');
 A1('3_court_wave', courtMax === 3);
 A1('3_leap_never_in_wall', inWall === 0);
 A1('3_arena_shrinks', boss.arenaR <= 105, `arenaR=${Math.round(boss.arenaR)}`);
