@@ -127,7 +127,7 @@ v1/v2/v3 fixtures in CI every run; the real-prod-dump sweep is the owner-run
 `MIGRATE_DUMP` hook + `scripts/db-dump.mjs` (needs DATABASE_URL) — unchanged since S1 and
 still the pre-cutover checklist item.
 
-**P3 — content platform** `[pending]`
+**P3 — content platform** `[done]`
 Registries for enemies, spells/auras, gear+affixes, dungeons+floor-mods, steeds,
 regions; migrate all existing content into tables (factories currently fuse spawn data
 with combat rules — that fusion is what gets split). Proof-of-platform = shipping the
@@ -135,6 +135,17 @@ backlog through it: kraken finale (#123), pinnacle dungeons (#121), warband econ
 (#115), onNewDay per-player fix (#116).
 *Gate: adding a test enemy touches exactly one file; battery green (content
 behavior-identical).*
+*END STATE (2026-07-16, S1–S11 + F1–F4 + S-final): 11 registries in `src/content/` behind
+the build seam (esbuild IIFE chunk → `dist/eldermyr.html`, three loud guards, CAPTURE/NAMES
+namespace); every content type is now a one-file entry (enemy/element/special/apex/gear/affix/
+dungeon/companion/steed-tuning/region/curve). All four backlog features shipped THROUGH the
+registries (F1 #113 reward curve + F2 #115 warband economy + F3 #123 kraken finale + F4 #121
+Sunken Citadel), exactly two designed oracle re-records (F1, F3). Deliberately deferred (honest,
+documented in the entries + cookbook): the apex stats/lair/drops HOOK extraction, the
+mounted-steed `drawSteed` render hook, and new active-ability input/UI seams (GUI arc). Gate
+receipts: battery 50/50, golden 8/8, mp 4/4, typecheck + build clean. `content-purity` (67
+asserts) is the sim-blind guard for extracted hooks; per-slice the oracles ARE the safety net.
+Durable guidance graduated to CONTENT.md (11 recipes) — the P4 consumer.*
 
 **P4 — docs + cutover** `[pending]`
 CLAUDE.md (rules + commands), ARCHITECTURE.md (v3 invariants, half the length),
@@ -853,3 +864,21 @@ live → releases entry → Josiah deletes the Netlify site → merge to `main` 
   3 guards join the instancing invariant; the party-wide hazard now covers isCitadel; the telegraph-draw chain
   is the documented extension point (a special without drawTele is a type error). P3 BACKLOG CLEARED — F1/F2/F3/
   F4 all shipped through the registries; only S-final (the CONTENT.md cookbook) remains before P4 cutover.
+- 2026-07-16: P3/S-final DONE — the registry cookbook: **CONTENT.md** written at repo root (192 lines, 11
+  recipes), the P4-durable guidance for weaker models adding content. One recipe per content type — add an
+  enemy (stats + init + mandatory draw + WILD_SPAWN row) / element (spell/aura) / boss special / apex boss /
+  gear (shop/unique/pattern) / elite affix / dungeon theme+floor-mod / companion class+tier / steed / region
+  flavor row / curve — each pinned to the ONE `src/content/` file, a real template entry to copy, the shared
+  GATE command, and the ONE trap that bites; capped by a 10-line "how the build works" header (chunk + parts +
+  namespace) and a "how to verify" footer (the five GATE commands + the three hard rules). Every cited
+  path/symbol grep-verified against the current tree (entry names, `types.ts` key-unions, the CAPTURE list).
+  The three sharpest documented traps: (1) BUILD FIRST — the suites + both oracles load `dist/eldermyr.html`,
+  they do not compile a `.ts` edit, so skipping the build tests stale bytes (green against the OLD tree); (2)
+  RNG draw order in init/exec hooks is the determinism contract — never add/drop/reorder a `Math.random()`;
+  (3) a value the sim reaches (curve/stat/drop) legitimately moves golden hashes → the conscious re-record
+  protocol with divergence evidence (`tests/golden/README.md`), never silenced. This is a DOCS-only slice
+  (Tier 1, gates at the end): CONTENT.md + these two REBUILD.md edits are the ONLY changes — no source, no
+  dist, no commit. Gate run once to confirm the tree is untouched-green: build clean, typecheck clean, battery
+  50/50 (partyloop-mp-verify flaked once → green on its documented retry), golden 8/8 (oracle 24c2ec…-era
+  native shape), mp 4/4. P3 IS CLOSED — see the phase section END STATE above. Only P4 (docs consolidation +
+  cutover) remains: CONTENT.md is its first deliverable, already in hand.
