@@ -22,6 +22,17 @@
 
 module.exports = [
   {
+    version: 'v3.1.1',
+    date: '2026-07-17',
+    title: 'Your own moves feel instant again — dodges, shots and swings no longer lag behind you',
+    notes: [
+      'Dodging no longer jerks the screen. Your roll used to be decided on the server and arrive a beat later, so the view would lurch and everything around you seemed to glitch as it caught up. Your hero now lunges the instant you press it, and the camera rides along smoothly.',
+      'Your bolts and arrows leave your hands immediately. They used to hang at the tip of your weapon for a blink before shooting off — now they launch the moment you loose them, and every shot in the realm stays smooth in flight.',
+      'Your blade stays with you. A swing now tracks your body as you move instead of trailing a step behind, so fighting on the run feels connected.',
+      'Under the hood: the game already predicted your walking so it felt instant — it now predicts your dodge the same way and launches your shots forward from their newest known spot, while everyone else’s movement keeps the smooth catch-up that keeps the realm silky. Nothing about the world, your gear, or your saves changed — this is purely how your screen draws your own actions.',
+    ],
+  },
+  {
     version: 'v3.1.0',
     date: '2026-07-17',
     title: 'Every foe now wears its level — and the map, not your XP bar, sets the danger',

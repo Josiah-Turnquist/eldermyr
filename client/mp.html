@@ -735,7 +735,22 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       localWayfind = !localWayfind;
       try { G.log && G.log('Objective guide ' + (localWayfind ? 'ON — follow the arrow' : 'OFF — wander free') + '.', 'lore'); G.Sound && G.Sound.blip && G.Sound.blip(); } catch (_e) {}
     }
-    if (k === 'shift' || k === 'l') actions.push('dodge');
+    if (k === 'shift' || k === 'l') {
+      actions.push('dodge');                               // always sent — the server dodge is authoritative
+      // Predict the lunge locally (v3.1.1) so the reconcile never hard-snaps the camera. Mirror doDodge's
+      // gate + vector off the freshest server truth (snap.me) and the client's held move-keys; if the server
+      // ends up rejecting it (a rare stamina desync), the post-guard reconcile still converges.
+      const me = snap && snap.me;
+      if (me && predInit && !(me.dragon && me.dragon.mounted) && !me.camping && !me.downed
+          && (me.dodge | 0) <= 0 && (me.dodgeCd | 0) <= 0 && predDodge.t <= 0
+          && (me.stamina || 0) >= Math.max(18, 34 - (me.bonusEvasion || 0) * 2)) {
+        let ddx = (held.d ? 1 : 0) - (held.a ? 1 : 0), ddy = (held.s ? 1 : 0) - (held.w ? 1 : 0);   // held move-keys = the same vector the server reads from `keys`
+        if (ddx === 0 && ddy === 0) { const v = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[me.dir] || [0, 1]; ddx = v[0]; ddy = v[1]; }   // standing still → dodge along facing (doDodge's fallback)
+        const mag = Math.hypot(ddx, ddy) || 1;
+        predDodge.vx = (ddx / mag) * 5.6; predDodge.vy = (ddy / mag) * 5.6; predDodge.t = 13;   // doDodge: p.dvx = dir*5.6, p.dodge = 13
+        predDodgeGuardUntil = performance.now() + (13 / serverHz) * 1000 + 180;                  // guard = the lunge (~162 ms @80 Hz) + ~180 ms settle so the server's dodge confirmation (a broadcast + round-trip behind) lands before normal reconcile resumes
+      }
+    }
     // abilities / potion / mount → server RPCs (applied to this player)
     if (k === 'q') actions.push({ rpc: 'useWhirlwind', args: [] });
     if (k === 'r') actions.push({ rpc: 'useFocus', args: [] });
@@ -775,6 +790,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // client-side prediction for MY player: move locally on input so it feels
   // instant, and reconcile toward the server's authoritative position.
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
+  // v3.1.1 — PREDICTED DODGE: the server dodge-lunges the hero ~73 px over 13 sim-ticks, but the
+  // client used to keep dead-reckoning a plain WALK, so the reconcile saw >64 px and HARD-SNAPPED
+  // pred to the server position → the hero-glued camera lurched ("everything glitches"). We now
+  // mirror doDodge's physics locally (5.6 px/tick × 13 ticks along the dodge vector, same collision
+  // fn as the walk) so pred tracks the lunge and the snap never fires. predDodge.t = remaining lunge
+  // in server-ticks; predDodgeGuardUntil = perf.now() past which the >64 px hard-snap re-arms (the
+  // lunge + a short grace — a big err during the lunge is the lunge's own broadcast lag, not a desync).
+  const predDodge = { t: 0, vx: 0, vy: 0 }; let predDodgeGuardUntil = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
   let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
   // client-side TIMELINE INTERPOLATION (v3.0.1): remote entities only get new positions at the
@@ -890,7 +913,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (!predInit) { pred.x = snap.me.x; pred.y = snap.me.y; predInit = true; }
       else {
         const err = Math.hypot(snap.me.x - pred.x, snap.me.y - pred.y);
-        if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
+        if (predDodge.t > 0 || performance.now() < predDodgeGuardUntil) { /* v3.1.1 PREDICTED-DODGE GUARD: through the lunge + a short settle, TRUST the local mirror — no hard-snap AND no lerp toward the still-lagging snapshot (the server's dodge confirmation is a broadcast behind, so pred is legitimately a beat ahead in TIME; snapping or tugging now would fight the lunge, and that fight WAS the camera lurch). A big err here is that expected lag, not a desync. Once the guard lifts the server has caught up (both moved the same ~73 px) so err≈0; if the server actually rejected the dodge — a rare stamina desync — the first post-guard reconcile converges it. Do NOT double-apply. */ }
+        else if (err > 64) { pred.x = snap.me.x; pred.y = snap.me.y; }        // big correction: knockback/teleport/collision
         else { pred.x += (snap.me.x - pred.x) * 0.45; pred.y += (snap.me.y - pred.y) * 0.45; }  // smooth drift correction (snapshot v2: 0.25→0.45 — corrections arrive per SNAPSHOT, now 20 Hz instead of ~66, so the per-correction pull grows to keep the same wall-clock convergence)
       }
       // ---- combat feedback (replay the game's own juice from deltas) ----
@@ -1014,16 +1038,28 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     } catch (_re) { const _rt = performance.now(); if (_rt - lastReconcileErrT > 2000) { lastReconcileErrT = _rt; console.error('mp reconcile error (snapshot skipped, loop continues):', _re); } } }
     // --- dead-reckon my movement each frame (input feels instant) ---
     const now = performance.now(), dt = Math.min(120, now - (lastMoveT || now)); lastMoveT = now;  // cap high enough that low fps doesn't slow movement
-    let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
-    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
-    if ((dx || dy) && predInit && G.state.scene === 'play' && !(snap.me && (snap.me.downed || snap.me.camping))) {
+    const _step = dt / (1000 / serverHz);   // real elapsed expressed in server-ticks (the walk speed already scales by this; the dodge lunge advances by dvx per tick, so it uses the same factor)
+    if (predInit && G.state.scene === 'play' && snap.me && !(snap.me.downed || snap.me.camping)) {
       const _fly = !!(snap.me.dragon && snap.me.dragon.mounted), _sail = !!snap.me.sailing;   // per-player mount/boat (server-authoritative)
-      let _exh = false; try { _exh = !_fly && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
-      const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : (snap.me.chillT > 0 ? 0.55 : 1))) * (_exh ? 0.5 : 1) * (dt / (1000 / serverHz));   // mirror updatePlayer: flight/sail speed + exhaustion slow (v2.38.0)
-      const w = snap.me.w, h = snap.me.h, nx = pred.x + dx * spd, ny = pred.y + dy * spd;
       const _move = _fly ? (G.flyCanMove || null) : (_sail ? (G.canSailTo || null) : G.canMoveTo);   // fly over everything / sail on water / walk on land — match the server so prediction doesn't rubber-band
-      if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
-      if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;
+      const w = snap.me.w, h = snap.me.h;
+      if (predDodge.t > 0) {   // v3.1.1 PREDICTED DODGE LUNGE — mirrors updatePlayer's `if (p.dodge>0)` branch: it OVERRIDES the walk and advances by p.dvx per tick, same collision fn (per axis)
+        const _s = Math.min(_step, predDodge.t);   // never overshoot the 13-tick lunge in one long/janky frame
+        const nx = pred.x + predDodge.vx * _s, ny = pred.y + predDodge.vy * _s;
+        if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
+        if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;
+        predDodge.t -= _s;
+      } else {
+        let dx = (held.d ? 1 : 0) - (held.a ? 1 : 0), dy = (held.s ? 1 : 0) - (held.w ? 1 : 0);
+        if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+        if (dx || dy) {
+          let _exh = false; try { _exh = !_fly && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
+          const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : (snap.me.chillT > 0 ? 0.55 : 1))) * (_exh ? 0.5 : 1) * _step;   // mirror updatePlayer: flight/sail speed + exhaustion slow (v2.38.0)
+          const nx = pred.x + dx * spd, ny = pred.y + dy * spd;
+          if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
+          if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;
+        }
+      }
     }
     // adopt authoritative state, but render MY player at the predicted position
     let others = [];   // hoisted out of the guarded block so the render (drawOthers) still sees it even if adopt throws
@@ -1082,7 +1118,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     // renderDelay chases 1.2× the MEASURED cadence (clamped 40–120 ms), so a server BCAST_MS
     // retune self-tunes here. Applies uniformly to enemies, projectiles, other players,
     // companions and allies; my own player is predicted above, never delayed.
-    { const _rt = performance.now() - Math.min(120, Math.max(40, snapIntMs * 1.2));
+    { const _pnow = performance.now(), _rt = _pnow - Math.min(120, Math.max(40, snapIntMs * 1.2));
       const _tpos = (o, s) => {
         if (!s) return;                                              // no stable id → keep the raw adopted position (hard snap, as before)
         let ax, ay, at, bx, by, bt, ext;
@@ -1096,8 +1132,23 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         if (f < 0) f = 0; else if (f > 1) f = ext ? Math.min(f, 1 + 100 / span) : 1;   // only the newest pair extrapolates; history never does
         o.x = ax + dx * f; o.y = ay + dy * f;
       };
+      // v3.1.1 — PROJECTILES are straight-line constant-velocity movers, so their future is EXACT:
+      // extrapolate FORWARD from the newest sample at their own velocity (no render-delay), rather than
+      // interpolating in the DELAYED past like the direction-changers above. This kills the ~5-7 frame
+      // muzzle hang on your own shots (they now leave your hand on frame 1-2) and keeps every bolt smooth.
+      // Velocity from the newest sample pair; on FIRST sight (one degenerate sample) fall back to the wire's
+      // stamped vx/vy (px/tick → px/ms) so it flies on its very first visible frame. Forward reach is capped
+      // so a stalled stream can't fling it across the map (a despawned bolt drops out of snap.proj → overshoot ≤1 frame).
+      const _tproj = (o, s) => {
+        if (!s) return;
+        let vx, vy; const span = s.ct - s.pt;
+        if (span > 0 && (s.cx !== s.px || s.cy !== s.py)) { vx = (s.cx - s.px) / span; vy = (s.cy - s.py) / span; }   // px/ms from the newest pair
+        else { const k = serverHz / 1000; vx = (o.vx || 0) * k; vy = (o.vy || 0) * k; }   // first sight: stamped px/tick → px/ms
+        const ahead = Math.min(120, Math.max(0, _pnow - s.ct));   // time since the newest sample, capped (no delay subtracted → instant)
+        o.x = s.cx + vx * ahead; o.y = s.cy + vy * ahead;
+      };
       for (const e of S.enemies) _tpos(e, smooth.get('e' + e._nid));
-      for (const pr of S.projectiles) _tpos(pr, smooth.get('r' + pr._pid));
+      for (const pr of S.projectiles) _tproj(pr, smooth.get('r' + pr._pid));
       for (const op of others) _tpos(op, smooth.get('u' + op.id));
       for (const c of (S.companions || [])) _tpos(c, c._cid != null && smooth.get('c' + c._cid));   // warband rides the timeline too (it stepped/jittered without smoothing)
       for (const a of (S.allies || [])) _tpos(a, a._aid != null && smooth.get('a' + a._aid));   // allies too (they teleport-stepped without smoothing)
