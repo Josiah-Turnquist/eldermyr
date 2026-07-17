@@ -214,6 +214,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
 
   // 6. connect to the authoritative server
   let snap = null, myId = null, mapReady = false, ws = null, mpLive = false, serverHz = 60;
+  let snapIntMs = 50, lastRxT = 0;   // v3.0.1: rolling average of the REAL snapshot cadence (measured from arrivals in ws.onmessage) + last arrival time — sizes the timeline-interp render delay, so a server BCAST_MS retune needs no client edit
 
   // ---- identity: "hero name + recovery code" (no passwords), persisted per browser ----
   // token   → the browser's saved secret; presenting it auto-restores the hero.
@@ -511,6 +512,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         //     edge would leave panels/HUD/key-gate stale until the next bag change.
         //   • wf — snapshot v2: npcs/shrines/loreStones/pois ride once per change; a dropped edge
         //     would strand shops/stones invisible until the next world event.
+        if (m.snap) {   // v3.0.1 timeline interp: stamp the ARRIVAL time on the snapshot (the frame loop's
+          // sample pairs need real receive times — a slow/hidden tab's frames skip snapshots, so a
+          // reconcile-time now() would lie) and keep a rolling average of the true broadcast cadence.
+          // Stalls and tab-hidden gaps (>400 ms) are cadence outliers, not the rhythm — excluded.
+          const _rx = performance.now(), _gap = _rx - lastRxT;
+          if (lastRxT && _gap >= 5 && _gap <= 400) snapIntMs = snapIntMs * 0.9 + _gap * 0.1;
+          lastRxT = _rx; m.snap._rxT = _rx;
+          window.__mpSnapInt = snapIntMs;   // diagnostic (the __mpFps pattern): live view of the measured cadence the render delay is sized from
+        }
         if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptWorldFeatures(m.snap); adoptInventory(m.snap); adoptQuests(m.snap); }
         snap = m.snap;
       }
@@ -767,10 +777,17 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const pred = { x: 0, y: 0 }; let predInit = false, lastSnap = null, lastMoveT = 0;
   // combat feedback regenerated from snapshot deltas (server has no client juice)
   let feelHp = null, feelLvl = null, feelGold = null, hurtFx = 0, panelSig = '', wasDowned = false, lastDungeonBlockN = 0, feelUltCd = null, feelFishCd = null, feelFishN = null, feelInv = null; const enemyMem = new Map();
-  // client-side smoothing: remote entities only get new positions at the snapshot rate
-  // (and unevenly over the wire); glide each toward its latest server position so a
-  // 120fps display doesn't see them step/jitter. (My own player is already predicted.)
-  const smooth = new Map(); let lastSmoothT = 0;
+  // client-side TIMELINE INTERPOLATION (v3.0.1): remote entities only get new positions at the
+  // broadcast rate (20 Hz — a 50 ms step spans ~3 rendered frames, which the old exponential
+  // chase turned into a per-snapshot surge-and-coast sawtooth; projectiles outright snapped).
+  // Per entity keep the last THREE server samples {x, y, arrival t} and render a small fixed
+  // delay in the past, lerped at CONSTANT velocity between the two samples that bracket the
+  // render time — uniform per-frame motion at any display Hz. Three samples, not two: the
+  // delay (1.2× the measured cadence) reaches a bit more than one interval back, so the
+  // bracket lands inside recorded history instead of clamping at the newest pair's start.
+  // (My own player is predicted, never delayed.) Entries {p2x,p2y,p2t, px,py,pt, cx,cy,ct},
+  // keyed e<_nid> / r<_pid> / u<id> / c<_cid> / a<_aid>.
+  const smooth = new Map();
   // Overlay the other heroes on the corner minimap (same world→pixel transform the game
   // uses for the "you" triangle: tile position × canvas/OW scale). Redrawn each frame after
   // the game repaints the minimap. Cyan dot = ally, red = downed.
@@ -976,13 +993,23 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
         enemyMem.delete(nid);
       }
-      // --- record smoothing targets for remote entities (enemies, projectiles, other players) ---
-      const _live = new Set();
-      for (const en of (snap.enemies || [])) if (en._nid != null) { const k = 'e' + en._nid; const s = smooth.get(k); if (s) { s.tx = en.x; s.ty = en.y; } else smooth.set(k, { tx: en.x, ty: en.y, rx: en.x, ry: en.y }); _live.add(k); }
-      for (const pr of (snap.proj || [])) if (pr._pid != null) { const k = 'r' + pr._pid; const s = smooth.get(k); if (s) { s.tx = pr.x; s.ty = pr.y; } else smooth.set(k, { tx: pr.x, ty: pr.y, rx: pr.x, ry: pr.y }); _live.add(k); }
-      for (const pl of (snap.players || [])) { if (pl.id === myId) continue; const k = 'u' + pl.id; const s = smooth.get(k); if (s) { s.tx = pl.x; s.ty = pl.y; } else smooth.set(k, { tx: pl.x, ty: pl.y, rx: pl.x, ry: pl.y }); _live.add(k); }
-      for (const c of (snap.comps || [])) if (c._cid != null) { const k = 'c' + c._cid; const s = smooth.get(k); if (s) { s.tx = c.x; s.ty = c.y; } else smooth.set(k, { tx: c.x, ty: c.y, rx: c.x, ry: c.y }); _live.add(k); }
-      for (const a of (snap.allies || [])) if (a._aid != null) { const k = 'a' + a._aid; const s = smooth.get(k); if (s) { s.tx = a.x; s.ty = a.y; } else smooth.set(k, { tx: a.x, ty: a.y, rx: a.x, ry: a.y }); _live.add(k); }
+      // --- record TIMELINE samples for remote entities (enemies, projectiles, other players) ---
+      // Shift the sample window (p2 ← p ← c ← new) per entity, stamped with the snapshot's real
+      // ARRIVAL time (set in ws.onmessage — frames can skip snapshots, and the pair must span the
+      // true elapsed time so the implied velocity stays honest). First sight seeds degenerate
+      // pairs at the spot, so a new entity renders exactly there and glides from its next update.
+      const _live = new Set(), _rxT = snap._rxT || performance.now();
+      const _tsamp = (k, x, y) => {
+        const s = smooth.get(k);
+        if (!s) smooth.set(k, { p2x: x, p2y: y, p2t: _rxT - 2, px: x, py: y, pt: _rxT - 1, cx: x, cy: y, ct: _rxT });
+        else { s.p2x = s.px; s.p2y = s.py; s.p2t = s.pt; s.px = s.cx; s.py = s.cy; s.pt = s.ct; s.cx = x; s.cy = y; s.ct = _rxT; }
+        _live.add(k);
+      };
+      for (const en of (snap.enemies || [])) if (en._nid != null) _tsamp('e' + en._nid, en.x, en.y);
+      for (const pr of (snap.proj || [])) if (pr._pid != null) _tsamp('r' + pr._pid, pr.x, pr.y);
+      for (const pl of (snap.players || [])) if (pl.id !== myId) _tsamp('u' + pl.id, pl.x, pl.y);
+      for (const c of (snap.comps || [])) if (c._cid != null) _tsamp('c' + c._cid, c.x, c.y);
+      for (const a of (snap.allies || [])) if (a._aid != null) _tsamp('a' + a._aid, a.x, a.y);
       for (const k of smooth.keys()) if (!_live.has(k)) smooth.delete(k);
     } catch (_re) { const _rt = performance.now(); if (_rt - lastReconcileErrT > 2000) { lastReconcileErrT = _rt; console.error('mp reconcile error (snapshot skipped, loop continues):', _re); } } }
     // --- dead-reckon my movement each frame (input feels instant) ---
@@ -1047,14 +1074,33 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
     S.time = snap.t; S.weather = snap.wx;
     others = (snap.players || []).filter((p) => p.id !== myId);
-    // --- glide remote entities toward their latest server position (kills stepping/jitter) ---
-    { const _sn = performance.now(), _sdt = Math.min(100, _sn - (lastSmoothT || _sn)); lastSmoothT = _sn;
-      const _sk = Math.min(1, _sdt / 40), _skp = Math.min(1, _sdt / 18);   // snapshot v2 retune for 50 ms gaps (was /55 and /26 at ~15 ms): an entity covers ~70% of each new 50 ms step per gap at 60 fps — continuous motion, ~1 snapshot of lag; projectiles snap harder (fast movers read as trailing otherwise)
-      for (const e of S.enemies) { const s = smooth.get('e' + e._nid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; e.x = s.rx; e.y = s.ry; } }
-      for (const pr of S.projectiles) { const s = smooth.get('r' + pr._pid); if (s) { s.rx += (s.tx - s.rx) * _skp; s.ry += (s.ty - s.ry) * _skp; pr.x = s.rx; pr.y = s.ry; } }
-      for (const op of others) { const s = smooth.get('u' + op.id); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; op.x = s.rx; op.y = s.ry; } }
-      for (const c of (S.companions || [])) { const s = c._cid != null && smooth.get('c' + c._cid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; c.x = s.rx; c.y = s.ry; } }   // warband glides too (it stepped/jittered without smoothing)
-      for (const a of (S.allies || [])) { const s = a._aid != null && smooth.get('a' + a._aid); if (s) { s.rx += (s.tx - s.rx) * _sk; s.ry += (s.ty - s.ry) * _sk; a.x = s.rx; a.y = s.ry; } }   // allies glide too (they teleport-stepped without smoothing)
+    // --- render remote movers on the DELAYED TIMELINE (v3.0.1 — kills the 20 Hz stepping) ---
+    // Position = constant-velocity lerp between the two recorded samples that bracket
+    // (now − renderDelay). A late/dropped snapshot extrapolates ≤100 ms at the newest pair's
+    // velocity, then HOLDS (no rubber-band). A pair implying >6 px/ms is a teleport (dungeon
+    // door / respawn / fast-travel) → snap to the newer sample, never glide across the map.
+    // renderDelay chases 1.2× the MEASURED cadence (clamped 40–120 ms), so a server BCAST_MS
+    // retune self-tunes here. Applies uniformly to enemies, projectiles, other players,
+    // companions and allies; my own player is predicted above, never delayed.
+    { const _rt = performance.now() - Math.min(120, Math.max(40, snapIntMs * 1.2));
+      const _tpos = (o, s) => {
+        if (!s) return;                                              // no stable id → keep the raw adopted position (hard snap, as before)
+        let ax, ay, at, bx, by, bt, ext;
+        if (_rt < s.pt) { ax = s.p2x; ay = s.p2y; at = s.p2t; bx = s.px; by = s.py; bt = s.pt; ext = 0; }
+        else { ax = s.px; ay = s.py; at = s.pt; bx = s.cx; by = s.cy; bt = s.ct; ext = 1; }
+        const span = bt - at;
+        if (span <= 0) { o.x = bx; o.y = by; return; }
+        const dx = bx - ax, dy = by - ay;
+        if (dx * dx + dy * dy > 36 * span * span) { o.x = bx; o.y = by; return; }   // teleport: >6 px/ms
+        let f = (_rt - at) / span;
+        if (f < 0) f = 0; else if (f > 1) f = ext ? Math.min(f, 1 + 100 / span) : 1;   // only the newest pair extrapolates; history never does
+        o.x = ax + dx * f; o.y = ay + dy * f;
+      };
+      for (const e of S.enemies) _tpos(e, smooth.get('e' + e._nid));
+      for (const pr of S.projectiles) _tpos(pr, smooth.get('r' + pr._pid));
+      for (const op of others) _tpos(op, smooth.get('u' + op.id));
+      for (const c of (S.companions || [])) _tpos(c, c._cid != null && smooth.get('c' + c._cid));   // warband rides the timeline too (it stepped/jittered without smoothing)
+      for (const a of (S.allies || [])) _tpos(a, a._aid != null && smooth.get('a' + a._aid));   // allies too (they teleport-stepped without smoothing)
     }
     } catch (_ae) { const _at = performance.now(); if (_at - lastAdoptErrT > 2000) { lastAdoptErrT = _at; console.error('mp adopt/smooth error (frame degraded, loop continues):', _ae); } }
     // keep an open inventory/skills panel fresh after server-applied changes.

@@ -22,6 +22,16 @@
 
 module.exports = [
   {
+    version: 'v3.0.1',
+    date: '2026-07-17',
+    title: 'Motion is glassy-smooth again',
+    notes: [
+      'Everything that moves — foes, arrows and bolts, your fellow heroes, your warband — now glides between server updates instead of stepping. If the realm felt jittery after v3.0.0, like frames were being missed, this is the cure.',
+      'Projectiles were the worst offenders: they would hang in the air for a blink, then leap. They fly true now.',
+      'Under the hood, the game watches the real rhythm of the server’s updates and renders every moving thing a heartbeat behind it, sliding smoothly from one known position to the next — so motion stays silk even when the connection stutters, and teleports still snap instantly instead of smearing across the realm.',
+    ],
+  },
+  {
     version: 'v3.0.0',
     date: '2026-07-16',
     title: 'The realm rebuilt — co-op that finally holds together, and a new doom to break',

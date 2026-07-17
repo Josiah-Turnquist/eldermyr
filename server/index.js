@@ -523,7 +523,7 @@ setInterval(async () => {
 // accumulator steps the sim as many times as real time demands (capped), so speed
 // stays correct even when the timer fires late.
 const STEP_MS = 1000 / HZ;
-const BCAST_MS = 50;                             // 20 Hz broadcast (snapshot v2, plan §5 — was 15/~66 Hz), decoupled from the 80 Hz sim. The client predicts its own movement and glides remote entities across the 50 ms gaps (mp.html smoothing divisors are tuned to this number); edge-triggered payloads (quests/legion/feed/dgTiles/inventory/wf) are consumed in ws.onmessage and seeded in `welcome`, so the lower rate must never starve them.
+const BCAST_MS = 50;                             // 20 Hz broadcast (snapshot v2, plan §5 — was 15/~66 Hz), decoupled from the 80 Hz sim. The client predicts its own movement and timeline-interpolates remote entities across the gaps (v3.0.1: it MEASURES the arrival cadence and sizes its render delay from it, so retuning this needs no client edit); edge-triggered payloads (quests/legion/feed/dgTiles/inventory/wf) are consumed in ws.onmessage and seeded in `welcome`, so the lower rate must never starve them.
 let acc = 0, lastT = Date.now(), lastBcast = 0, simTimer = null;
 // Wire accounting (snapshot v2): cumulative outbound state-snapshot bytes + a per-poll rate in
 // /health.json (wireKBs = KB/s across ALL clients since the previous /health.json read) — the
