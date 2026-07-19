@@ -286,6 +286,17 @@ function killEnemy(e) {
     state.citadelSlain = (state.citadelSlain || 0) + 1;
     log('★ The Drowned Archivist is unmade — the Sunken Citadel falls silent at last. A realm-shaking deed.', 'quest');
   }
+  if (e.isMini) {
+    // MINI-BOSS kill (S2): schedule the ~2 in-world-day respawn (per-key; the presence loop revives it
+    // once curDay passes — flat, no cycle), then pay the per-hero ~5% signature drop. The killer already
+    // banked the curve-scaled gold+XP through the isBoss path above; dropMiniReward adds only the rare
+    // chase item (per-hero, invisible to others). Epic '★' line → the feed broadcasts it.
+    (state.mbRespawnDay || (state.mbRespawnDay = {}))[e.mbKey] = curDay() + 2;
+    dropMiniReward(e);
+    addRep('vigil', 5);
+    const _mrow = MINI_BOSSES.find((m) => m.key === e.mbKey);
+    log(`★ ${e.name} is laid low${_mrow ? ' — ' + _mrow.where + ' falls quiet… for a time' : ''}.`, 'quest');
+  }
   /* PINNACLE kill: compute _pinFirst BEFORE the dedup push (else the drop would always see the key already slain), record the slain key, schedule the cycle respawn, drop the (Stage-B) reward, and log an EPIC line ('★'/'vanquished'/'falls') the Stage-C feed broadcast will pick up. Cycle bumps in maybeRespawnPinnacle. */ if (
     e.raidTown !== undefined &&
     e.raidTown !== null

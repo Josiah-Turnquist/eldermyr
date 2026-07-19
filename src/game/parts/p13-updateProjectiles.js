@@ -710,6 +710,7 @@ function onNewDayWorld() {
   maybeRespawnLegion();
   maybeRespawnPinnacle();
   maybeRespawnKraken(); // #123 — the finale returns on its own respawn-day cycle
+  maybeRespawnMinis(); // S2 — clear come-due mini-boss respawn-days (the presence loop revives them)
 }
 function onNewDay() {
   // P2/S4 (#116) — the World/Hero split. The composition preserves the old body's exact call

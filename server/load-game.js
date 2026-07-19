@@ -123,6 +123,7 @@ const CAPTURE = [
   'makeElite', 'rollEliteAffixes', 'afxHit', 'enemyStrike', 'statusDamage', 'tryDropLoot',   // elite affixes (Pillar 3): spawn/drive/verify affixed elites headlessly
   'makeGreatBeast', 'makeWildEnemy', 'distFactor',   // world-scaling tests (#2/#16)
   'maybePinnacleBosses', 'PINNACLE_BOSSES', 'makePinnacleBoss', 'dropPinnacleReward',   // Pillar 2 pinnacle bosses: the room drives maybePinnacleBosses() from the shared phase; the table/generator/reward are captured for tests + future rescale
+  'makeMiniBoss', 'resolveMiniLair', 'dropMiniReward', 'maybeRespawnMinis',   // S2 mini-bosses: the presence/respawn loop rides the SAME maybePinnacleBosses (no new CAPTURE for spawn); these are captured for the battery to drive spawn/lair/drop + the onNewDayWorld day-sweep directly (the pinnacle/citadel precedent)
   'makeKraken',   // #123: the finale factory — captured for the kraken-finale battery (spawn on demand), like makePinnacleBoss/makeGreatBeast
 
   'enterDungeon', 'setupDungeonFloor',   // ephemeral deep-dungeon rifts (#14)

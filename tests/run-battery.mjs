@@ -75,6 +75,11 @@ const SUITES = [
   // Archivist (stances/phases/court/leap), per-player hidden 1% relic roll (independent per hero),
   // relic recalc flags + Aegis cheat-death, the MP dgKind guard, wipe-persistence
   'citadel-verify',
+  // Mini-bosses S2 (presence + persistence + reward): all 5 spawn at fixed reachable lairs at their
+  // hand-set levels curve-leveled from the makeBoss base with NO party term; lair-bound (won't chase
+  // far); a kill removes the boss + stamps the ~2-day respawn; it returns once the day passes; the
+  // per-hero ~5% signature drop is independent (the Citadel relic model). Dead on golden trajectories.
+  'miniboss-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

@@ -537,12 +537,34 @@ export interface ApexArchivist {
   readonly stances: { readonly blade: readonly string[]; readonly storm: readonly string[]; readonly grave: readonly string[] };
 }
 
+/** A mini-boss row (S2 — the 5 fixed, respawning, soloable mini-bosses). DATA only. The sim's
+ * makeMiniBoss curve-levels a makeBoss base (90/12/4) to `level` (NO party/ascension terms — the
+ * owner's soloable-first rule), resolveMiniLair runs a deterministic spiral from `lair` (zero RNG,
+ * so boot spawns don't shift the seeded stream), and dropMiniReward JSON-deep-copies `signatureDrop`
+ * on a per-hero ~5% roll straight to that hero's bag (the Sunken-Citadel relic model — independent,
+ * invisible to others). `where` is the kill/spawn log flavor. `specials` is optional: S2 leaves it
+ * unset (makeMiniBoss falls back to the stock ['slam','charge','nova'] rotation); the signature
+ * mechanics that populate it land in S3–S5. */
+export interface ApexMini {
+  readonly key: string;
+  readonly level: number;
+  readonly name: string;
+  readonly color: string;
+  readonly where: string;
+  readonly lair: { readonly tx: number; readonly ty: number };
+  readonly specials?: readonly string[];
+  readonly signatureDrop: ApexReward;
+}
+
 /** The apex registry: the two ordered tables (arrays — the aliases GREAT_HUNTS/PINNACLE_BOSSES
  * keep .find/.length/for-of semantics) plus the flat-level and arena/leash tuning constants
  * the pinnacle factory + hazard read. */
 export interface ApexRegistry {
   readonly hunts: readonly ApexHunt[];
   readonly pinnacles: readonly ApexPinnacle[];
+  /** The 5 fixed mini-bosses (S2). makeMiniBoss/resolveMiniLair/dropMiniReward + the
+   * maybePinnacleBosses presence loop read these; each is world-shared, lair-bound, respawning. */
+  readonly minis: readonly ApexMini[];
   /** The Mountain Kraken finale (#123) — flat stats + respawn-cycle knob (makeKraken reads). */
   readonly kraken: ApexKraken;
   /** The Drowned Archivist — the L200 Sunken Citadel boss (#121; makeCitadelBoss reads). */

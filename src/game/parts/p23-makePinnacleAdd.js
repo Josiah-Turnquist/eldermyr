@@ -300,6 +300,37 @@ function maybeRespawnPinnacle() {
   );
   Sound.boss && Sound.boss();
 } // #cycle: whole roster returns a few days after the FIRST kill, harder & richer (e.cycle stamps the drop tier)
+// The mini-boss lair resolver (S2) — the shepherdLair DETERMINISTIC spiral (p06:14): outward Chebyshev
+// rings from the row's seed, first in-bounds, non-SOLID, non-town, reachable tile; the raw seed as a
+// last resort. DELIBERATELY not findWildTileNear (p03:71 draws RNG) — a zero-RNG resolve is what keeps
+// the boot spawn from shifting the seeded stream (the golden re-record stays confined to the mini
+// subtrees). Reachability is non-negotiable — an unreachable boss is unfightable (the shepherd's lesson).
+function resolveMiniLair(row) {
+  const sx = row.lair.tx,
+    sy = row.lair.ty;
+  for (let r = 0; r <= 40; r++)
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const tx = sx + dx,
+          ty = sy + dy;
+        if (tx < 2 || ty < 2 || tx >= OW_W - 2 || ty >= OW_H - 2) continue;
+        if (SOLID.has(getTile('overworld', tx, ty))) continue;
+        if (isInTown(tx, ty, 1)) continue;
+        if (!isReachableOW(tx, ty)) continue;
+        return { tx, ty };
+      }
+  return { tx: sx, ty: sy };
+}
+// Day-boundary housekeeping for the mini-bosses (S2): clear any respawn-day that has come due, so the
+// map never accumulates stale keys and the presence loop re-spawns the boss on its next pass. Guarded
+// on state.mbRespawnDay (undefined until the first mini kill) ⇒ a dead no-op on the golden day-rollover
+// trajectory. Flat, no cycle-scaling (owner decision 3: farmable minis). Called from onNewDayWorld.
+function maybeRespawnMinis() {
+  if (!state.mbRespawnDay) return;
+  const d = curDay();
+  for (const k in state.mbRespawnDay) if (d >= state.mbRespawnDay[k]) delete state.mbRespawnDay[k];
+}
 function maybePinnacleBosses() {
   if (state.map !== 'overworld') return;
   if (state._pinCheckT > 0) {
@@ -333,6 +364,18 @@ function maybePinnacleBosses() {
     } else {
       if (!dead && !boss) state.enemies.push(makePinnacleBoss(pb, lr.tx, lr.ty));
     } // Drowned King: always broods at his shipwreck isle until slain
+  }
+  // MINI-BOSSES (S2): one shared instance per boss, present until slain, then respawning ~2 in-world
+  // days later (owner decision 3). The presence check IS the respawner — per-key days, bosses
+  // independent (unlike the pinnacles' whole-roster day). Shares this loop's _pinCheckT throttle +
+  // overworld guard. resolveMiniLair + makeMiniBoss draw ZERO RNG ⇒ a boot spawn shifts no seeded draw.
+  for (const row of MINI_BOSSES) {
+    if (state.enemies.some((x) => x.isMini && x.mbKey === row.key)) continue; // already present
+    const rd = state.mbRespawnDay && state.mbRespawnDay[row.key];
+    if (rd && curDay() < rd) continue; // still on its respawn cooldown
+    if (state.mbRespawnDay) delete state.mbRespawnDay[row.key]; // cooldown elapsed (never set at boot) → clear + spawn
+    const lr = resolveMiniLair(row);
+    state.enemies.push(makeMiniBoss(row, lr.tx, lr.ty));
   }
 }
 function flyCanMove(nx, ny, w, h) {

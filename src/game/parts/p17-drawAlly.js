@@ -447,11 +447,39 @@ function execBossSpecial(e, name, pcx, pcy) {
     log,
   });
 }
+// Mini-bosses are LAIR-BOUND (S2) — the Emberwyrm's volcanic-domain shape (p17:568) and the pinnacle
+// arena leash, but with NO hazard: if the bucket hero is beyond ~12 tiles of the stamped lair, the
+// mini drops any telegraph/dash, strides straight home (flying free of terrain traps like the dragon),
+// and heals to full on arrival (anti-chip-kiting — you can't whittle it from outside its ground). It
+// draws ZERO RNG (hypot/atan2/canMoveTo only) and, when already home (dh<26, full hp), touches nothing
+// but returns true — so an idle mini far from every scripted golden hero is inert each tick save the
+// ambient wobble, leaving the seeded stream unshifted (the surgical re-record).
+const MINI_LEASH = 12 * TILE;
+function miniLairBind(e, pcx, pcy) {
+  if (e._lairTx == null) return false;
+  const lx = e._lairTx * TILE + 16,
+    ly = e._lairTy * TILE + 16;
+  if (Math.hypot(pcx - lx, pcy - ly) <= MINI_LEASH) return false; // hero inside the domain → fight normally
+  e.tele = null;
+  e.dash = null;
+  const ecx = e.x + e.w / 2,
+    ecy = e.y + e.h / 2,
+    dh = Math.hypot(ecx - lx, ecy - ly);
+  if (dh > 26) {
+    const a = Math.atan2(ly - ecy, lx - ecx),
+      nx = e.x + Math.cos(a) * e.speed * 2.2,
+      ny = e.y + Math.sin(a) * e.speed * 2.2;
+    if (canMoveTo(nx, e.y, e.w, e.h)) e.x = nx;
+    if (canMoveTo(e.x, ny, e.w, e.h)) e.y = ny;
+  } else if (e.hp < e.maxHp) e.hp = e.maxHp; // arrived home → shed any chip damage
+  return true;
+}
 function updateBoss(e, dist, pcx, pcy) {
   const ecx = e.x + e.w / 2,
     ecy = e.y + e.h / 2;
   if ((e.isPinnacle || e.isCitadel) && pinnacleHazard(e, pcx, pcy))
     return; /* #121: the Citadel boss shares the shrinking-arena hazard; returns true only when it steered the boss home (player abandoned the arena) so normal AI is skipped this tick */
+  if (e.isMini && miniLairBind(e, pcx, pcy)) return; // S2: lair-bound — hero abandoned the domain → home, skip AI (no RNG)
   if (e.isCitadel) citadelBossPhase(e, pcx, pcy); /* #121: stance rotation + phase transitions (court waves, enrage) — no AI rewrite, just re-points e.specials */
   if (e.tele) {
     e.tele.t--;
@@ -755,10 +783,10 @@ function wanderEnemyHome(e) {
       hx = h.lair.tx * TILE + 16;
       hy = h.lair.ty * TILE + 16;
     }
-  } else if (e.isPinnacle && e._lairTx != null) {
+  } else if ((e.isPinnacle || e.isMini) && e._lairTx != null) {
     hx = e._lairTx * TILE + 16;
     hy = e._lairTy * TILE + 16;
-  } // pinnacle bosses drift back to their STAMPED lair, never the nearest sea/wall edge
+  } // pinnacle + mini bosses drift back to their STAMPED lair, never the nearest sea/wall edge (the no-valid-target MP wanderers path)
   if (hx === undefined) {
     const W = OW_W * TILE,
       H = OW_H * TILE,

@@ -20,7 +20,7 @@
 // data, no hooks, no RNG. NOT frozen (the registry rule) — the tripwire is the oracles +
 // content-purity's canary; the reward is JSON-deep-copied before use and `e.specials =
 // h.specials` shares the array read-only exactly as the monolith did.
-import type { ApexHunt, ApexPinnacle, ApexRegistry } from './types';
+import type { ApexHunt, ApexMini, ApexPinnacle, ApexRegistry } from './types';
 
 // The Great Hunts — legendary roaming world-beasts (verbatim GREAT_HUNTS rows).
 const HUNTS: readonly ApexHunt[] = [
@@ -175,9 +175,126 @@ const PINNACLES: readonly ApexPinnacle[] = [
   },
 ];
 
+// The 5 fixed MINI-BOSSES (S2 — presence + persistence + reward; signature mechanics are S3–S5).
+// DATA only: makeMiniBoss curve-levels a makeBoss base (90/12/4) to `level` with NO party/ascension
+// terms (the owner's tough-but-soloable rule — a 4-stack legitimately melts them; the pinnacles stay
+// the party test). resolveMiniLair runs a DETERMINISTIC spiral from `lair` (zero RNG — keeps the
+// oracle re-record surgical). `where` is the kill/spawn log flavor. `signatureDrop` is a fixed named
+// legendary (the hunt-trophy ApexReward shape — a plain affixed weapon/armor, NOT a p.u* unique, so
+// no recalcStats seam) that each present hero rolls ~5% for on every kill, straight to their own bag.
+// Coords VERIFIED against live worldgen (probe: all five resolve at ring 0 — non-solid, reachable,
+// correct region, ≥36 tiles from the nearest apex anchor — on both golden seeds 1337/98765).
+const MINIS: readonly ApexMini[] = [
+  {
+    key: 'hierophant',
+    level: 25,
+    name: 'The Hierophant',
+    color: '#ffd86a',
+    where: 'the ruined shrine of the Western Marches',
+    lair: { tx: 70, ty: 150 },
+    signatureDrop: {
+      weapon: {
+        name: 'Hierophant’s Sunstave',
+        atk: 20,
+        style: 'magic',
+        rarity: 4,
+        element: 'fire',
+        affixes: [
+          { t: 'crit', v: 2, label: '+10% Crit' },
+          { t: 'lifesteal', v: 2, label: '+2% Lifesteal' },
+        ],
+      },
+    },
+  },
+  {
+    key: 'broodmother',
+    level: 40,
+    name: 'The Broodmother',
+    color: '#8fbf5a',
+    where: 'the dark wood of the Eastern Wilds',
+    lair: { tx: 312, ty: 158 },
+    signatureDrop: {
+      weapon: {
+        name: 'Broodsilk Recurve',
+        atk: 22,
+        style: 'ranged',
+        cd: 24,
+        rarity: 4,
+        element: 'poison',
+        affixes: [
+          { t: 'crit', v: 3, label: '+15% Crit' },
+          { t: 'lifesteal', v: 1, label: '+1% Lifesteal' },
+        ],
+      },
+    },
+  },
+  {
+    key: 'emberkeg',
+    level: 45,
+    name: 'The Emberkeg',
+    color: '#ff7838',
+    where: 'the cinder crater of the Emberwaste',
+    lair: { tx: 305, ty: 238 },
+    signatureDrop: {
+      armor: {
+        name: 'Kegheart Cinderplate',
+        def: 20,
+        rarity: 4,
+        affixes: [
+          { t: 'evasion', v: 3, label: '+9% Evade' },
+          { t: 'lifesteal', v: 1, label: '+1% Lifesteal' },
+        ],
+      },
+    },
+  },
+  {
+    key: 'hexbinder',
+    level: 55,
+    name: 'The Hexbinder',
+    color: '#9d7bff',
+    where: 'the frozen strip of the Northern Wastes',
+    lair: { tx: 128, ty: 24 },
+    signatureDrop: {
+      weapon: {
+        name: 'Hexbinder’s Icon',
+        atk: 28,
+        style: 'magic',
+        rarity: 4,
+        element: 'frost',
+        affixes: [
+          { t: 'lifesteal', v: 3, label: '+3% Lifesteal' },
+          { t: 'crit', v: 2, label: '+10% Crit' },
+        ],
+      },
+    },
+  },
+  {
+    key: 'colossus',
+    level: 60,
+    name: 'The Colossus',
+    color: '#c86038',
+    where: 'the war-camp ruin of the Northeast Range',
+    lair: { tx: 300, ty: 40 },
+    signatureDrop: {
+      weapon: {
+        name: 'Warcamp Crusher',
+        atk: 30,
+        style: 'melee',
+        cd: 26,
+        rarity: 4,
+        affixes: [
+          { t: 'berserk', v: 1, label: 'Berserker' },
+          { t: 'crit', v: 2, label: '+10% Crit' },
+        ],
+      },
+    },
+  },
+];
+
 export const APEX: ApexRegistry = {
   hunts: HUNTS,
   pinnacles: PINNACLES,
+  minis: MINIS,
   // #123 — The Mountain Kraken, the TRUE finale. FLAT base HP well above the pinnacle tier
   // (the Drowned King as actually fought ≈ 9,500; this sits at 48k), no partyLvl term — makeKraken
   // multiplies party-size/ascension/cycle on top and stamps `level` (drawn, rides packEnemy).

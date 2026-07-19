@@ -403,3 +403,65 @@ function makePinnacleBoss(pb, tx, ty) {
   e.level = PIN_LEVEL;
   return e;
 } // scaled NOTABLY above a Great Hunt (higher base hp/atk/xp/gold in the table + steeper party/cycle curves); FLAT at PIN_LEVEL (lf 10.1, atk x8.0) — party-size/cycle/ascension/distance still multiply on top
+
+// ================= MINI-BOSSES (S2) — 5 fixed, respawning, soloable world bosses =================
+// DATA lives in src/content/apex.ts (CONTENT.apex.minis); MINI_BOSSES is its positional alias. Unlike
+// the pinnacles/hunts, minis carry ZERO party/ascension/cycle terms (the owner's tough-but-soloable
+// rule — a 4-stack legitimately melts them; the pinnacles remain the party test). makeMiniBoss
+// curve-levels a makeBoss base (90/12/4) straight to the row's flat `level` through the ONE unified
+// curve (curves.ts) — the makeDungeonBoss pattern with NO `asc`. makeBoss draws no RNG (wobble:0) and
+// the curves are pure, so a boot spawn consumes zero seeded draws (keeps the golden re-record surgical).
+const MINI_BOSSES = CONTENT.apex.minis;
+function makeMiniBoss(row, tx, ty) {
+  const e = makeBoss(tx, ty);
+  const L = row.level,
+    C = CONTENT.curves;
+  e.isMini = true;
+  e.mbKey = row.key;
+  e.name = row.name;
+  e.color = row.color;
+  e.type = 'boss';
+  e.w = 48;
+  e.h = 48;
+  e.x = tx * TILE - 12;
+  e.y = ty * TILE - 12;
+  e._lairTx = tx;
+  e._lairTy = ty;
+  e.level = L;
+  e.maxHp = C.hpForLevel(90, L); // makeBoss base hp 90 — FLAT, no party/ascension multiplier (curves already round)
+  e.hp = e.maxHp;
+  e.atk = C.atkForLevel(12, L); // base atk 12
+  e.def = C.defForLevel(4, L); // base def 4
+  e.xp = C.xpForEnemyLevel(100, L); // base xp 100 → curve-scaled reward
+  e.gold = C.goldForEnemyLevel(200, L); // base gold 200
+  e.specials = row.specials ? row.specials.slice() : ['slam', 'charge', 'nova']; // S2 stock rotation; signature specials arrive S3–S5
+  e.specialCd = 150;
+  return e;
+}
+// The per-hero signature drop (the Sunken-Citadel relic model — owner decision 2). On every kill each
+// PRESENT hero rolls independently ~5% for this boss's fixed named legendary, straight to their OWN
+// bag (invisible to others, no ground pickup to snipe). The kill's gold + XP (curve-scaled in
+// makeMiniBoss) already pay the KILLER via killEnemy's standard boss path; this adds only the rare
+// chase item. partyIn()+actAs is the per-hero seam (SP: partyIn() === [state.player], one iteration —
+// byte-identical). The drop is a plain affixed legendary (the hunt-trophy shape), NOT a p.u* unique,
+// so no recalcStats seam is needed — normItem fills the loot defaults and it equips/sells/reforges.
+function dropMiniReward(e) {
+  const row = MINI_BOSSES.find((m) => m.key === e.mbKey);
+  if (!row || !row.signatureDrop) return;
+  for (const pl of partyIn())
+    actAs(pl, () => {
+      if (Math.random() >= 0.05) return;
+      const drop = JSON.parse(JSON.stringify(row.signatureDrop));
+      let inner = null;
+      if (drop.weapon) {
+        inner = normItem(drop.weapon, true);
+        state.inventory.weapons.push(inner);
+      } else if (drop.armor) {
+        inner = normItem(drop.armor, false);
+        state.inventory.armor.push(inner);
+      }
+      if (!inner) return;
+      log(`★ ${state.player.name || 'A hero'} claims the ${e.name}'s signature spoil — ${inner.name}!`, 'quest');
+      Sound.levelup && Sound.levelup();
+    });
+}
