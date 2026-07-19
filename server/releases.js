@@ -22,6 +22,15 @@
 
 module.exports = [
   {
+    version: 'v3.2.1',
+    date: '2026-07-18',
+    title: 'Level up in style — a swirl of green sparks rises around you and a bright “LEVEL UP!” flashes overhead, for you and your party to see',
+    notes: [
+      'Reaching a new level now spins a ring of green light up and around your hero for about a second, with a bright “LEVEL UP!” floating over your head — so a level feels like a moment, not just a number ticking over in the corner.',
+      'Your friends see it too: when anyone in the party levels up, the green swirl and “LEVEL UP!” flash over them for everyone nearby — a little shared cheer.',
+    ],
+  },
+  {
     version: 'v3.2.0',
     date: '2026-07-18',
     title: 'Slaying something finally feels like it — foes burst in their own colors, burning and frozen enemies die in embers and ice, and bosses go out with a bang, with a scorch left behind to prove it happened',

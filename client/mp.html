@@ -851,6 +851,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const DEATH_P_BUDGET = 130, DEATH_DECAL_BUDGET = 16, DEATH_SHOCK_BUDGET = 5, DEATH_SOUND_BUDGET = 3, DEATH_NOVA_BUDGET = 2, DEATH_SHAKE_CAP = 6;
   const deathDecals = [];                 // {x,y,rx,ry,col,life,decay} fading ground scorch/ash/splat; RAM-bounded (≤40, oldest-evicted)
   let deathFlash = 0;                     // boss/hunt kill → a brief WHITE world-pulse (a safe client "moment"; never freezes the render)
+  const levelUps = [];                    // v3.2.1 — active level-up swirls {id, t}: id='me' (local, follows pred) OR a remote player id (follows them in `others`), so teammates see each other level up. Cap 8.
+  const otherLvl = new Map();             // v3.2.1 — remote player id → last-seen level, to detect a teammate's level rise
   function _hexParts(h) { h = ('' + (h || '#c04040')).replace('#', ''); if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; const n = parseInt(h, 16); return isNaN(n) ? [192, 64, 64] : [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
   function _rgbStr(p) { return (p[0] | 0) + ',' + (p[1] | 0) + ',' + (p[2] | 0); }
   function _darkHex(p, f) { f = f == null ? 0.45 : f; const r = p[0] * f | 0, g = p[1] * f | 0, b = p[2] * f | 0; return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1); }
@@ -871,6 +873,29 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (deathFlash <= 0.001) { deathFlash = 0; return; }
     const c = G.ctx; if (c) { c.save(); c.globalAlpha = Math.min(0.36, deathFlash); c.fillStyle = '#ffffff'; c.fillRect(0, 0, G.VIEW_W || 1600, G.VIEW_H || 1000); c.restore(); }   // fill the SCALED world view (matches renderWorld's own bg fillRect)
     deathFlash = Math.max(0, deathFlash - 0.12);
+  }
+  function drawLevelUpFx(others) {        // v3.2.1 — green swirl rising around EACH player who leveled (you AND teammates); each follows its player, eases out
+    if (!levelUps.length) return;
+    const c = G.ctx, cam = G.state && G.state.camera; if (!c || !cam) { levelUps.length = 0; return; }
+    const DUR = 80;
+    c.save();
+    for (let i = levelUps.length - 1; i >= 0; i--) {
+      const fx = levelUps[i];
+      const pl = fx.id === 'me' ? (G.state && G.state.player) : (others && others.find((o) => o.id === fx.id));   // 'me' = local hero at the predicted pos; else the teammate in this frame's roster
+      fx.t -= 1;
+      if (fx.t <= 0) { levelUps.splice(i, 1); continue; }
+      if (!pl) continue;                                                   // player out of view / left this frame — age the timer, draw nothing
+      const pr = 1 - fx.t / DUR, fade = Math.min(1, fx.t / 24);
+      const cx = pl.x + pl.w / 2 - cam.x, cy = pl.y + pl.h / 2 - cam.y;
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * 6.2832 + pr * 9;                             // ~1.4 turns over the effect → a swirl
+        const rad = 30 - pr * 9 + Math.sin(pr * 6.2832) * 3;              // gentle in-pull + one pulse
+        const px = cx + Math.cos(a) * rad, py = cy - pr * 30 + Math.sin(a) * rad * 0.5;   // squashed ring, rising up
+        c.globalAlpha = fade; c.fillStyle = '#7bff7b'; c.beginPath(); c.arc(px, py, 2.6, 0, 6.2832); c.fill();
+        c.globalAlpha = fade * 0.55; c.fillStyle = '#e0ffe0'; c.beginPath(); c.arc(px, py, 1.2, 0, 6.2832); c.fill();   // bright core
+      }
+    }
+    c.globalAlpha = 1; c.restore();
   }
   // Replay ONE enemy's death, spending from the per-pass budget B = {p,dec,shk,snd,nova,shake}. prev = its last enemyMem record.
   function spawnDeathFx(prev, B) {
@@ -1102,6 +1127,8 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
       if (feelLvl !== null && me2.level > feelLvl) {
         try { G.Sound && G.Sound.levelup && G.Sound.levelup(); } catch (_e) {}
         try { G.spawnBurst && G.spawnBurst(pred.x + me2.w / 2, pred.y + me2.h / 2, 22, { color: '#90ff90', speed: 2.8, decay: 0.03 }); } catch (_e) {}
+        if (levelUps.length < 8) levelUps.push({ id: 'me', t: 80 });   // v3.2.1: green swirl on YOUR level-up (follows your predicted pos ~1.3s)
+        try { G.floatDamage && G.floatDamage(pred.x + me2.w / 2, pred.y - 20, 'LEVEL UP!', '#7bff7b'); } catch (_e) {}
       }
       feelLvl = me2.level;
       if (feelGold !== null && me2.gold > feelGold) { try { G.Sound && G.Sound.gold && G.Sound.gold(); } catch (_e) {} }
@@ -1246,6 +1273,14 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     if (G.state.scene !== 'companions') S.companions = snap.comps || [];   // warband follows in the world (panel keeps its own full roster while open)
     S.time = snap.t; S.weather = snap.wx;
     others = (snap.players || []).filter((p) => p.id !== myId);
+    for (const op of others) {   // v3.2.1: teammates see each other level up — a remote hero's level rise kicks a swirl + "LEVEL UP!" over THEM (level rides lightPlayer already; client-only)
+      const wasLvl = otherLvl.get(op.id);
+      if (wasLvl != null && op.level > wasLvl) {
+        if (levelUps.length < 8) levelUps.push({ id: op.id, t: 80 });
+        try { G.floatDamage && G.floatDamage(op.x + op.w / 2, op.y - 20, 'LEVEL UP!', '#7bff7b'); } catch (_e) {}
+      }
+      otherLvl.set(op.id, op.level);
+    }
     // --- render remote movers on the DELAYED TIMELINE (v3.0.1 — kills the 20 Hz stepping) ---
     // Position = constant-velocity lerp between the two recorded samples that bracket
     // (now − renderDelay). A late/dropped snapshot extrapolates ≤100 ms at the newest pair's
@@ -1321,7 +1356,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
       G.updateCamera(); G.applyShake(); G.renderWorld();
-      try { drawDeathDecals(); drawBossDeathFlash(); } catch (_e) {}   // v3.2.0: fading death scorch/ash/splat (particle layer) + the boss/hunt white world-pulse — own try so a decal/flash slip can't kill the frame
+      try { drawDeathDecals(); drawBossDeathFlash(); drawLevelUpFx(others); } catch (_e) {}   // v3.2.0: death scorch/ash + boss white world-pulse; v3.2.1: the level-up green swirl for you AND teammates — own try so a slip can't kill the frame
       drawOthers(others);
       drawPings();                                       // co-op rally markers (world-space, on top of players)
       drawRift();                                         // #14 ephemeral deep-dungeon rift
