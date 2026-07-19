@@ -146,6 +146,7 @@ const CAPTURE = [
   'actAs',   // P2/S14: THE acting-context seam (plan §1's runAs) — world.js runs every RPC/interact handler under actAs(p, …), which pins ONLY state.player/state.inventory and restores both in a finally
 
   'recruitCompanion', 'armCompanion', 'unarmCompanion', 'garrisonCompanion', 'recallCompanion', 'dismissCompanion',
+  'particles',   // S3 mini-boss mechanics: the cosmetic FX buffer (off-state, never hashed) — captured so the battery can observe the Hierophant heal-pulse's GREEN spawnBurst signal (the healAlly precedent: server-side juice, client regenerates via the healer draw)
 ];
 
 function loadGame() {

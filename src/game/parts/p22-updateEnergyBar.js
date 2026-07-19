@@ -436,6 +436,11 @@ function makeMiniBoss(row, tx, ty) {
   e.gold = C.goldForEnemyLevel(200, L); // base gold 200
   e.specials = row.specials ? row.specials.slice() : ['slam', 'charge', 'nova']; // S2 stock rotation; signature specials arrive S3–S5
   e.specialCd = 150;
+  // S3+ signature-mechanic knobs — the OBJECT ref rides as `e._mech` (packScalar DROPS objects from
+  // the wire, like _pinRef), read server-side by the orbit AI + hierophantPhase. Only rows that
+  // declare `mech` (the Hierophant onward) grow the field; the ring/bolt state itself (_ringN/_boltCd)
+  // stays LAZY in the phase hook, so a boot spawn's subtree gains only `specials` + `_mech`.
+  if (row.mech) e._mech = row.mech;
   return e;
 }
 // The per-hero signature drop (the Sunken-Citadel relic model — owner decision 2). On every kill each

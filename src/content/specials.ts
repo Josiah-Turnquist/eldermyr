@@ -402,6 +402,57 @@ export const SPECIALS: Record<SpecialKey, Special> = {
       }
     },
   },
+  // S3 — SMITE: the Hierophant marks a hero and drops a RADIANT ZONE on where they stood (dodge OUT of
+  // it during the windup). The telegraph draws at the AIM POINT (the leap precedent — screen-space
+  // marker), and `radius` (110) rides e.tele.radius so the drawn ring and the damage zone match on
+  // BOTH sides (packEnemy wires tele). CRITICAL: a direct-damage AoE reaches only the bucketed duelist
+  // unless it loops the world-scoped party — so exec iterates partyIn()+actAs and strikes EVERY hero
+  // whose centre is inside the zone (risk #1, the slam-trap; mp-battery proves both heroes are hit).
+  smite: {
+    wind: 52,
+    radius: 110,
+    exec(e, a) {
+      const { sfx, addShake, spawnRing, spawnBurst, playerTakeDamage, partyIn, actAs } = a;
+      const ax = e.tele ? e.tele.aimX : a.px,
+        ay = e.tele ? e.tele.aimY : a.py;
+      const R = e.tele ? e.tele.radius : 110;
+      const dmg = Math.round(e.atk * 1.1);
+      addShake(9);
+      sfx.tone(880, 0.26, 'sine', 0.14, { slideTo: 300 });
+      sfx.noise && sfx.noise(0.22, 0.12, { filter: 'highpass', freq: 900 });
+      spawnRing(ax, ay, '#ffe08a');
+      spawnBurst(ax, ay, 18, { color: '#ffe08a', speed: 2.6, decay: 0.04 });
+      for (const pl of partyIn()) {
+        const dx = pl.x + pl.w / 2 - ax,
+          dy = pl.y + pl.h / 2 - ay;
+        if (dx * dx + dy * dy <= R * R) actAs(pl, () => playerTakeDamage(dmg));
+      }
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max;
+      // the marker sits at the AIM POINT (screen space), not the boss centre (the leap precedent)
+      const ax = sx + (e.tele.aimX - (e.x + e.w / 2)),
+        ay = sy + (e.tele.aimY - (e.y + e.h / 2));
+      const R = e.tele.radius;
+      d.fillStyle = `rgba(255,210,90,${0.12 + 0.16 * fr})`;
+      d.beginPath();
+      d.arc(ax, ay, R, 0, 6.28);
+      d.fill();
+      d.strokeStyle = `rgba(255,226,138,${0.4 + 0.5 * fr})`;
+      d.lineWidth = 3;
+      d.beginPath();
+      d.arc(ax, ay, R * (0.35 + 0.65 * fr), 0, 6.28);
+      d.stroke();
+      d.beginPath();
+      for (let s = 0; s < 4; s++) {
+        const ang = (s / 4) * 6.28 + fr * 0.5;
+        d.moveTo(ax, ay);
+        d.lineTo(ax + Math.cos(ang) * R, ay + Math.sin(ang) * R);
+      }
+      d.stroke();
+    },
+  },
 };
 
 // bossSpecials' pick table (p17:378). The p17 wrapper slices `base` (never mutating the

@@ -266,7 +266,7 @@ export interface DungeonRegistry {
 
 /** The six boss-special keys — the execBossSpecial branch set (p17) and the p20 telegraph
  * chain. bossSpecials picks a subset onto `e.specials`; updateBoss draws one at random. */
-export type SpecialKey = 'slam' | 'charge' | 'nova' | 'summon' | 'pullunder' | 'raiseadds' | 'leap' | 'castvolley' | 'raisecourt';
+export type SpecialKey = 'slam' | 'charge' | 'nova' | 'summon' | 'pullunder' | 'raiseadds' | 'leap' | 'castvolley' | 'raisecourt' | 'smite';
 
 /** The live telegraph on a winding-up boss (startBossSpecial seeds it; drawTele reads it). */
 export interface SpecialTele {
@@ -386,6 +386,22 @@ export interface SpecialActView {
   getTile(layer: string, tx: number, ty: number): number;
   floatDamage(x: number, y: number, text: string, color: string): void;
   log(msg: string, cls: string): void;
+  /** S3 (Hierophant smite): the world-scoped party seam for a DIRECT party-wide AoE. A projectile
+   * special reaches every hero by construction; a direct-damage zone does NOT — it must loop
+   * partyIn()+actAs and strike each hero in range (the documented slam-trap, risk #1). Present so a
+   * content exec can hit the whole party, not just the bucketed duelist. SP: partyIn() === [the one
+   * hero], one iteration, byte-identical. */
+  partyIn(): readonly SpecialHero[];
+  actAs(p: SpecialHero, fn: () => void): void;
+}
+
+/** The minimum a party-wide AoE exec reads off each hero (centre + box) — smite tests the zone hit.
+ * The real player carries far more; this is the structural minimum partyIn()/actAs hand the exec. */
+export interface SpecialHero {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
 }
 
 /** One boss special: the windup length, the effect, and the telegraph. `drawTele` is the
@@ -395,6 +411,11 @@ export interface Special {
   /** Windup ticks before the effect fires (startBossSpecial reads it; p17's old `{…}[name]`
    * table). */
   readonly wind: number;
+  /** Optional telegraph/zone radius (px) — startBossSpecial seeds `e.tele.radius` from it (falling
+   * back to 175 when absent, so every existing special is byte-identical). Because it rides
+   * `e.tele.radius` it is WIRED to the client (packEnemy packs tele), so the drawn telegraph and the
+   * exec's damage zone read the SAME value on both sides. S3 smite is the first to declare one. */
+  readonly radius?: number;
   /** The effect, fired by execBossSpecial when the telegraph completes. Verbatim p17 branch,
    * ambient surface threaded through the SpecialActView arg. */
   exec(e: BossActor, a: SpecialActView): void;
@@ -554,6 +575,38 @@ export interface ApexMini {
   readonly lair: { readonly tx: number; readonly ty: number };
   readonly specials?: readonly string[];
   readonly signatureDrop: ApexReward;
+  /** S3+ signature-mechanic knobs (DATA in the registry, AI in the sim — CONTENT.md). makeMiniBoss
+   * stamps the row's `mech` onto the instance as the object ref `e._mech` (packScalar DROPS it from
+   * the wire, like `_pinRef`; the sim's orbit-AI + phase hook read it server-side). Optional: only
+   * bosses with a signature (S3 Hierophant onward) carry one. Retune the fight here. */
+  readonly mech?: MiniMech;
+}
+
+/** The Hierophant's (S3) signature-mechanic knobs — the healer RING, its heal PULSE, and the boss's
+ * own RADIANT BOLT. The SMITE AoE's radius/windup/damage live on the smite SPECIAL itself
+ * (specials.ts), per the boss-special-registry recipe; these are the per-boss ring/bolt tunables the
+ * orbit AI (p17 updateEnemiesFor) + hierophantPhase (p17 updateBoss) read off `boss._mech`. */
+export interface MiniMech {
+  /** How many acolytes a ring holds. */
+  readonly orbitN: number;
+  /** Orbit radius (px) — how far the ring sits from the boss centre. */
+  readonly orbitR: number;
+  /** Orbit step speed (× the acolyte's base speed). */
+  readonly orbitSpd: number;
+  /** Ticks between an acolyte's heal pulses. */
+  readonly healEvery: number;
+  /** Per-pulse heal = boss.maxHp × this (a live ring must out-heal on-level solo DPS — the "break
+   * the ring" law; battery-gated). */
+  readonly healPct: number;
+  /** Total rings summoned across the fight (initial + re-forms). 2 = ring re-forms ONCE after all die
+   * (owner decision), then the burst phase opens — it can't stall forever. */
+  readonly ringCap: number;
+  /** Radiant-bolt cadence (ticks between aimed bolts). */
+  readonly boltEvery: number;
+  /** Radiant-bolt damage = boss.atk × this. */
+  readonly boltDmg: number;
+  /** Max range (px) at which the boss fires bolts / (re)summons the ring. */
+  readonly boltRange: number;
 }
 
 /** The apex registry: the two ordered tables (arrays — the aliases GREAT_HUNTS/PINNACLE_BOSSES

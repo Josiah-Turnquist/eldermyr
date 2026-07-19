@@ -80,6 +80,12 @@ const SUITES = [
   // far); a kill removes the boss + stamps the ~2-day respawn; it returns once the day passes; the
   // per-hero ~5% signature drop is independent (the Citadel relic model). Dead on golden trajectories.
   'miniboss-verify',
+  // Mini-bosses S3 (the Hierophant — the FIRST signature mechanics, the vertical-slice template):
+  // a healer RING of orbiting acolytes (orbit AI, not chase) that pulse GREEN heals into the boss
+  // (while the ring lives it out-heals your DPS), re-forming ONCE when all die; an aimed radiant BOLT
+  // on cadence; and a telegraphed SMITE AoE that — in a 2-hero MP setup — strikes BOTH heroes in the
+  // zone via the partyIn()+actAs loop (the slam-trap teeth). All dead on golden (engage-gated).
+  'hierophant-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

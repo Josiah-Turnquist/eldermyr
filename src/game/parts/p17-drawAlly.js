@@ -406,7 +406,9 @@ function startBossSpecial(e, name, pcx, pcy) {
   // the `|| 36` fallback for an unknown name is preserved bit-for-bit.
   const sp = CONTENT.specials[name];
   const wind = (sp && sp.wind) || 36;
-  e.tele = { name, t: wind, max: wind, aimX: pcx, aimY: pcy, radius: 175 };
+  // radius rides e.tele (packEnemy wires it), so a special's DRAWN telegraph and its exec's damage
+  // zone read the same value on both sides; `|| 175` keeps every pre-S3 special byte-identical.
+  e.tele = { name, t: wind, max: wind, aimX: pcx, aimY: pcy, radius: (sp && sp.radius) || 175 };
   Sound.tone(150, 0.45, 'sawtooth', 0.13, { slideTo: 230 });
 }
 function execBossSpecial(e, name, pcx, pcy) {
@@ -445,6 +447,10 @@ function execBossSpecial(e, name, pcx, pcy) {
     getTile,
     floatDamage,
     log,
+    // S3: the world-scoped party seam so a DIRECT party-wide AoE exec (smite) strikes every hero in
+    // its zone, not just the bucketed duelist (risk #1). SP: partyIn() === [state.player], one pass.
+    partyIn,
+    actAs,
   });
 }
 // Mini-bosses are LAIR-BOUND (S2) — the Emberwyrm's volcanic-domain shape (p17:568) and the pinnacle
@@ -474,12 +480,83 @@ function miniLairBind(e, pcx, pcy) {
   } else if (e.hp < e.maxHp) e.hp = e.maxHp; // arrived home → shed any chip damage
   return true;
 }
+// S3 — the Hierophant's healer RING (its signature). Acolytes are ordinary `healer`-kind enemies (the
+// makePinnacleAdd reskin: recolour + level-stamp, ZERO new art / EnemyKindKey), leveled ~5 below the
+// boss. They carry only `_orbRef` (the boss OBJECT ref — packScalar drops it from the wire) + the
+// numeric `_orbIdx/_orbN` (ride packEnemy). They KEEP `e.healer`, so when the boss dies they orphan
+// cleanly to the stock healer archetype (owner decision 4: the ring PERSISTS, you mop it up).
+function makeHierophantAcolyte(boss, tx, ty, idx, n) {
+  const e = makeEnemy(tx, ty, 'healer');
+  e.name = 'Sun Acolyte';
+  e.color = '#8fe6b4'; // green — the heal theme (the client's healer draw glows green for free)
+  scaleEnemyToLevel(e, Math.max(1, boss.level - 5));
+  e._orbRef = boss;
+  e._orbIdx = idx;
+  e._orbN = n;
+  // staggered first pulse so the four don't all mend on the same tick (a smooth drip, not a lump)
+  const every = (boss._mech && boss._mech.healEvery) || 150;
+  e.healCd = Math.max(1, Math.round(((idx + 1) / n) * every));
+  return e;
+}
+// Summon (or re-form) the ring: N acolytes on a circle around the boss, placed via the DETERMINISTIC
+// findOpenTile spiral (no RNG of its own), each bursting in green. Called from hierophantPhase only
+// when the ring is empty AND under the cap — forms once on engage, re-forms exactly once more.
+function summonHierophantRing(boss, n) {
+  const bcx = boss.x + boss.w / 2,
+    bcy = boss.y + boss.h / 2;
+  const R = (boss._mech && boss._mech.orbitR) || 60;
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * 6.283;
+    const o = findOpenTile(state.map, Math.floor((bcx + Math.cos(ang) * R) / TILE), Math.floor((bcy + Math.sin(ang) * R) / TILE));
+    const ac = makeHierophantAcolyte(boss, o.tx, o.ty, i, n);
+    state.enemies.push(ac);
+    spawnBurst(ac.x + ac.w / 2, ac.y + ac.h / 2, 10, { color: '#70ffb0', speed: 1.8, decay: 0.045 });
+  }
+  spawnBurst(bcx, bcy, 14, { color: '#70ffb0', speed: 2.2, decay: 0.04 });
+  Sound.cast && Sound.cast();
+  log('The Hierophant raises its hands — a ring of acolytes rises to mend its wounds. Cut them down.', 'combat');
+}
+// S3 — the Hierophant's per-tick signature phase (the citadelBossPhase precedent), run from updateBoss
+// ONLY when a hero is engaged (past miniLairBind) ⇒ never on a golden trajectory. Two jobs: (1) keep a
+// healer RING up — summon on first engage, re-form ONCE when all N are dead, then stop (ringCap), so
+// "break the ring, then burst" is the strategy and it can't stall forever; (2) fire an aimed RADIANT
+// BOLT on its OWN cadence (a clock separate from the smite specialCd — continuous ranged pressure
+// while you cut the ring). All fight state is LAZY scalars (_ringN/_boltCd) initialized here, never at
+// spawn — so the boss's boot subtree gains only `specials` + `_mech` (the surgical golden re-record).
+function hierophantPhase(e, dist, pcx, pcy) {
+  const M = e._mech || {};
+  const range = M.boltRange || 540;
+  const cap = M.ringCap || 2;
+  let live = 0;
+  for (const x of state.enemies) if (x._orbRef === e && x.hp > 0) live++;
+  if (live === 0 && (e._ringN || 0) < cap && dist < range) {
+    summonHierophantRing(e, M.orbitN || 4);
+    e._ringN = (e._ringN || 0) + 1;
+  }
+  e._boltCd = (e._boltCd || 0) - 1;
+  if (e._boltCd <= 0 && dist < range) {
+    const ecx = e.x + e.w / 2,
+      ecy = e.y + e.h / 2;
+    const ang = Math.atan2(pcy - ecy, pcx - ecx);
+    addProjectile(ecx, ecy, Math.cos(ang) * 3.4, Math.sin(ang) * 3.4, Math.round(e.atk * (M.boltDmg || 0.8)), {
+      color: '#ffe08a',
+      r: 7,
+      life: 240,
+      element: 'fire',
+      kind: 'radiant',
+      ownerRef: e,
+    });
+    e._boltCd = M.boltEvery || 150;
+    Sound.cast && Sound.cast();
+  }
+}
 function updateBoss(e, dist, pcx, pcy) {
   const ecx = e.x + e.w / 2,
     ecy = e.y + e.h / 2;
   if ((e.isPinnacle || e.isCitadel) && pinnacleHazard(e, pcx, pcy))
     return; /* #121: the Citadel boss shares the shrinking-arena hazard; returns true only when it steered the boss home (player abandoned the arena) so normal AI is skipped this tick */
   if (e.isMini && miniLairBind(e, pcx, pcy)) return; // S2: lair-bound — hero abandoned the domain → home, skip AI (no RNG)
+  if (e.mbKey === 'hierophant') hierophantPhase(e, dist, pcx, pcy); // S3: healer-ring lifecycle (initial summon + ONE re-form) + the aimed radiant bolt. Reached ONLY past miniLairBind (a hero is engaged) → dead on golden. The citadelBossPhase precedent (a boss-specific phase hook, not a rotation special).
   if (e.isCitadel) citadelBossPhase(e, pcx, pcy); /* #121: stance rotation + phase transitions (court waves, enrage) — no AI rewrite, just re-points e.specials */
   if (e.tele) {
     e.tele.t--;
@@ -579,6 +656,45 @@ function updateEnemiesFor(list) {
     if (e.stunT > 0) {
       e.stunT--;
       continue;
+    }
+    // S3 — ORBIT AI (Hierophant acolytes): a healer ring that holds station AROUND its boss and pulses
+    // heals into it — NOT the chase AI. Guarded on `_orbRef` (a boss OBJECT ref packScalar drops from
+    // the wire, like _pinRef) ⇒ DEAD on every golden trajectory (acolytes exist only mid-fight, never
+    // on-trajectory, so this block never runs there — no hash move). Sits before the leash/aggro gates
+    // so the ring holds formation at any hero distance. Orphaned (boss dead/gone) → clear the ref and
+    // fall through to the stock healer archetype below (owner decision 4: minions PERSIST, get mopped).
+    if (e._orbRef) {
+      const boss = e._orbRef;
+      if (boss.hp <= 0 || state.enemies.indexOf(boss) < 0) {
+        e._orbRef = null; // anchor gone → drop to stock healer AI (mop-up), no continue
+      } else {
+        const M = boss._mech || {};
+        const bcx = boss.x + boss.w / 2,
+          bcy = boss.y + boss.h / 2;
+        // even spacing (_orbIdx/_orbN) + a slow SHARED rotation off the wobble clock (0.012 rad/tick).
+        const ang = e.wobble * 0.12 + (e._orbIdx / (e._orbN || 1)) * 6.283;
+        const R = M.orbitR || 60;
+        // Move FREELY toward the ring point — the acolytes are a magical ring BOUND to the boss, so they
+        // float over terrain (the boss's own lair-homing does the same) rather than snag on a shrine wall
+        // and collapse into the centre. Snap when within a step ⇒ the ring holds radius exactly on any
+        // ground (the "cut them as they orbit past" read never breaks). No canMoveTo — deliberate.
+        const otx = bcx + Math.cos(ang) * R, oty = bcy + Math.sin(ang) * R;
+        let omx = otx - (e.x + e.w / 2), omy = oty - (e.y + e.h / 2);
+        const omg = Math.hypot(omx, omy) || 1;
+        const ostep = Math.min((e.speed || 1) * (M.orbitSpd || 1.6) * (e.chillT > 0 ? 0.45 : 1), omg);
+        e.x += (omx / omg) * ostep;
+        e.y += (omy / omg) * ostep;
+        if (e.healCd > 0) e.healCd--;
+        if (e.healCd <= 0) {
+          const amt = Math.max(1, Math.round(boss.maxHp * (M.healPct || 0.012)));
+          boss.hp = Math.min(boss.maxHp, boss.hp + amt); // while the ring lives it out-heals your DPS — the "break the ring" law
+          e.healCd = M.healEvery || 150;
+          spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 8, { color: '#70ffb0', speed: 1.2, up: 0.6, decay: 0.05 });
+          spawnBurst(bcx, bcy, 8, { color: '#70ffb0', speed: 1.3, up: 0.7, decay: 0.05 }); // green pulse at BOTH ends (healAlly's colour)
+          Sound.tone && Sound.tone(620, 0.14, 'sine', 0.06, { slideTo: 900 });
+        }
+        continue;
+      }
     }
     if (e.isWildDragon && e.hp <= e.maxHp * 0.15) {
       if (state.player.level >= 20) {

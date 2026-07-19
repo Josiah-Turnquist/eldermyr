@@ -78,20 +78,43 @@ pure addition moves a hash, STOP — it is a bug, not a re-record.
   author time, never a silent unwarned one-shot in game (the DESIGN silent-failure #1 this
   registry exists to kill). `exec` reads only the curated `a` bag — no bare `state`/`Sound`; RNG
   in `exec` (e.g. summon placement) is the determinism contract, same draws in the same order.
+- **Party-wide AoE (the slam-trap, risk #1)**: a DIRECT-damage zone (`smite`) reaches only the
+  bucketed duelist unless it loops `a.partyIn()` + `a.actAs(pl, () => a.playerTakeDamage(...))` and
+  strikes every hero in range — a bare `a.playerTakeDamage` is the bug. PROJECTILE specials
+  (`nova`/`leap`/`castvolley`) already reach everyone by construction; a direct zone does not. Prove
+  it with a 2-hero mp battery assert (both heroes in the zone must both take it — `hierophant-verify`
+  §5). Optional per-special **`radius`** rides `e.tele.radius` (wired via packEnemy), so the drawn
+  telegraph and the exec's damage zone read the SAME value on both sides (`|| 175` fallback keeps
+  every older special byte-identical).
 - Gate: `GATE`.
 
 ### 4. Add an apex boss — `src/content/apex.ts` (+ `types.ts`)
 - **Shape**: a Great Hunt = a row in `HUNTS` (template: `frosttitan`) — stats + `lair{tx,ty}` +
   `specials` + a fixed `reward`. A pinnacle = a row in `PINNACLES` (template: `drownedking`) with
-  `drops`. The finale kraken / citadel Archivist are the `kraken` / `archivist` keys. Flat tuning
-  consts (`dragonLevel`, `pinLevel`, arena knobs) sit at the bottom.
+  `drops`. A mini-boss = a row in `MINIS` (template: `hierophant`) — flat `level` + `lair{tx,ty}` +
+  a fixed `signatureDrop`, plus optional `specials` (its telegraphed rotation) and a `mech` block
+  (per-boss signature-mechanic knobs). The finale kraken / citadel Archivist are the `kraken` /
+  `archivist` keys. Flat tuning consts (`dragonLevel`, `pinLevel`, arena knobs) sit at the bottom.
 - **Trap**: the STATS/lair/drops still flow through in-part scaling *factories* (`makeGreatBeast`
   etc.) — apex holds DATA only; a genuinely new scaling SHAPE needs a factory edit, not just a
   row. `GREAT_HUNTS`/`PINNACLE_BOSSES` are `CAPTURE`'d (the server reads them) — that's fine,
   they're data. Changing an EXISTING hunt's stats/reward moves `oracle-mp` and rides the golden
   **hunt tripwire that must still diverge EXACTLY @700** → conscious re-record with evidence. A
   brand-new key is dead on the golden trajectories → plain `GATE`.
-- Gate: `GATE`.
+- **Mini-boss signature mechanics (the S3 Hierophant template; S4/S5 copy it)**: DATA (ring/heal/
+  bolt counts, radii, cadences, damage mults) lives in the row's `mech` block; `makeMiniBoss` stamps
+  it onto the instance as the OBJECT REF `e._mech` (packScalar drops it from the wire, like
+  `_pinRef`), and the AI reads it server-side. The AI itself lives in the SIM (game parts): minion
+  primitives (orbit/mill) are a guarded block in `updateEnemiesFor` keyed on an object ref
+  (`e._orbRef`), and the boss's own lifecycle is a phase hook in `updateBoss` (`hierophantPhase` —
+  the `citadelBossPhase` precedent). Gate every hook behind ENGAGEMENT (it runs only past
+  `miniLairBind`, i.e. a hero is near) so it is DEAD on the golden trajectories → the re-record stays
+  confined to that one boss's subtree (`specials` + `_mech`; audit by deep-neutralizing those fields
+  and proving the rest byte-identical — `hierophant-verify` + the leaf-audit). Summoned minions are
+  ordinary `makeEnemy` kinds reskinned + `scaleEnemyToLevel`'d (ZERO new art), carrying only the
+  anchor object ref + numeric idx/count scalars.
+- Gate: `GATE` (+ conscious oracle re-record: the boss boots into `state.enemies`, so `specials`/
+  `_mech` move both oracles from the boot — confined, not a ripple).
 
 ### 5. Add gear — `src/content/gear.ts`
 - **Shape**: shop weapon = a row in `shopWeapons` (template: `steel_sword`) —

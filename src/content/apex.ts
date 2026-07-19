@@ -192,6 +192,24 @@ const MINIS: readonly ApexMini[] = [
     color: '#ffd86a',
     where: 'the ruined shrine of the Western Marches',
     lair: { tx: 70, ty: 150 },
+    // S3 — the FIRST mini-boss with signature mechanics (the vertical-slice template S4/S5 copy).
+    // `specials` = the ONE telegraphed rotation special (updateBoss picks from it): a radiant SMITE
+    // AoE dropped on a hero (the smite special holds its own windup/radius/damage — specials.ts). The
+    // ring + the aimed radiant bolt are NOT rotation specials — they live in `mech` and are driven by
+    // hierophantPhase (updateBoss) + the orbit-AI block (updateEnemiesFor); makeMiniBoss stamps `mech`
+    // onto the boss as `e._mech` (an object ref packScalar drops from the wire, read server-side).
+    specials: ['smite'],
+    mech: {
+      orbitN: 4, // a ring of four healer acolytes
+      orbitR: 60, // orbit radius (px)
+      orbitSpd: 1.6, // orbit step (× acolyte speed) — holds a tight, slowly-rotating ring
+      healEvery: 150, // ticks between an acolyte's heal pulses (~1.9 s @80 Hz)
+      healPct: 0.012, // per pulse = 1.2% of boss maxHp → 4 staggered acolytes ≈ 2.6%/s (out-heals on-level solo DPS)
+      ringCap: 2, // initial ring + ONE re-form (owner: re-rings once all 4 die, then the burst phase)
+      boltEvery: 150, // aimed radiant-bolt cadence (ticks)
+      boltDmg: 0.8, // bolt damage = boss.atk × this
+      boltRange: 540, // max range to fire a bolt / (re)summon the ring
+    },
     signatureDrop: {
       weapon: {
         name: 'Hierophant’s Sunstave',
