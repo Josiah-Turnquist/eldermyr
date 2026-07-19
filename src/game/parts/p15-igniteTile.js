@@ -141,6 +141,8 @@ function updateCombatHud() {
   if (p.dragon && p.dragon.mounted) buffs.push({ ic: '🐉', label: 'Flying', t: 0, color: '#ff9050' });
   const debuffs = [];
   if (p.chillT > 0) debuffs.push({ ic: '❄', label: 'Chilled', t: p.chillT, color: '#9fd8ff' });
+  if (p.silenceT > 0) debuffs.push({ ic: '🔇', label: 'Silenced', t: p.silenceT, color: '#c08cff' });
+  if (p.stunT > 0) debuffs.push({ ic: '💫', label: 'Stunned', t: p.stunT, color: '#ffd24a' });
   if (isExhausted()) debuffs.push({ ic: '😴', label: 'Exhausted', t: 0, color: '#ff7565' });
   const ab = [];
   if (p.abilities.ultimate) ab.push({ k: 'Z', nm: ultLabel(), cd: p.abilityCd.ultimate, en: 45 });

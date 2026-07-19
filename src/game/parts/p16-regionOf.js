@@ -327,6 +327,17 @@ function canDominate(e) {
   return true;
 } /* SHEPHERD'S BELL: +1 to the bound-thrall cap */
 function dominate(e) {
+  const p = state.player;
+  if (p.silenceT > 0) {
+    Sound.error && Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    return;
+  } /* SILENCE + STUN both lock out Dominate (the single entry for elite + warlord binds) */
+  if (p.stunT > 0) {
+    Sound.error && Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    return;
+  }
   if (e.warlordRef) dominateWarlord(e);
   else dominateElite(e);
 }
@@ -460,6 +471,16 @@ function useSummon() {
   if (p.abilityCd.summon > 0) {
     Sound.error();
     log(`Your thralls must rest (${Math.ceil(p.abilityCd.summon / 60)}s).`, 'combat');
+    return;
+  }
+  if (p.silenceT > 0) {
+    Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    return;
+  } /* SILENCE + STUN both lock out abilities */
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
     return;
   }
   const t = thralls();

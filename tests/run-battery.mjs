@@ -63,6 +63,11 @@ const SUITES = [
   // the boss-special registry (rebuild P3/S4): wind/exec/drawTele triad per special in
   // src/content/specials.ts — windup + roster read through the registry, drawTele op-counts per name
   'specials-draw-verify',
+  // the mini-boss player debuffs (rebuild S1): SILENCE (blocks abilities + all spellcasting + the
+  // magic basic; spares melee/ranged/dodge/potion) and STUN (full lockout: no move/attack/cast/
+  // ability/dodge/potion) — per-hero scalars on state.player, tick down next to chillT, HUD pills.
+  // Oracle-NEUTRAL: nothing sets them until a boss does (S2+), so both golden oracles stay untouched.
+  'silence-stun-verify',
   // #123 (F3): the Mountain Kraken finale — flat ~48k HP + party scaling + respawn cycle,
   // victory ONCE PER HERO via the personal quests.finale key (main shared), projectile-kill credit
   'kraken-finale-verify',

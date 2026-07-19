@@ -385,6 +385,13 @@ function updatePlayerFor() {
     dy = 0;
     p.moving = false;
   }
+  /* STUN (mini-boss debuff): a full movement lockout — an in-flight dodge (p.dodge>0 below) still finishes, its i-frames were earned */ if (
+    p.stunT > 0
+  ) {
+    dx = 0;
+    dy = 0;
+    p.moving = false;
+  }
   const mounted = p.dragon.mounted;
   const move = mounted ? flyCanMove : p.sailing ? canSailTo : canMoveTo;
   if (p.dodge > 0) {
@@ -394,7 +401,10 @@ function updatePlayerFor() {
     if (move(dnx, p.y, p.w, p.h)) p.x = dnx;
     if (move(p.x, dny, p.w, p.h)) p.y = dny;
     p.moving = true;
-    if (p.dodgeHits) {
+    /* SILENCE binds the offensive momentum dash-strike (the dodge still grants mobility + i-frames) */ if (
+      p.dodgeHits &&
+      !(p.silenceT > 0)
+    ) {
       const box = { x: p.x, y: p.y, w: p.w, h: p.h };
       const wel = (equippedWeapon() || {}).element;
       const _ds = styleOf(equippedWeapon()) === 'melee' && (p.momentum || 0) >= 5 ? 1.4 : 0.6;
@@ -431,6 +441,8 @@ function updatePlayerFor() {
     if (move(p.x, ny, p.w, p.h)) p.y = ny;
   }
   if (p.chillT > 0) p.chillT--;
+  if (p.silenceT > 0) p.silenceT--; // mini-boss debuffs — tick down alongside chillT (per-hero, undefined until a boss sets them; dead on golden trajectories)
+  if (p.stunT > 0) p.stunT--;
   if (p.dodgeCd > 0) p.dodgeCd--;
   if (__g.interactCd > 0) __g.interactCd--;
   if (p.stamina < p.maxStamina) {

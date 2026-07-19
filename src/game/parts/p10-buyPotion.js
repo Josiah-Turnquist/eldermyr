@@ -355,6 +355,11 @@ function repairAll() {
 }
 
 function drinkPotion() {
+  if (state.player.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    return;
+  } /* STUN is a full lockout (can do nothing); SILENCE deliberately leaves potions usable */
   const pot = state.inventory.items.find((i) => i.name === 'Potion');
   if (!pot || pot.qty <= 0) {
     Sound.error();

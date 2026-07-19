@@ -304,6 +304,16 @@ function useWhirlwind() {
     return;
   }
   if (p.abilityCd.whirlwind > 0) return;
+  if (p.silenceT > 0) {
+    Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    return;
+  } /* SILENCE + STUN both lock out abilities */
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    return;
+  }
   if (p.energy < 30) {
     Sound.error();
     log('Not enough energy for Whirlwind!', 'combat');
@@ -358,6 +368,16 @@ function useFocus() {
     log('Battle Focus not unlocked yet — open Skills [K] in town.');
     return;
   }
+  if (p.silenceT > 0) {
+    Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    return;
+  } /* SILENCE + STUN both lock out abilities */
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    return;
+  }
   if (p.energy < 50) {
     Sound.error();
     log('Not enough energy for Battle Focus!', 'combat');
@@ -390,6 +410,16 @@ function useUltimate() {
   if (p.abilityCd.ultimate > 0) {
     Sound.error();
     log(`${ultLabel()} is recharging (${Math.ceil(p.abilityCd.ultimate / 60)}s).`, 'combat');
+    return;
+  }
+  if (p.silenceT > 0) {
+    Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    return;
+  } /* SILENCE + STUN both lock out abilities */
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
     return;
   }
   if (p.energy < 45) {

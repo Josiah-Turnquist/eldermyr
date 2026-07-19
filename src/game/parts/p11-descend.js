@@ -312,6 +312,12 @@ function steerSeek(pr) {
 function tryAttack() {
   const p = state.player;
   if (p.attackCooldown > 0) return;
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    p.attackCooldown = 10;
+    return;
+  } /* STUN locks out every basic attack (melee/ranged/magic) */
   const w = equippedWeapon();
   const s = styleOf(w);
   if (s === 'melee') {
@@ -372,6 +378,12 @@ function tryAttack() {
     }
     degrade(w, 0.12);
   } else if (s === 'magic') {
+    if (p.silenceT > 0) {
+      Sound.error();
+      log('Your voice is bound — no spell answers.', 'combat');
+      p.attackCooldown = 10;
+      return;
+    } /* SILENCE binds the magic BASIC attack (owner: a silenced caster is reduced to running/melee) — melee/ranged basics above stay usable */
     const cost = magicCost();
     if (p.energy < cost) {
       Sound.error();
@@ -396,6 +408,18 @@ function tryAttack() {
 function castSpell() {
   const p = state.player;
   if (p.attackCooldown > 0) return;
+  if (p.silenceT > 0) {
+    Sound.error();
+    log('Your voice is bound — nothing answers.', 'combat');
+    p.attackCooldown = 10;
+    return;
+  } /* SILENCE blocks ALL spellcasting (F is a spell for every style) */
+  if (p.stunT > 0) {
+    Sound.error();
+    log('You are stunned — you cannot act!', 'combat');
+    p.attackCooldown = 10;
+    return;
+  }
   const w = equippedWeapon();
   const staff = styleOf(w) === 'magic';
   const cost = staff ? magicCost() : weakCastCost();
@@ -437,7 +461,7 @@ function castSpell() {
 __g.hitStop = 0;
 function doDodge() {
   const p = state.player;
-  if (p.dragon.mounted || p.dodge > 0 || p.dodgeCd > 0 || p.camping) return;
+  if (p.dragon.mounted || p.dodge > 0 || p.dodgeCd > 0 || p.camping || p.stunT > 0) return; // STUN refuses a new dodge (silent, like the mounted/camping refusals); SILENCE leaves the dodge — mobility, not a spell
   const cost = Math.max(18, 34 - (p.bonusEvasion || 0) * 2);
   if (p.stamina < cost) {
     Sound.error();
