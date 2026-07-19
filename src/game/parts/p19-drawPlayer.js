@@ -2,7 +2,16 @@ function drawPlayer() {
   const p = state.player,
     sx = p.x - state.camera.x,
     sy = p.y - state.camera.y;
-  if (p.invuln > 0 && Math.floor(p.invuln / 4) % 2 === 0) return;
+  // v3.2.2 — i-frame SHIMMER (replaces the old hard on/off blink `Math.floor(p.invuln/4)%2` that
+  // SKIPPED the sprite on alternating windows — a strobe). During invulnerability (dodge i-frames +
+  // the post-hit grace) the hero draws at a gentle, softly-pulsing translucency instead: you still
+  // read "invincible" without the flicker. Render-only, so it is outside the golden hash root; the
+  // alpha is reset to 1 before the function returns (below the _clk block) so nothing else renders
+  // translucent. The internal save/restore pairs (heat aura, creature art, _clk) all nest under it —
+  // the first internal save captures this alpha and its restore returns to it, exactly like the
+  // existing _clk 0.32 wrap does.
+  const _iframe = p.invuln > 0;
+  if (_iframe) ctx.globalAlpha = 0.55 + 0.15 * Math.sin(p.invuln * 0.45); // soft pulse ~0.4–0.7
   const bob =
     p.moving || p.sailing ? Math.sin(p.sailing ? Date.now() / 220 : p.animFrame * 1.57) * 2 : 0;
   const style = styleOf(equippedWeapon());
@@ -449,6 +458,7 @@ function drawPlayer() {
     ctx.stroke();
     if (ctx.setLineDash) ctx.setLineDash([]);
   } /* GRAVEWOOL: undo the faint-alpha wrap opened before the sailing block, then draw a dashed shimmer ring so a cloaked hero reads clearly */
+  if (_iframe) ctx.globalAlpha = 1; // v3.2.2 — close the i-frame shimmer so nothing after drawPlayer renders translucent
 }
 /* CREATURE ART — the recipe, applied to every branch below: a dark RIM so the silhouette reads on grass AND on dungeon
    stone, TWO tones of shading for form (never a flat fill), ONE highlight, and motion that sells weight (squash on the

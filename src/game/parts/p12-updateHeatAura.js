@@ -172,6 +172,15 @@ function killEnemy(e) {
   if (idx > -1) state.enemies.splice(idx, 1);
   const cx = e.x + e.w / 2,
     cy = e.y + e.h / 2;
+  // v3.2.2 FIX 1 — authoritative server DEATH EVENT. Reached only past the Emberwyrm / pinnacle-rise
+  // early-returns, so it fires on a REAL kill — never on a leash-despawn or AOI-cull (those push NO
+  // event). world.js installs global.__onEnemyDeath to buffer {x,y,col,type,burn,frost,big,hunt} for
+  // the next broadcast (AOI-filtered per player), so the client's death burst fires on EVERY kill —
+  // including one-shots from full HP, which the old client-side hp-gate heuristic (mp.html) missed.
+  // Undefined in the golden harness (only world.js sets it) → a no-op reading no sim state, so it
+  // moves no hash. Not a game symbol (a server-provided global like __onLog/__onGameOver) → no
+  // CAPTURE/NAMES. try/catch mirrors the load-game log hook: the kill must finish even if a hook throws.
+  try { if (globalThis.__onEnemyDeath) globalThis.__onEnemyDeath(e, cx, cy); } catch (_e) {}
   if (e.afxSplit && !e._splitChild) afxSplitDeath(e);
   gainXP(e.xp);
   /* #121 EMBERHEART LOCKET: each kill grants +25% damage for ~2s, stacking to 3 (+75%). Scalars on

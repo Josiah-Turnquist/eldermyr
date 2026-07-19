@@ -22,6 +22,16 @@
 
 module.exports = [
   {
+    version: 'v3.2.2',
+    date: '2026-07-18',
+    title: 'Deaths you can see, dodges that don’t strobe, and a frontier that bites harder',
+    notes: [
+      'Enemies now burst apart every time you kill them — even the weak ones you drop in a single hit from full health. The death effect used to quietly go missing on those quick kills; now the server tells your screen the moment anything actually dies, so no kill goes unmarked (and a foe that simply wanders off no longer fakes a death).',
+      'Dodging no longer makes your hero flicker. While you’re briefly invincible you now shimmer — a soft, steady translucency — instead of blinking on and off. You can still tell you’re protected, without the strobe.',
+      'Enemies grow about twice as fast in power as you get farther from home and deeper underground. Your home valley is as gentle as ever, but distance and depth now matter a lot more — the frontier and the deep floors hit harder and take more to bring down. (Bosses and the great beasts were already hand-tuned and are unchanged.)',
+    ],
+  },
+  {
     version: 'v3.2.1',
     date: '2026-07-18',
     title: 'Level up in style — a swirl of green sparks rises around you and a bright “LEVEL UP!” flashes overhead, for you and your party to see',

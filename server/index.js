@@ -543,6 +543,9 @@ function broadcast() {
     catch (e) { console.error('snapshotFor error for', ws.pid, e && e.message); continue; }
     if (snap) { try { const payload = JSON.stringify({ type: 'state', snap }); _wireBytes += payload.length; ws.send(payload); } catch (_e) {} }
   }
+  // v3.2.2 FIX 1 — every client's snapshot has now drained the per-broadcast death-FX buffer (AOI-
+  // filtered per player in _snapshotFor); drop it so each real kill's burst rides exactly one broadcast.
+  try { world.clearDeaths(); } catch (_e) {}
 }
 function simStep() {
   const now = Date.now();

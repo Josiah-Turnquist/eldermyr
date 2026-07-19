@@ -362,9 +362,11 @@ ok('5z5. v3.1.0 LEVEL-DRIVEN curves are the shipped formulas — owLevel/dungeon
     // level SOURCES — the anchors the model is tuned to
     const sources = cu.owLevel(0.10) === 3 && cu.owLevel(0.30) === 13 && cu.owLevel(0.58) === 34 && cu.owLevel(0.90) === 64 && cu.owLevel(1.0) === 75
       && cu.dungeonLevel(1) === 5 && cu.dungeonLevel(10) === 32 && cu.dungeonLevel(20) === 62;
-    // the unified stat curve: L1 (home) === the kind's base for hp/atk/def, and each ramps up at L50
-    const stats = cu.hpForLevel(20, 1) === 20 && cu.hpForLevel(20, 50) === 363
-      && cu.atkForLevel(20, 1) === 20 && cu.atkForLevel(20, 50) === 196
+    // the unified stat curve: L1 (home) === the kind's base for hp/atk/def, and each ramps up at L50.
+    // v3.2.2 DOUBLED the rank-and-file hp/atk slopes (hp 0.35→0.70 → L50 363→706; atk 0.18→0.36 →
+    // L50 196→373); def (0.22) is unchanged (L50 still 13). L1 stays === base (slope is the only knob).
+    const stats = cu.hpForLevel(20, 1) === 20 && cu.hpForLevel(20, 50) === 706
+      && cu.atkForLevel(20, 1) === 20 && cu.atkForLevel(20, 50) === 373
       && cu.defForLevel(2, 1) === 2 && cu.defForLevel(2, 50) === 13;
     // rewards ride the enemy level: XP the full 0.26 slope, gold the gentler 0.10 (base at L1, gold < xp for L>1)
     const rewards = cu.xpForEnemyLevel(10, 1) === 10 && cu.xpForEnemyLevel(10, 50) === 137

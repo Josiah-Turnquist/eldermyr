@@ -51,6 +51,11 @@ const SPAWN = { x: S.player.x, y: S.player.y };
 // load-game routes bare log() through global.__onLog. We stamp each with the player who was
 // acting when it fired (S.player) so the room can route it: personal → that hero, epic → all.
 const _logbuf = [];
+// v3.2.2 FIX 1 — per-broadcast enemy DEATH-FX buffer (module-level like _logbuf, installed at load
+// before any World exists; OFF the hashed sim state so no golden baseline moves). killEnemy →
+// global.__onEnemyDeath pushes here; _snapshotFor AOI-filters into snap.deaths; broadcast() clears it
+// once per cycle via World.clearDeaths. See the __onEnemyDeath install below the __onGameOver line.
+const _deathbuf = [];
 // While the once-per-tick SHARED systems run (weather/war/nemesis/world-events) S.player is pinned to
 // players[0]; without this flag their log lines would be OWNED by (and reach ONLY) player 0. Set around the
 // shared-phase block so those lines are world events: no player owner (id=null) + broadcast to EVERYONE.
@@ -68,6 +73,29 @@ try {
 // +1 rank, recordRun) must NOT fire per knockdown. load-game reroutes the lexical gameOver
 // here; a no-op is all MP needs (playerTakeDamage already left hp at 0 for the downed pass).
 try { global.__onGameOver = () => {}; } catch (_e) {}
+// v3.2.2 FIX 1 — authoritative enemy DEATH-FX events. The sim's killEnemy calls this on every REAL
+// kill (past its Emberwyrm / pinnacle-rise early-returns); a leash-despawn or AOI-cull calls it NOT,
+// so the client's death burst can never fire on a foe that merely wandered off or left view — the
+// exact ambiguity the old client hp-gate could not resolve. We buffer a lightweight element-themed
+// record (mirrors the client's enemyMem death-flavor fields) and stamp the death's world so a dungeon
+// kill reaches only fellow delvers and a surface kill only surfacers. _snapshotFor AOI-filters this
+// into snap.deaths; broadcast() clears it once per cycle. OFF-state (module-level array), so it does
+// not touch the {state, maps} golden root; the golden harness never installs this hook regardless.
+try {
+  global.__onEnemyDeath = function (e, cx, cy) {
+    if (!e) return;
+    _deathbuf.push({
+      x: Math.round(cx), y: Math.round(cy),
+      map: S.map === 'dungeon' ? 'dungeon' : 'overworld',
+      col: e.color, type: e.type,
+      burn: (e.burnT | 0) > 0 || !!e.lava,
+      frost: (e.chillT | 0) > 0 || !!e.frost,
+      big: !!(e.isBoss || e.isNemesis || e.isWildDragon),
+      hunt: !!e.isGreatBeast,
+    });
+    if (_deathbuf.length > 200) _deathbuf.splice(0, _deathbuf.length - 200);   // hard cap: a between-broadcast pack wipe can't grow this unbounded
+  };
+} catch (_e) {}
 // (P2/S15) The __libGate liberation gate lived here and is RETIRED: the game's own updateEnemies
 // partitions foes internally now with state.enemies kept the FULL world roster, so killEnemy's
 // inline "no guardians left?" checks are correct again — no gate, no load-game wrapper. The _seen
@@ -1217,6 +1245,17 @@ class World {
       holdings: inDg ? null : (S.holdings || []).map((h) => ({ liberated: !!h.liberated, built: !!h.built, level: h.level || 1, besieged: !!h.besieged })),   // outpost status → correct [E] prompt + flip on capture
       rift: (!inDg && this.rift && near(this.rift)) ? { x: this.rift.x, y: this.rift.y, deep: this.rift.deep, party: !!this.rift.party, open: !!this.sharedDg, secs: Math.max(0, Math.ceil((this.rift.expires - S.time) / 80)) } : null,   // #14 ephemeral rift (party=blue co-op)
     };
+    // v3.2.2 FIX 1 — authoritative death-FX events for THIS player's world: same 34-tile AOI ring and
+    // map partition (dungeon vs surface) the enemy list uses above, so the client's themed burst plays
+    // exactly where a foe fell — on every real kill, one-shots included. Cleared once per broadcast
+    // (index.js → clearDeaths), so each event rides only the snapshots between its kill and that clear.
+    // A dropped one is a lost cosmetic frame, not state — no _seen cursor / welcome seed, unlike the
+    // edge-triggered payloads; consumed in the client's ws.onmessage (the one-shot rule) all the same.
+    if (_deathbuf.length) {
+      const ds = [];
+      for (const d of _deathbuf) if (((d.map === 'dungeon') === inDg) && near(d)) ds.push(d);
+      if (ds.length) snap.deaths = ds.slice(-40).map((d) => ({ x: d.x, y: d.y, col: d.col, type: d.type, burn: d.burn, frost: d.frost, big: d.big, hunt: d.hunt }));   // cap the wire cost of a mass wipe; the client's per-pass particle budget bounds the FX itself
+    }
     if (inDg) { snap.dgLevel = W.dungeonLevel | 0; snap.dgTheme = W.dungeonThemeData ? safeClone(W.dungeonThemeData) : null; snap.floorMod = W.floorMod ? safeClone(W.floorMod) : null; snap.citadel = W.citadel | 0; }   // floor modifier (👑/🐀/☠/🏦) → client dungeon HUD tag; #121 snap.citadel → the client knows this delve is the Sunken Citadel
     if (S.citadelGate) snap.citadelGate = { tx: S.citadelGate.tx, ty: S.citadelGate.ty };   // #121: the world-shared gate a slain pinnacle opened — already-connected clients stamp+render it (the join-time overworld grid can't carry a mid-session tile flip)
     // quest state rides along only when it changed since this client last got it (shared questline)
@@ -1344,6 +1383,11 @@ class World {
   // behind _mapSwitchN so the next snapshotFor sees a rising edge and re-attaches dgTiles. Covers a dropped
   // grid AND a reconnect that landed straight inside a live dungeon (welcome carries only the overworld).
   resendMap(id) { const p = this.players.get(id); if (p) p._sentDgN = (p._mapSwitchN || 0) - 1; }
+
+  // v3.2.2 FIX 1 — drop the per-broadcast death-FX buffer once every client's snapshot has drained it
+  // (index.js broadcast() calls this after the client loop). A pure clear of the module-level array —
+  // off the hashed sim state, so it can never move a golden baseline.
+  clearDeaths() { _deathbuf.length = 0; }
 
   // Perf snapshot for the /health probe (the user-reported "gets laggier over time" investigation). Counts
   // read cheaply from S/this. The rolling tick-max RESETS on read, so each poll reports the peak since last poll.

@@ -44,11 +44,16 @@ export const CURVES: CurveRegistry = {
   // Each takes the KIND's base stat + the enemy's level, returns the final (rounded) value.
   // def is additive (a flat pool grows slowly with level — the damage path is atk−def with a
   // hard Math.max(1,…) floor, so def never makes a foe unkillable, it just makes armor matter).
+  // v3.2.2 — the rank-and-file per-level scaling DOUBLED (hp 0.35→0.70, atk 0.18→0.36) so distance
+  // and depth bite harder: L1 is unchanged (base), but the climb above base grows twice as fast.
+  // def (0.22) is deliberately LEFT as-is — doubling armor too would make high-level foes tedious
+  // sponges (the damage path is atk−def, hard-floored at 1). Rewards (xp/gold slopes below) also
+  // unchanged. Apex uniques (dragon/kraken/pinnacle/hunts/Archivist) are bespoke, so untouched.
   hpForLevel(base: number, L: number): number {
-    return Math.round(base * (1 + (L - 1) * 0.35));
+    return Math.round(base * (1 + (L - 1) * 0.7));
   },
   atkForLevel(base: number, L: number): number {
-    return Math.round(base * (1 + (L - 1) * 0.18));
+    return Math.round(base * (1 + (L - 1) * 0.36));
   },
   defForLevel(base: number, L: number): number {
     return base + Math.round((L - 1) * 0.22);

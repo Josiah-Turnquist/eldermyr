@@ -522,6 +522,16 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
           window.__mpSnapInt = snapIntMs;   // diagnostic (the __mpFps pattern): live view of the measured cadence the render delay is sized from
         }
         if (m.snap) { adoptLegion(m.snap.legion); adoptFeed(m.snap.feed); adoptWorldFeatures(m.snap); adoptInventory(m.snap); adoptQuests(m.snap); }
+        // v3.2.2 FIX 1 — authoritative server DEATH events → the themed death burst, fired HERE for
+        // the same one-shot reason as legion/feed/quests: `snap` keeps only the NEWEST snapshot, so a
+        // mass-wipe's deaths reconciled in the frame loop would be dropped by a slow/backgrounded tab.
+        // The SERVER only emits on a real kill, so this fires on EVERY kill — one-shots from full HP
+        // included (which the old client enemyMem hp-gate missed) — and NEVER on a leash-despawn /
+        // AOI-cull. One shared per-pass budget bounds a whole pack wipe (spawnDeathFx scales down).
+        if (m.snap && m.snap.deaths && m.snap.deaths.length) {
+          const _dB = { p: 0, dec: 0, shk: 0, snd: 0, nova: 0, shake: 0 };
+          for (const d of m.snap.deaths) spawnDeathFx({ x: d.x, y: d.y, w: 0, h: 0, col: d.col, type: d.type, burn: d.burn, frost: d.frost, big: d.big, hunt: d.hunt }, _dB);
+        }
         snap = m.snap;
       }
       else if (m.type === 'renamed') { myName = m.name; lsSet(LS_NAME, myName); updateAcctBtn(); closeModal(); }
@@ -1145,12 +1155,15 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         }
         enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h, nm: en.name, hunt: !!en.isGreatBeast, big: !!(en.isBoss || en.isNemesis || en.isWildDragon), col: en.color, type: en.type, burn: (en.burnT | 0) > 0 || !!en.lava, frost: (en.chillT | 0) > 0 || !!en.frost });   // v3.2.0: creature COLOR + TYPE + a BURNING (burnT/lava) / FROZEN (chillT/frost) death flag — all ride packEnemy as scalars — so the death replay can color/element-theme the burst (last-seen record IS the death flavor; lava/frost spawn flags are stable even if the DoT timer ticked to 0 that frame)
       }
-      const _deathB = { p: 0, dec: 0, shk: 0, snd: 0, nova: 0, shake: 0 };   // v3.2.0 PER-PASS death-FX budget — a 10-20 enemy AoE/ultimate/whirlwind wipe all vanishes in ONE reconcile pass, so every spawn is drawn from this and scales DOWN as many die at once (worst case bounded in spawnDeathFx)
-      for (const [nid, prev] of enemyMem) {
-        if (seen.has(nid)) continue;
-        if (prev.hp <= (prev.mhp || 999) * 0.34) spawnDeathFx(prev, _deathB);   // was dying → vanish = kill; juiced, budgeted death replay (kill TEXT still comes from the server feed). The full-hp guard stays: a culled/leashed foe that vanished healthy is NOT a kill.
-        enemyMem.delete(nid);
-      }
+      // v3.2.2 FIX 1 — the old client heuristic (vanish + last-seen hp ≤ 34% ⇒ kill) that fired the
+      // death burst HERE is gone: at 20 Hz over the v3.1.0 level world, players one-shot weak foes
+      // from FULL HP, so the client's last record was full-hp and the next snapshot simply had no
+      // record — the gate never tripped and nothing burst. It also could not tell a true kill from a
+      // leash-despawn / AOI-cull. The burst now fires from the SERVER's authoritative death events
+      // (snap.deaths, consumed in ws.onmessage) — every real kill, one-shots included, never a cull.
+      // This loop only PRUNES enemyMem for foes no longer in view (the hit-number diff above still
+      // needs the per-nid last-seen hp/pos for enemies that ARE present).
+      for (const [nid] of enemyMem) if (!seen.has(nid)) enemyMem.delete(nid);
       // --- record TIMELINE samples for remote entities (enemies, projectiles, other players) ---
       // Shift the sample window (p2 ← p ← c ← new) per entity, stamped with the snapshot's real
       // ARRIVAL time (set in ws.onmessage — frames can skip snapshots, and the pair must span the
