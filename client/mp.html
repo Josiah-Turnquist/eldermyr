@@ -1201,7 +1201,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
         if (dx && dy) { dx *= 0.707; dy *= 0.707; }
         if (dx || dy) {
           let _exh = false; try { _exh = !_fly && !!(window.isExhausted && window.isExhausted()); } catch (_e) {}
-          const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : (snap.me.chillT > 0 ? 0.55 : 1))) * (_exh ? 0.5 : 1) * _step;   // mirror updatePlayer: flight/sail speed + exhaustion slow (v2.38.0)
+          const spd = (snap.me.speed || 2) * (_fly ? 1.7 : (_sail ? 1.5 : ((snap.me.chillT > 0 || snap.me.webT > 0) ? 0.55 : 1))) * (_exh ? 0.5 : 1) * _step;   // mirror updatePlayer: flight/sail speed + chill/web slow + exhaustion slow (v2.38.0; S4 web)
           const nx = pred.x + dx * spd, ny = pred.y + dy * spd;
           if (!_move || _move(nx, pred.y, w, h)) pred.x = nx;
           if (!_move || _move(pred.x, ny, w, h)) pred.y = ny;

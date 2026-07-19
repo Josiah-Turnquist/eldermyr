@@ -231,6 +231,31 @@ const MINIS: readonly ApexMini[] = [
     color: '#8fbf5a',
     where: 'the dark wood of the Eastern Wilds',
     lair: { tx: 312, ty: 158 },
+    // S4 — HERD-SUMMON (the S3 template, herd flavour). `specials` = her ONE telegraphed rotation
+    // special: `webvolley`, an aimed spread of web-bolts that apply the Webbed slow. The continuous
+    // herd itself is NOT a rotation special — broodmotherPhase (updateBoss) maintains it, and the
+    // broodlings free-float MILL + web-pot-shot via the mill-AI block (updateEnemiesFor), keyed on the
+    // object ref `_millRef` (dead on golden, like the acolytes' `_orbRef`). makeMiniBoss stamps `mech`
+    // as `e._mech` (dropped from the wire). Broodlings PERSIST after she dies (owner decision 4).
+    specials: ['webvolley'],
+    mech: {
+      broodCap: 6, // up to six skittering broodlings
+      broodPerCast: 2, // re-summons two at a time to refill the herd
+      broodEvery: 90, // ticks between maintenance casts (~1.1 s @80 Hz)
+      broodR: 70, // spawn-ring radius around the mother (px)
+      broodRange: 560, // engagement gate — she only spawns with a hero this near
+      millR: 120, // the leash bubble broodlings wander inside (px, ~3.7 tiles)
+      millEvery: 55, // ticks between a broodling re-picking a random mill target
+      millSpd: 0.9, // mill step (× broodling speed) — a loose skitter, not a chase
+      shotEvery: 100, // broodling web pot-shot cadence
+      shotRange: 360, // max range a broodling pot-shots
+      shotSpd: 3.4, // broodling web-bolt speed (fat + slowish)
+      webDmg: 0.55, // broodling web-bolt damage = broodling.atk × this
+      webT: 120, // Webbed duration a landed web-shot applies (~1.5 s slow)
+      volleyN: 3, // her webvolley fires a 3-bolt fan
+      volleySpread: 0.26, // radians between adjacent volley bolts
+      volleyDmg: 0.7, // volley bolt damage = boss.atk × this
+    },
     signatureDrop: {
       weapon: {
         name: 'Broodsilk Recurve',
@@ -253,6 +278,23 @@ const MINIS: readonly ApexMini[] = [
     color: '#ff7838',
     where: 'the cinder crater of the Emberwaste',
     lair: { tx: 305, ty: 238 },
+    // S4 — TIMED RADIAL EXPLOSION (no minions). `specials` = the ONE rotation special: `kegburst`, a
+    // long-windup telegraph → a full ring of enemy projectiles fired in all directions (dodge the
+    // gaps) → the keg SELF-STUNS into a vulnerable lull (punish it) → a KNOCKBACK shoves in-range
+    // heroes out (the direct party-wide effect — kegburst loops partyIn()+actAs). The burst/knockback/
+    // lull tunables live in `mech`; the telegraph radius lives on the kegburst SPECIAL. Read the
+    // wind-up, slip a gap, unload during the lull. makeMiniBoss stamps `mech` as `e._mech`.
+    specials: ['kegburst'],
+    mech: {
+      burstN: 13, // 13 bolts per ring → ~27.7° gaps you can walk through
+      burstSpd: 3.0, // outer-ring bolt speed
+      innerSpd: 2.1, // inner ring (half-gap offset) fired the same tick, slower ⇒ staggered arrival
+      burstDmg: 0.7, // each bolt = boss.atk × this
+      knockR: 100, // heroes within 100px at detonation are shoved out (point-blank punish)
+      knockDmg: 0.5, // knockback damage = boss.atk × this
+      knockPush: 28, // radial shove distance (px), checked through canMoveTo
+      lullT: 110, // self-stun ticks — the vulnerable lull (~1.4 s of free hits)
+    },
     signatureDrop: {
       armor: {
         name: 'Kegheart Cinderplate',

@@ -94,6 +94,7 @@ const STATUS: Record<string, string> = {
   Chilled: 'Struck by frost — your movement is slowed for a few seconds.',
   Silenced: 'Your voice is bound — no spells or abilities will answer, and a staff casts nothing. Basic melee and ranged strikes and potions still work.',
   Stunned: 'Reeling from a heavy blow — you cannot move or act at all until you shake it off.',
+  Webbed: 'Caught in clinging web — your movement is slowed until you tear free.',
   Flying: 'Riding your dragon — faster, tougher, and able to soar over mountains and water.',
 };
 

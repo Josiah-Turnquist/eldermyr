@@ -453,6 +453,147 @@ export const SPECIALS: Record<SpecialKey, Special> = {
       d.stroke();
     },
   },
+  // S4 — KEGBURST (the Emberkeg): a TIMED RADIAL EXPLOSION. The longest windup in the game (70 — long =
+  // readable; you get time to find a gap), then a full ring of enemy PROJECTILES in all directions
+  // (outer + a half-gap-offset inner ring at a slower speed → staggered arrival, the "timed" read).
+  // The bolts are party-correct BY CONSTRUCTION (each hits whoever it reaches). The KNOCKBACK is the
+  // DIRECT party-wide effect and MUST loop partyIn()+actAs (risk #1, the slam-trap) — a bare
+  // playerTakeDamage shoves only the bucketed duelist. Then the keg SELF-STUNS (`e.stunT`): next tick
+  // updateEnemiesFor's stun gate parks it — no move, no melee, no special — the vulnerable LULL you
+  // punish. Burst/knock/lull tunables ride `e._mech`; the telegraph radius is on the special (`radius`).
+  kegburst: {
+    wind: 70,
+    radius: 120,
+    exec(e, a) {
+      const ecx = e.x + e.w / 2,
+        ecy = e.y + e.h / 2;
+      const { sfx, addShake, spawnRing, addProjectile, playerTakeDamage, partyIn, actAs, canMoveTo } = a;
+      const M = e._mech || {};
+      const n = M.burstN || 13;
+      const outSpd = M.burstSpd || 3.0,
+        inSpd = M.innerSpd || 2.1;
+      const dmg = Math.max(1, Math.round(e.atk * (M.burstDmg || 0.7)));
+      addShake(12);
+      sfx.tone(70, 0.5, 'sawtooth', 0.26, { slideTo: 200 });
+      sfx.noise && sfx.noise(0.3, 0.16, { filter: 'highpass', freq: 700 });
+      spawnRing(ecx, ecy, '#ff7838');
+      // outer ring (fast) + inner ring offset half a gap (slow) — same tick, staggered arrival
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * 6.283;
+        addProjectile(ecx, ecy, Math.cos(ang) * outSpd, Math.sin(ang) * outSpd, dmg, {
+          color: '#ff9a3c',
+          r: 7,
+          life: 240,
+          element: 'fire',
+          ownerRef: e,
+        });
+      }
+      for (let k = 0; k < n; k++) {
+        const ang = (k / n) * 6.283 + 3.1416 / n;
+        addProjectile(ecx, ecy, Math.cos(ang) * inSpd, Math.sin(ang) * inSpd, dmg, {
+          color: '#ffc060',
+          r: 6,
+          life: 260,
+          element: 'fire',
+          ownerRef: e,
+        });
+      }
+      // KNOCKBACK — the DIRECT party-wide effect: loop partyIn()+actAs so EVERY in-range hero is shoved
+      // (not just the bucketed duelist). Radial displacement checked through canMoveTo (no wall-cross).
+      const knockR = M.knockR || 100,
+        kdmg = Math.max(1, Math.round(e.atk * (M.knockDmg || 0.5))),
+        push = M.knockPush || 28;
+      for (const pl of partyIn()) {
+        const dx = pl.x + pl.w / 2 - ecx,
+          dy = pl.y + pl.h / 2 - ecy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= knockR * knockR)
+          actAs(pl, () => {
+            playerTakeDamage(kdmg);
+            const d = Math.sqrt(d2) || 1;
+            const nx = pl.x + (dx / d) * push,
+              ny = pl.y + (dy / d) * push;
+            if (canMoveTo(nx, pl.y, pl.w, pl.h)) pl.x = nx;
+            if (canMoveTo(pl.x, ny, pl.w, pl.h)) pl.y = ny;
+          });
+      }
+      // THE LULL — self-stun: the stun gate parks the boss next tick (specialCd frozen while parked ⇒
+      // the dodge-the-ring → punish-the-lull rhythm). Zero new AI — reuses the enemy stunT primitive.
+      e.stunT = M.lullT || 110;
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max,
+        cx = sx + e.w / 2,
+        cy = sy + e.h / 2;
+      const R = e.tele.radius;
+      // the warning: a filling core + an expanding ring, and spoke marks at the GAP angles (where the
+      // bolts will NOT be — read the gaps, aim for one)
+      d.fillStyle = `rgba(255,120,56,${0.1 + 0.22 * fr})`;
+      d.beginPath();
+      d.arc(cx, cy, e.w * 0.6 + fr * 10, 0, 6.28);
+      d.fill();
+      d.strokeStyle = `rgba(255,150,70,${0.4 + 0.5 * fr})`;
+      d.lineWidth = 3;
+      d.beginPath();
+      d.arc(cx, cy, R * (0.3 + 0.7 * fr), 0, 6.28);
+      d.stroke();
+      const n = (e._mech && e._mech.burstN) || 13;
+      d.strokeStyle = `rgba(255,200,120,${0.35 + 0.4 * fr})`;
+      d.lineWidth = 2;
+      d.beginPath();
+      for (let s = 0; s < n; s++) {
+        const ang = (s / n) * 6.283 + 3.1416 / n; // the gap bearings (between the outer-ring bolts)
+        d.moveTo(cx, cy);
+        d.lineTo(cx + Math.cos(ang) * R * fr, cy + Math.sin(ang) * R * fr);
+      }
+      d.stroke();
+    },
+  },
+  // S4 — WEBVOLLEY (the Broodmother): an aimed FAN of fat web-bolts. `kind:'web'` → a landed shot applies
+  // the WEBBED slow (the new per-hero debuff, p13 hit seam). Projectiles reach every hero by
+  // construction (no partyIn loop needed). Her continuous HERD is separate (broodmotherPhase + mill AI).
+  webvolley: {
+    wind: 30,
+    exec(e, a) {
+      const ecx = e.x + e.w / 2,
+        ecy = e.y + e.h / 2;
+      const { px: pcx, py: pcy, sfx, addProjectile, addShake } = a;
+      const M = e._mech || {};
+      sfx.cast();
+      const base = Math.atan2(pcy - ecy, pcx - ecx);
+      const n = M.volleyN || 3;
+      const spread = M.volleySpread || 0.26;
+      for (let k = 0; k < n; k++) {
+        const ang = base + (k - (n - 1) / 2) * spread;
+        addProjectile(ecx, ecy, Math.cos(ang) * 3.2, Math.sin(ang) * 3.2, Math.max(1, Math.round(e.atk * (M.volleyDmg || 0.7))), {
+          color: '#b6e08a',
+          r: 8,
+          life: 220,
+          kind: 'web',
+          webT: M.webT || 120,
+          ownerRef: e,
+        });
+      }
+      addShake(3);
+    },
+    drawTele(v, e) {
+      const { g2d: d, sx, sy } = v;
+      const fr = 1 - e.tele.t / e.tele.max,
+        cx = sx + e.w / 2,
+        cy = sy + e.h / 2;
+      const base = Math.atan2(e.tele.aimY - (e.y + e.h / 2), e.tele.aimX - (e.x + e.w / 2));
+      d.strokeStyle = `rgba(182,224,138,${0.35 + 0.5 * fr})`;
+      d.lineWidth = 2;
+      for (let k = -1; k <= 1; k++) {
+        const ang = base + k * 0.26;
+        d.beginPath();
+        d.moveTo(cx, cy);
+        d.lineTo(cx + Math.cos(ang) * 150 * fr, cy + Math.sin(ang) * 150 * fr);
+        d.stroke();
+      }
+    },
+  },
 };
 
 // bossSpecials' pick table (p17:378). The p17 wrapper slices `base` (never mutating the

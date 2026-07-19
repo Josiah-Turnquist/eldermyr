@@ -451,6 +451,8 @@ function execBossSpecial(e, name, pcx, pcy) {
     // its zone, not just the bucketed duelist (risk #1). SP: partyIn() === [state.player], one pass.
     partyIn,
     actAs,
+    // S4: the Emberkeg kegburst KNOCKBACK displaces each in-range hero through canMoveTo (no wall-cross).
+    canMoveTo,
   });
 }
 // Mini-bosses are LAIR-BOUND (S2) — the Emberwyrm's volcanic-domain shape (p17:568) and the pinnacle
@@ -550,6 +552,52 @@ function hierophantPhase(e, dist, pcx, pcy) {
     Sound.cast && Sound.cast();
   }
 }
+// S4 — the Broodmother's skittering BROODLING (her signature herd). Broodlings are ordinary `bat`-kind
+// enemies (the acolyte reskin: recolour + level-stamp, ZERO new art / EnemyKindKey), leveled ~5 below
+// the mother. They carry only `_millRef` (the mother OBJECT ref — packScalar drops it from the wire)
+// plus numeric mill/shot clocks (ride packEnemy). They keep no `healer/archer` flag, so on the mother's
+// death they orphan cleanly to the stock bat archetype (owner decision 4: the swarm PERSISTS, you mop it up).
+function makeBroodling(mother, tx, ty) {
+  const e = makeEnemy(tx, ty, 'bat');
+  e.name = 'Broodling';
+  e.color = '#9fce5a'; // sickly green — the mother's palette (the client's bat draw renders it for free)
+  scaleEnemyToLevel(e, Math.max(1, mother.level - 5));
+  e._millRef = mother;
+  e._shotCd = Math.floor(Math.random() * ((mother._mech && mother._mech.shotEvery) || 100)); // staggered first pot-shot
+  return e;
+}
+// S4 — the Broodmother's per-tick HERD MAINTENANCE (the hierophantPhase precedent), run from updateBoss
+// ONLY when a hero is engaged (past miniLairBind) ⇒ never on a golden trajectory. Keep the herd topped
+// up: count live broodlings (keyed on `_millRef === her`), and while under `broodCap` re-summon
+// `broodPerCast` at a time on a `_broodCd` clock. Placement uses the DETERMINISTIC findOpenTile spiral
+// off a random bearing (RNG is fine — broodlings exist only mid-fight, never on golden). All fight state
+// is LAZY (`_broodCd`), initialized here, never at spawn — so her boot subtree gains only `specials` +
+// `_mech` (the surgical golden re-record). Killing her stops the summons; the swarm already out lives her.
+function broodmotherPhase(e, dist) {
+  const M = e._mech || {};
+  if (dist >= (M.broodRange || 560)) return; // only spawn with a hero engaged
+  const cap = M.broodCap || 6;
+  let live = 0;
+  for (const x of state.enemies) if (x._millRef === e && x.hp > 0) live++;
+  e._broodCd = (e._broodCd || 0) - 1;
+  if (live < cap && e._broodCd <= 0) {
+    const bcx = e.x + e.w / 2,
+      bcy = e.y + e.h / 2;
+    const per = Math.min(M.broodPerCast || 2, cap - live);
+    const R = M.broodR || 70;
+    if (live === 0)
+      log('The Broodmother chitters — a skittering brood spills forth. They spin the webs; rush HER through them.', 'combat');
+    for (let i = 0; i < per; i++) {
+      const ang = Math.random() * 6.283;
+      const o = findOpenTile(state.map, Math.floor((bcx + Math.cos(ang) * R) / TILE), Math.floor((bcy + Math.sin(ang) * R) / TILE));
+      const b = makeBroodling(e, o.tx, o.ty);
+      state.enemies.push(b);
+      spawnBurst(b.x + b.w / 2, b.y + b.h / 2, 8, { color: '#9fce5a', speed: 1.6, decay: 0.05 });
+    }
+    e._broodCd = M.broodEvery || 90;
+    Sound.cast && Sound.cast();
+  }
+}
 function updateBoss(e, dist, pcx, pcy) {
   const ecx = e.x + e.w / 2,
     ecy = e.y + e.h / 2;
@@ -557,6 +605,7 @@ function updateBoss(e, dist, pcx, pcy) {
     return; /* #121: the Citadel boss shares the shrinking-arena hazard; returns true only when it steered the boss home (player abandoned the arena) so normal AI is skipped this tick */
   if (e.isMini && miniLairBind(e, pcx, pcy)) return; // S2: lair-bound — hero abandoned the domain → home, skip AI (no RNG)
   if (e.mbKey === 'hierophant') hierophantPhase(e, dist, pcx, pcy); // S3: healer-ring lifecycle (initial summon + ONE re-form) + the aimed radiant bolt. Reached ONLY past miniLairBind (a hero is engaged) → dead on golden. The citadelBossPhase precedent (a boss-specific phase hook, not a rotation special).
+  if (e.mbKey === 'broodmother') broodmotherPhase(e, dist); // S4: keep the broodling herd topped up (continuous summon, capped). Same engagement gate as hierophantPhase → dead on golden. Her webvolley rotation special is picked below like any other.
   if (e.isCitadel) citadelBossPhase(e, pcx, pcy); /* #121: stance rotation + phase transitions (court waves, enrage) — no AI rewrite, just re-points e.specials */
   if (e.tele) {
     e.tele.t--;
@@ -692,6 +741,57 @@ function updateEnemiesFor(list) {
           spawnBurst(e.x + e.w / 2, e.y + e.h / 2, 8, { color: '#70ffb0', speed: 1.2, up: 0.6, decay: 0.05 });
           spawnBurst(bcx, bcy, 8, { color: '#70ffb0', speed: 1.3, up: 0.7, decay: 0.05 }); // green pulse at BOTH ends (healAlly's colour)
           Sound.tone && Sound.tone(620, 0.14, 'sine', 0.06, { slideTo: 900 });
+        }
+        continue;
+      }
+    }
+    // S4 — MILL AI (Broodmother broodlings): a loose free-float swarm that WANDERS inside a leash bubble
+    // around its mother and pot-shots the hero with WEB bolts — NOT the chase AI (a looser cousin of the
+    // S3 orbit). Guarded on `_millRef` (a mother OBJECT ref packScalar drops from the wire) ⇒ DEAD on
+    // every golden trajectory (broodlings exist only mid-fight). Sits beside the orbit block so the herd
+    // mills at any hero distance (it ignores aggro range — the herd belongs to the boss's section).
+    // Orphaned (mother dead/gone) → clear the ref, fall through to the stock bat archetype (owner
+    // decision 4: the swarm PERSISTS). Free-float (no canMoveTo) so a bead can't snag a wall and collapse.
+    if (e._millRef) {
+      const mother = e._millRef;
+      if (mother.hp <= 0 || state.enemies.indexOf(mother) < 0) {
+        e._millRef = null; // anchor gone → drop to stock bat AI (mop-up), no continue
+      } else {
+        const M = mother._mech || {};
+        const mcx = mother.x + mother.w / 2,
+          mcy = mother.y + mother.h / 2;
+        const millR = M.millR || 120;
+        // re-pick a fresh random target inside the bubble on a clock (RNG fine — never on golden)
+        e._millT = (e._millT || 0) - 1;
+        if (e._millT <= 0 || e._mtx == null) {
+          const a = Math.random() * 6.283,
+            rr = Math.random() * millR;
+          e._mtx = mcx + Math.cos(a) * rr;
+          e._mty = mcy + Math.sin(a) * rr;
+          e._millT = (M.millEvery || 55) + Math.floor(Math.random() * 30);
+        }
+        // free-float toward the wander target — NOT stepToward (terrain-collapse rule); snap within a step
+        let mmx = e._mtx - (e.x + e.w / 2),
+          mmy = e._mty - (e.y + e.h / 2);
+        const mg = Math.hypot(mmx, mmy) || 1;
+        const mstep = Math.min((e.speed || 1) * (M.millSpd || 0.9) * (e.chillT > 0 ? 0.45 : 1), mg);
+        e.x += (mmx / mg) * mstep;
+        e.y += (mmy / mg) * mstep;
+        // WEB pot-shot at the bucket hero on its own cadence (kind:'web' → the Webbed slow, p13 hit seam)
+        e._shotCd = (e._shotCd || 0) - 1;
+        const dh = Math.hypot(pcx - (e.x + e.w / 2), pcy - (e.y + e.h / 2));
+        if (e._shotCd <= 0 && dh < (M.shotRange || 360)) {
+          const ang = Math.atan2(pcy - (e.y + e.h / 2), pcx - (e.x + e.w / 2));
+          const sp = M.shotSpd || 3.4;
+          addProjectile(e.x + e.w / 2, e.y + e.h / 2, Math.cos(ang) * sp, Math.sin(ang) * sp, Math.max(1, Math.round(e.atk * (M.webDmg || 0.55))), {
+            color: '#c8e6a0',
+            r: 5,
+            life: 150,
+            kind: 'web',
+            webT: M.webT || 120,
+            ownerRef: e,
+          });
+          e._shotCd = (M.shotEvery || 100) + Math.floor(Math.random() * 30);
         }
         continue;
       }

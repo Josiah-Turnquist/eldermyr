@@ -86,6 +86,16 @@ const SUITES = [
   // on cadence; and a telegraphed SMITE AoE that — in a 2-hero MP setup — strikes BOTH heroes in the
   // zone via the partyIn()+actAs loop (the slam-trap teeth). All dead on golden (engage-gated).
   'hierophant-verify',
+  // Mini-bosses S4 (the Emberkeg — TIMED RADIAL EXPLOSION): a long telegraph → a full ring of enemy
+  // projectiles in all directions (dodge the gaps) → the keg SELF-STUNS into a vulnerable, parked lull
+  // (specialCd frozen) → a KNOCKBACK that — in a 2-hero MP setup — shoves + strikes BOTH heroes in
+  // range via the partyIn()+actAs loop (the slam-trap teeth). Engage-gated ⇒ dead on golden.
+  'emberkeg-verify',
+  // Mini-bosses S4 (the Broodmother — HERD-SUMMON + the new WEBBED debuff): a capped swarm of bat-kind
+  // broodlings that MILL around her (free-float, not chase) and web-pepper you; a landed web-shot
+  // applies WEBBED (a movement slow + its own 🕸 pill, undefined-until-set like silence/stun, i-frames
+  // beat it); the swarm PERSISTS after she dies. Engage-gated + webT-off-golden ⇒ dead on golden.
+  'broodmother-verify',
 ];
 
 // Documented pre-existing flakes (see MANIFEST.md) — retried ONCE before counting as a failure.

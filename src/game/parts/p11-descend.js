@@ -125,6 +125,7 @@ function addProjectile(x, y, vx, vy, dmg, o) {
     ownerRef: o.ownerRef || null,
     seek: o.seek || null,
     uLance: !!o.uLance,
+    webT: o.webT, // S4 (Broodmother web-shots): projectile-stamped Webbed duration. LEFT undefined when absent (not `|| 0`) so the golden serializer SKIPS the key on every non-web projectile ⇒ the oracle stays confined to the boss subtrees; only kind:'web' bolts carry it, and they exist only mid-fight.
     hits: o.friendly ? [] : null,
   });
 } // uLance: Leviathan Spine stamps the fired arrow (projectile-stamped → MP-correct; the free lance itself never carries it, so no recursion)

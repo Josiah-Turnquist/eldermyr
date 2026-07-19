@@ -264,9 +264,23 @@ export interface DungeonRegistry {
 // otherwise VERBATIM (the S3 "verbatim hook move" discipline — only `Sound.`→`sfx.` and
 // `state.X`→the destructured `X` change, same op order, same Math.random() draws).
 
-/** The six boss-special keys — the execBossSpecial branch set (p17) and the p20 telegraph
- * chain. bossSpecials picks a subset onto `e.specials`; updateBoss draws one at random. */
-export type SpecialKey = 'slam' | 'charge' | 'nova' | 'summon' | 'pullunder' | 'raiseadds' | 'leap' | 'castvolley' | 'raisecourt' | 'smite';
+/** The boss-special keys — the execBossSpecial branch set (p17) and the p20 telegraph
+ * chain. bossSpecials picks a subset onto `e.specials`; updateBoss draws one at random.
+ * S4 adds `kegburst` (Emberkeg timed radial explosion + self-stun lull + knockback) and
+ * `webvolley` (Broodmother aimed web-shot spread that applies the Webbed slow). */
+export type SpecialKey =
+  | 'slam'
+  | 'charge'
+  | 'nova'
+  | 'summon'
+  | 'pullunder'
+  | 'raiseadds'
+  | 'leap'
+  | 'castvolley'
+  | 'raisecourt'
+  | 'smite'
+  | 'kegburst'
+  | 'webvolley';
 
 /** The live telegraph on a winding-up boss (startBossSpecial seeds it; drawTele reads it). */
 export interface SpecialTele {
@@ -287,6 +301,8 @@ export interface SpecialDrawn {
   readonly h: number;
   readonly wobble: number;
   readonly tele: SpecialTele;
+  /** S4: kegburst's telegraph draws its gap-spoke count from the boss's burstN knob. */
+  readonly _mech?: MiniMech;
 }
 
 /** A spawned add / summoned foe (makeDungeonEnemy / makePinnacleAdd output). The exact field
@@ -317,6 +333,12 @@ export interface BossActor {
   readonly tele: SpecialTele | null;
   dash: { vx: number; vy: number; t: number } | null;
   _nextKill?: number;
+  /** S4: the boss's own stun timer — kegburst SETS it on itself (the self-stun lull); the
+   * updateEnemiesFor stun gate then parks the boss for `lullT` ticks. */
+  stunT?: number;
+  /** S4: the per-boss signature-mechanic knobs the exec reads (kegburst: burst/knock/lull). Object
+   * ref stamped by makeMiniBoss, dropped from the wire by packScalar. */
+  readonly _mech?: MiniMech;
 }
 
 /** The mutable player view pullunder touches: it deepens the chill and floats a "DRAGGED
@@ -349,6 +371,10 @@ interface ProjectileOpts {
   readonly life?: number;
   readonly element?: string;
   readonly ownerRef?: unknown;
+  /** S4: projectile tag read at the enemy-projectile→player hit seam (p13). `kind:'web'` (Broodmother)
+   * applies the Webbed slow; `webT` is its duration, projectile-stamped at fire time. */
+  readonly kind?: string;
+  readonly webT?: number;
 }
 interface BurstOpts {
   readonly color?: string;
@@ -393,13 +419,18 @@ export interface SpecialActView {
    * hero], one iteration, byte-identical. */
   partyIn(): readonly SpecialHero[];
   actAs(p: SpecialHero, fn: () => void): void;
+  /** S4 (Emberkeg kegburst knockback): collision test for a hero displacement — the radial shove
+   * moves each in-range hero through `canMoveTo` so the knockback can't push them across a wall.
+   * Only the knockback (a DIRECT party-wide effect) needs it; projectile specials never displace. */
+  canMoveTo(x: number, y: number, w: number, h: number): boolean;
 }
 
-/** The minimum a party-wide AoE exec reads off each hero (centre + box) — smite tests the zone hit.
- * The real player carries far more; this is the structural minimum partyIn()/actAs hand the exec. */
+/** The minimum a party-wide AoE exec reads off each hero (centre + box) — smite tests the zone hit,
+ * the Emberkeg knockback (S4) SHOVES it (x/y writable, checked through `canMoveTo`). The real player
+ * carries far more; this is the structural minimum partyIn()/actAs hand the exec. */
 export interface SpecialHero {
-  readonly x: number;
-  readonly y: number;
+  x: number;
+  y: number;
   readonly w: number;
   readonly h: number;
 }
@@ -582,31 +613,88 @@ export interface ApexMini {
   readonly mech?: MiniMech;
 }
 
-/** The Hierophant's (S3) signature-mechanic knobs — the healer RING, its heal PULSE, and the boss's
- * own RADIANT BOLT. The SMITE AoE's radius/windup/damage live on the smite SPECIAL itself
- * (specials.ts), per the boss-special-registry recipe; these are the per-boss ring/bolt tunables the
- * orbit AI (p17 updateEnemiesFor) + hierophantPhase (p17 updateBoss) read off `boss._mech`. */
+/** Per-boss signature-mechanic knobs (S3+). A grab-bag of OPTIONAL numeric tunables — each mini-boss
+ * declares only the block its own AI reads; the sim reads every field through a `|| default` fallback,
+ * so a boss that omits a knob simply uses the default. `makeMiniBoss` stamps the whole object onto the
+ * instance as the object ref `boss._mech` (packScalar DROPS it from the wire, like `_pinRef`); the
+ * orbit/mill AI (p17 updateEnemiesFor) and the phase hooks (p17 updateBoss) read it server-side.
+ * NOTE: the telegraphed rotation-special's own radius/windup/damage live on the SPECIAL (specials.ts,
+ * e.g. smite/kegburst/webvolley), NOT here — these are the RING/BOLT/BURST/HERD/WEB tunables. */
 export interface MiniMech {
+  // ---- Hierophant (S3): healer RING + heal PULSE + aimed RADIANT BOLT ----
   /** How many acolytes a ring holds. */
-  readonly orbitN: number;
+  readonly orbitN?: number;
   /** Orbit radius (px) — how far the ring sits from the boss centre. */
-  readonly orbitR: number;
+  readonly orbitR?: number;
   /** Orbit step speed (× the acolyte's base speed). */
-  readonly orbitSpd: number;
+  readonly orbitSpd?: number;
   /** Ticks between an acolyte's heal pulses. */
-  readonly healEvery: number;
+  readonly healEvery?: number;
   /** Per-pulse heal = boss.maxHp × this (a live ring must out-heal on-level solo DPS — the "break
    * the ring" law; battery-gated). */
-  readonly healPct: number;
+  readonly healPct?: number;
   /** Total rings summoned across the fight (initial + re-forms). 2 = ring re-forms ONCE after all die
    * (owner decision), then the burst phase opens — it can't stall forever. */
-  readonly ringCap: number;
+  readonly ringCap?: number;
   /** Radiant-bolt cadence (ticks between aimed bolts). */
-  readonly boltEvery: number;
+  readonly boltEvery?: number;
   /** Radiant-bolt damage = boss.atk × this. */
-  readonly boltDmg: number;
+  readonly boltDmg?: number;
   /** Max range (px) at which the boss fires bolts / (re)summons the ring. */
-  readonly boltRange: number;
+  readonly boltRange?: number;
+
+  // ---- Emberkeg (S4): TIMED RADIAL BURST + self-stun LULL + KNOCKBACK ----
+  /** Bolts in each ring of the radial burst (outer + a half-gap-offset inner ring fire the same tick —
+   * staggered arrival is the "timed" read). ~12–16 = dodgeable gaps. */
+  readonly burstN?: number;
+  /** Outer-ring bolt speed. */
+  readonly burstSpd?: number;
+  /** Inner-ring bolt speed (slower ⇒ the two rings arrive staggered). */
+  readonly innerSpd?: number;
+  /** Each burst bolt's damage = boss.atk × this. */
+  readonly burstDmg?: number;
+  /** Knockback radius (px) — heroes inside it are shoved out at detonation (the point-blank punish). */
+  readonly knockR?: number;
+  /** Knockback damage = boss.atk × this. */
+  readonly knockDmg?: number;
+  /** Radial shove distance (px), checked through canMoveTo so it can't cross a wall. */
+  readonly knockPush?: number;
+  /** Self-stun ticks after a burst — the VULNERABLE LULL (the boss parks itself via the stun gate). */
+  readonly lullT?: number;
+
+  // ---- Broodmother (S4): HERD-SUMMON + MILL AI + WEB slow ----
+  /** Max live broodlings the herd holds (re-summons up to this). */
+  readonly broodCap?: number;
+  /** Broodlings spawned per maintenance cast. */
+  readonly broodPerCast?: number;
+  /** Ticks between herd-maintenance casts (while under cap). */
+  readonly broodEvery?: number;
+  /** Spawn-ring radius (px) around the mother. */
+  readonly broodR?: number;
+  /** Max range (px) at which the mother maintains her herd (engagement gate). */
+  readonly broodRange?: number;
+  /** The leash-bubble radius (px) broodlings mill within — a loose free-float wander around the mother. */
+  readonly millR?: number;
+  /** Ticks between a broodling picking a fresh random mill offset. */
+  readonly millEvery?: number;
+  /** Broodling mill step (× its base speed) — a loose skitter. */
+  readonly millSpd?: number;
+  /** Broodling web pot-shot cadence (ticks). */
+  readonly shotEvery?: number;
+  /** Max range (px) a broodling pot-shots the hero. */
+  readonly shotRange?: number;
+  /** Broodling web-bolt speed. */
+  readonly shotSpd?: number;
+  /** Broodling web-bolt damage = broodling.atk × this. */
+  readonly webDmg?: number;
+  /** Webbed duration (ticks) a landed web-shot applies (the movement slow). */
+  readonly webT?: number;
+  /** The mother's webvolley bolt count. */
+  readonly volleyN?: number;
+  /** The mother's webvolley angular spread (rad between adjacent bolts). */
+  readonly volleySpread?: number;
+  /** The mother's webvolley bolt damage = boss.atk × this. */
+  readonly volleyDmg?: number;
 }
 
 /** The apex registry: the two ordered tables (arrays — the aliases GREAT_HUNTS/PINNACLE_BOSSES

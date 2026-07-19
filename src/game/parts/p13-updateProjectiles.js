@@ -188,6 +188,13 @@ function updateProjectilesFor() {
               pr.element === 'frost'
             )
               pl.chillT = Math.max(pl.chillT || 0, 90);
+            /* WEBBED (Broodmother S4): a landed web-shot slows you — a NEW per-hero debuff, its own 🕸 pill.
+               Gated on _pd > 0 so a perfect-dodge/evasion/invuln beats it (i-frames beat the web, like the
+               stun rule); undefined-until-set ⇒ dead on golden. webT is projectile-stamped at fire time. */ if (
+              pr.kind === 'web' &&
+              _pd > 0
+            )
+              pl.webT = Math.max(pl.webT || 0, pr.webT || 120);
             state.player = _sp;
             state.inventory = _si;
             dead = true;
@@ -432,6 +439,7 @@ function updatePlayerFor() {
     if (mounted) spd *= 1.7;
     else if (p.sailing) spd *= 1.5;
     else if (p.chillT > 0) spd *= 0.55;
+    else if (p.webT > 0) spd *= 0.55; // WEBBED (Broodmother): the same movement drag as chill; its own themed pill (undefined until a web-shot lands, dead on golden)
     if (!mounted && isExhausted()) spd *= 0.5;
     if (p.blessT > 0 && p.blessType === 'haste') spd *= 1.3;
     if (p.foodT > 0 && p.foodBuff === 'swift') spd *= 1.2;
@@ -443,6 +451,7 @@ function updatePlayerFor() {
   if (p.chillT > 0) p.chillT--;
   if (p.silenceT > 0) p.silenceT--; // mini-boss debuffs — tick down alongside chillT (per-hero, undefined until a boss sets them; dead on golden trajectories)
   if (p.stunT > 0) p.stunT--;
+  if (p.webT > 0) p.webT--; // WEBBED (Broodmother S4) — same tick site as chill/silence/stun
   if (p.dodgeCd > 0) p.dodgeCd--;
   if (__g.interactCd > 0) __g.interactCd--;
   if (p.stamina < p.maxStamina) {
