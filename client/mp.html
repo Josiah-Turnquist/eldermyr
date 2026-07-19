@@ -90,7 +90,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   const NAMES = ['state', 'keys', 'maps', 'TILE', 'OW_W', 'OW_H', 'VIEW_W', 'VIEW_H', 'T', 'ctx', 'canvas',
     'fitCanvas', 'startGame', 'renderWorld', 'updateCamera', 'applyShake', 'drawWayfinder', 'updateMinimap',
     'updateHubTabs', 'updateCombatHud', 'updateHUD', 'buildMinimapBase', 'drawPlayer', 'Sound', 'canMoveTo', 'flyCanMove', 'canSailTo',
-    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'renderLegion', 'weaponCd'];   // 'weaponCd' (v3.1.2) → the EXACT melee attack cadence (haste/prof/custom-cd) so the predicted swing arc re-fires at the weapon's real rate — the game's own fn, not a client-side formula mirror (equippedWeapon is already a CAPTURE symbol)   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
+    'floatDamage', 'spawnBurst', 'addShake', 'updateParticles', 'log', 'currentObjective', 'rarityName', 'isWinter', 'updateQuests', 'elemRgb', 'ultimateNova', 'pushShock', 'renderLegion', 'weaponCd'];   // 'pushShock' (v3.2.0) → the bounded (≤12) expanding-ring/flash overlay, so the JUICED enemy-death replay (mp.html) can throw a quick shockwave ring per kill + the boss-death finale ring; it's a real top-level fn in p01-canvas.js (drawn by drawShockwaves inside renderWorld, animated by updateParticles — both already client-driven), so the NAMES binding resolves and the build passes   // 'weaponCd' (v3.1.2) → the EXACT melee attack cadence (haste/prof/custom-cd) so the predicted swing arc re-fires at the weapon's real rate — the game's own fn, not a client-side formula mirror (equippedWeapon is already a CAPTURE symbol)   // 'renderLegion' → re-paint the [N] Dread Legion panel when the SERVER's roster lands/changes while it's open (a "???" strength/weakness reveal resolves mid-fight); the panel is drawn once on open, so without this it would sit stale   // 'ultimateNova' → the [Z] Ultimate's explosive element-colored nova; the client REPLAYS it (the ult runs server-side headlessly, so without this replay a mage's Z showed nothing)   // flyCanMove/canSailTo → predict mount/boat collision like the server (else sailing rubber-bands off water)   // 'log' was MISSING → every G.log(...) silently no-op'd, so the event feed + all client log lines never showed (#2); 'currentObjective' was likewise missing → the gold travel diamond + minimap pulse never rendered in MP (#1); 'elemRgb' → element→"r,g,b" so drawOthers can paint a teammate's HEAT-aura glow with the SAME rgba the self-pulsate uses
   const code = gameCode + '\n;window.__G={};' + NAMES.map((n) => `try{window.__G[${JSON.stringify(n)}]=${n}}catch(e){}`).join(';');
   const s = document.createElement('script'); s.textContent = code; document.body.appendChild(s);
   // Dual-path (P1d): the rebuilt artifact (dist/eldermyr.html) ends by defining
@@ -837,6 +837,86 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
   // (My own player is predicted, never delayed.) Entries {p2x,p2y,p2t, px,py,pt, cx,cy,ct},
   // keyed e<_nid> / r<_pid> / u<id> / c<_cid> / a<_aid>.
   const smooth = new Map();
+  // ============ v3.2.0 ENEMY-DEATH JUICE (client cosmetic; regenerated from the death delta — NO sim/gameplay/wire change) ============
+  // The server just stops sending a dead enemy; the reconcile below detects the vanish and REPLAYS a satisfying death HERE (SP's
+  // killEnemy FX are server-side, invisible to the MP client — this is their client re-creation, richer). Each kill: the creature's
+  // OWN color, size-scaled burst + gibs + a shockwave ring + shake (tiny tap for trash → a jolt for a beast); element-themed if it
+  // died burning (embers + ash scorch) or frozen (icy shards + pale smear); a fading ground decal; and a full finale (nova + white
+  // world-pulse + heavy shake) for a boss/hunt. HARD PERF RULE: a 10-20 enemy AoE wipe lands in ONE reconcile pass, so every spawn
+  // draws from a PER-PASS budget passed as B — the FX scale DOWN when many die together, and the game's own pools (particles ≤260 via
+  // spawnBurst's evict, shockwaves ≤12 via pushShock) are the hard backstop. WORST CASE — 20 simultaneous deaths in one pass:
+  //   ≤130 NEW particles+gibs (DEATH_P_BUDGET; ~9 medium deaths exhaust it, the rest spend 0 particles) · ≤16 decals (list itself
+  //   capped 40, oldest-evicted) · ≤5 rings · ≤3 death sounds · ≤6 total non-boss shake · ≤2 novas. All trivial to draw (a fillRect
+  //   per particle, an ellipse per decal, a stroke per ring). A boss's nova is separately bounded (spawnBurst/pushShock caps).
+  const DEATH_P_BUDGET = 130, DEATH_DECAL_BUDGET = 16, DEATH_SHOCK_BUDGET = 5, DEATH_SOUND_BUDGET = 3, DEATH_NOVA_BUDGET = 2, DEATH_SHAKE_CAP = 6;
+  const deathDecals = [];                 // {x,y,rx,ry,col,life,decay} fading ground scorch/ash/splat; RAM-bounded (≤40, oldest-evicted)
+  let deathFlash = 0;                     // boss/hunt kill → a brief WHITE world-pulse (a safe client "moment"; never freezes the render)
+  function _hexParts(h) { h = ('' + (h || '#c04040')).replace('#', ''); if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]; const n = parseInt(h, 16); return isNaN(n) ? [192, 64, 64] : [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  function _rgbStr(p) { return (p[0] | 0) + ',' + (p[1] | 0) + ',' + (p[2] | 0); }
+  function _darkHex(p, f) { f = f == null ? 0.45 : f; const r = p[0] * f | 0, g = p[1] * f | 0, b = p[2] * f | 0; return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1); }
+  function pushDeathDecal(x, y, r, col) { if (deathDecals.length >= 40) deathDecals.shift(); deathDecals.push({ x: x, y: y, rx: r, ry: r * 0.5, col: col, life: 1, decay: 0.011 + Math.random() * 0.006 }); }   // ~0.8-1.2s lifetime
+  function drawDeathDecals() {            // called each frame in the particle layer (right after renderWorld): decay life + draw as a flat ground ellipse
+    if (!deathDecals.length) return;
+    const c = G.ctx, cam = G.state && G.state.camera; if (!c || !cam) return;
+    for (let i = deathDecals.length - 1; i >= 0; i--) {
+      const d = deathDecals[i]; d.life -= d.decay;
+      if (d.life <= 0) { deathDecals.splice(i, 1); continue; }
+      c.globalAlpha = Math.max(0, Math.min(1, d.life)) * 0.42;
+      c.fillStyle = 'rgb(' + d.col + ')';
+      c.beginPath(); c.ellipse(d.x - cam.x, d.y - cam.y, d.rx, d.ry, 0, 0, 6.2832); c.fill();
+    }
+    c.globalAlpha = 1;
+  }
+  function drawBossDeathFlash() {         // brief white world-pulse for a boss/hunt kill (over the world, UNDER the DOM HUD → HUD stays readable)
+    if (deathFlash <= 0.001) { deathFlash = 0; return; }
+    const c = G.ctx; if (c) { c.save(); c.globalAlpha = Math.min(0.36, deathFlash); c.fillStyle = '#ffffff'; c.fillRect(0, 0, G.VIEW_W || 1600, G.VIEW_H || 1000); c.restore(); }   // fill the SCALED world view (matches renderWorld's own bg fillRect)
+    deathFlash = Math.max(0, deathFlash - 0.12);
+  }
+  // Replay ONE enemy's death, spending from the per-pass budget B = {p,dec,shk,snd,nova,shake}. prev = its last enemyMem record.
+  function spawnDeathFx(prev, B) {
+    const cx = prev.x + prev.w / 2, cy = prev.y + prev.h / 2;
+    const sz = Math.max(prev.w || 20, prev.h || 20), boss = !!(prev.big || prev.hunt), hunt = !!prev.hunt;
+    const k = Math.max(0, Math.min(1, (sz - 18) / 40));         // size 0 (trash ~18px) → 1 (great beast ~62px): scales counts / speed / shake / decal
+    // ---- element theming off the recorded death flags ----
+    const parts = _hexParts(prev.col);
+    let bodyCol, rgb, decalCol, gibCol;
+    if (prev.burn) { bodyCol = '#ffb038'; rgb = '255,150,60'; decalCol = '92,86,78'; gibCol = '#c8622a'; }          // BURNING → warm embers + ash-grey scorch
+    else if (prev.frost) { bodyCol = '#bfe8ff'; rgb = '150,205,255'; decalCol = '150,178,205'; gibCol = '#e4f4ff'; } // FROZEN → icy-blue shards + pale smear
+    else { bodyCol = prev.col || '#c04040'; rgb = _rgbStr(parts); gibCol = _darkHex(parts);                          // else the creature's OWN color; scorch is dark (a gooey stain for slimes)
+      decalCol = /slime|jelly|ooze|blob|slug/i.test(prev.type || '') ? _rgbStr([parts[0] * 0.5, parts[1] * 0.5, parts[2] * 0.5]) : '28,22,20'; }
+    // ---- particles + gibs, size-scaled, CLAMPED to the per-pass particle budget ----
+    const want = boss ? 40 : Math.round(12 + 16 * k);           // trash ~12 → medium ~20 → big/boss 40
+    const n = Math.max(0, Math.min(want, DEATH_P_BUDGET - B.p)); B.p += n;
+    if (n > 0) {
+      const speed = 2.2 + 1.6 * k + (boss ? 0.8 : 0);
+      const gibN = Math.min(n, boss ? 6 : 3 + Math.round(3 * k));   // 3-6 creature-colored CHUNKS
+      const flashN = Math.min(Math.max(0, n - gibN), boss ? 6 : 3); // a white FLASH sub-burst
+      const bodyN = Math.max(0, n - gibN - flashN);                 // the colored body burst
+      if (bodyN > 0) try { G.spawnBurst && G.spawnBurst(cx, cy, bodyN, { color: bodyCol, speed: speed, decay: 0.045, size: 3 }); } catch (_e) {}
+      if (flashN > 0) try { G.spawnBurst && G.spawnBurst(cx, cy, flashN, { color: '#ffffff', speed: speed * 1.4, decay: 0.06, size: 2 }); } catch (_e) {}
+      if (gibN > 0) try { G.spawnBurst && G.spawnBurst(cx, cy, gibN, { color: gibCol, speed: speed * 0.85, up: 1.5 + k, grav: 0.16, decay: 0.02, size: 4 + Math.round(2 * k) }); } catch (_e) {}   // gibs: arc UP + OUT under gravity, bigger + darker, linger
+    }
+    // ---- shockwave ring (medium+ only; drawShockwaves caps the pool at 12) ----
+    if ((sz >= 26 || boss) && B.shk < DEATH_SHOCK_BUDGET) { B.shk++; try { G.pushShock && G.pushShock({ x: cx, y: cy, r: 6 + 6 * k, maxR: 40 + 90 * k + (boss ? 60 : 0), life: 1, decay: 0.05, color: rgb, width: 2 + 2 * k, delay: 0 }); } catch (_e) {} }
+    // ---- shake: tiny tap for trash → notable for a beast; NON-boss accumulation capped per pass (a 20-trash wipe ≤6 total) ----
+    if (boss) { try { G.addShake && G.addShake(hunt ? 9 : 7); } catch (_e) {} }
+    else { const amt = 0.5 + 2.5 * k, s = Math.min(amt, Math.max(0, DEATH_SHAKE_CAP - B.shake)); if (s > 0.05) try { G.addShake && G.addShake(s); } catch (_e) {} B.shake += amt; }
+    // ---- death sound: throttle per pass (no audio spam on a pack wipe); hunt keeps its jingle, boss its roar ----
+    if (boss) { try { if (hunt) { G.Sound && G.Sound.jingle && G.Sound.jingle(); } else { G.Sound && G.Sound.boss && G.Sound.boss(); } } catch (_e) {} }
+    else if (B.snd < DEATH_SOUND_BUDGET) { B.snd++; try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {} }
+    // ---- fading ground decal, budgeted + list-capped ----
+    if (B.dec < DEATH_DECAL_BUDGET) { B.dec++; pushDeathDecal(cx, cy + (prev.h || 20) * 0.28, 7 + 9 * k + (boss ? 8 : 0), decalCol); }   // sit the smear at the creature's FEET
+    // ---- BOSS / HUNT FINALE: an element-tinted nova + a big slow ring + strong shake + the white world-pulse (make a boss kill a MOMENT) ----
+    if (boss && B.nova < DEATH_NOVA_BUDGET) {
+      B.nova++;
+      try {
+        if (G.ultimateNova) G.ultimateNova(cx, cy, null, hunt ? 2.4 : 1.9, { col: bodyCol, rgb: rgb });   // element=null → the nova uses the burn/frost/creature tint I pass (its particles/rings/shake are self-bounded)
+        G.pushShock && G.pushShock({ x: cx, y: cy, r: 10, maxR: 220 + (hunt ? 80 : 0), life: 1, decay: 0.03, color: rgb, width: 5, delay: 2 });
+        G.addShake && G.addShake(hunt ? 6 : 4);
+      } catch (_e) {}
+      deathFlash = Math.max(deathFlash, hunt ? 0.36 : 0.28);
+    }
+  }
   // Overlay the other heroes on the corner minimap (same world→pixel transform the game
   // uses for the "you" triangle: tile position × canvas/OW scale). Redrawn each frame after
   // the game repaints the minimap. Cyan dot = ally, red = downed.
@@ -1036,16 +1116,12 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
           try { G.floatDamage && G.floatDamage(en.x + en.w / 2, en.y, Math.round(prev.hp - en.hp), '#fff060'); } catch (_e) {}
           try { G.Sound && G.Sound.hit && G.Sound.hit(); } catch (_e) {}
         }
-        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h, nm: en.name, hunt: !!en.isGreatBeast, big: !!(en.isBoss || en.isNemesis || en.isWildDragon) });
+        enemyMem.set(en._nid, { hp: en.hp, mhp: en.maxHp, x: en.x, y: en.y, w: en.w, h: en.h, nm: en.name, hunt: !!en.isGreatBeast, big: !!(en.isBoss || en.isNemesis || en.isWildDragon), col: en.color, type: en.type, burn: (en.burnT | 0) > 0 || !!en.lava, frost: (en.chillT | 0) > 0 || !!en.frost });   // v3.2.0: creature COLOR + TYPE + a BURNING (burnT/lava) / FROZEN (chillT/frost) death flag — all ride packEnemy as scalars — so the death replay can color/element-theme the burst (last-seen record IS the death flavor; lava/frost spawn flags are stable even if the DoT timer ticked to 0 that frame)
       }
+      const _deathB = { p: 0, dec: 0, shk: 0, snd: 0, nova: 0, shake: 0 };   // v3.2.0 PER-PASS death-FX budget — a 10-20 enemy AoE/ultimate/whirlwind wipe all vanishes in ONE reconcile pass, so every spawn is drawn from this and scales DOWN as many die at once (worst case bounded in spawnDeathFx)
       for (const [nid, prev] of enemyMem) {
         if (seen.has(nid)) continue;
-        if (prev.hp <= (prev.mhp || 999) * 0.34) {                      // was dying → vanish = kill
-          try { G.spawnBurst && G.spawnBurst(prev.x + prev.w / 2, prev.y + prev.h / 2, 12, { color: '#c04040', speed: 2.4, decay: 0.04 }); } catch (_e) {}
-          try { G.Sound && G.Sound.enemyDie && G.Sound.enemyDie(); } catch (_e) {}
-          if (prev.hunt) { try { G.Sound && G.Sound.jingle && G.Sound.jingle(); } catch (_e) {} }   // kill TEXT now comes from the server feed; keep the flourish
-          if (prev.hunt || prev.big) { try { G.addShake && G.addShake(5); } catch (_e) {} }
-        }
+        if (prev.hp <= (prev.mhp || 999) * 0.34) spawnDeathFx(prev, _deathB);   // was dying → vanish = kill; juiced, budgeted death replay (kill TEXT still comes from the server feed). The full-hp guard stays: a culled/leashed foe that vanished healthy is NOT a kill.
         enemyMem.delete(nid);
       }
       // --- record TIMELINE samples for remote entities (enemies, projectiles, other players) ---
@@ -1245,6 +1321,7 @@ const st = (t) => { const e = document.getElementById('mp-status'); if (e) e.tex
     try {
       if (G.updateParticles) G.updateParticles();      // animate/decay juice bursts we spawned
       G.updateCamera(); G.applyShake(); G.renderWorld();
+      try { drawDeathDecals(); drawBossDeathFlash(); } catch (_e) {}   // v3.2.0: fading death scorch/ash/splat (particle layer) + the boss/hunt white world-pulse — own try so a decal/flash slip can't kill the frame
       drawOthers(others);
       drawPings();                                       // co-op rally markers (world-space, on top of players)
       drawRift();                                         // #14 ephemeral deep-dungeon rift

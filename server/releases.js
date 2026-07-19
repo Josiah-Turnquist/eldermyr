@@ -22,6 +22,19 @@
 
 module.exports = [
   {
+    version: 'v3.2.0',
+    date: '2026-07-18',
+    title: 'Slaying something finally feels like it — foes burst in their own colors, burning and frozen enemies die in embers and ice, and bosses go out with a bang, with a scorch left behind to prove it happened',
+    notes: [
+      'Enemies used to just vanish on death. Now they burst apart in their own color, with a flash and a shockwave — a tiny pop for small foes, a real jolt for something big.',
+      'How a creature dies matches how it died: cut something down while it’s burning and it goes out in a shower of embers over an ash scorch; kill something frozen and it shatters into icy shards.',
+      'Every kill leaves a fading mark on the ground — a scorch, ash, or a splat — that lingers a moment before it clears.',
+      'Bosses and the great beasts go out with a bang: a white flash, a big colored blast, and a heavy shake. A kill that mattered now feels like a moment.',
+      'Built to stay fast: wiping a whole pack at once with an ultimate or a whirlwind won’t drop your frame rate — the effects gracefully scale down when a crowd dies together.',
+      'This is purely how your screen draws a death — nothing about combat, damage, or the enemies themselves changed.',
+    ],
+  },
+  {
     version: 'v3.1.3',
     date: '2026-07-17',
     title: 'Dodging is cleaner — a smooth invincibility shimmer, and no screen-jerk when you chain rolls low on stamina',
